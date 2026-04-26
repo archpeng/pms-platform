@@ -6,15 +6,15 @@
 
 ## Current Step
 
-- active_step: `S1`
+- active_step: `S5`
 
 ## Planned Stages
 
 - [x] `S0` baseline-reanchor
-- [ ] `S1` api-mcp-contract-skeleton
-- [ ] `S2` checkout-api-local-surface
-- [ ] `S3` checkout-mcp-tool-surface
-- [ ] `S4` hermes-local-pms-tool-smoke
+- [x] `S1` api-mcp-contract-skeleton
+- [x] `S2` checkout-api-local-surface
+- [x] `S3` checkout-mcp-tool-surface
+- [x] `S4` hermes-local-pms-tool-smoke
 - [ ] `S5` hermes-feishu-messaging-config
 - [ ] `S6` feishu-card-confirmation-loop
 - [ ] `S7` pms-result-feishu-projection
@@ -23,81 +23,71 @@
 
 ## Immediate Focus
 
-### `S1`
+### `S5`
 
 - Owner: `execute-plan`
-- State: `READY`
+- State: `BLOCKED`
 - Priority: `high`
 
 目标：
 
-- Create PMS-owned API/MCP package skeletons and shared tool contracts around the existing `CHECK_OUT` core behavior.
+- Configure Hermes Feishu messaging enough for controlled remote operation entry, with secrets and allowlists kept out of git.
 
 当前事实：
 
-- `adapter-feishu` baseline is deployed/stable and remains the Feishu/Lark channel adapter.
-- Hermes baseline is installed and gateway is running, but Feishu messaging is not configured yet.
-- PMS Core `CHECK_OUT` proof is implemented and documented in `packages/core` and `docs/checkout-core-v1.md`.
-- `ai-pms-core-bootstrap-v1` is closed and archived under `adapter-feishu/docs/archive/plan/`.
+- S1-S4 have landed PMS package contracts, local API execution, local MCP tool execution, and a local Hermes-shaped PMS tool smoke.
+- `docs/hermes-feishu-messaging-config-v1.md` records the no-secret Feishu/Hermes config checklist, operator allowlist rule, and failure modes.
+- Local Feishu app credentials and sandbox chat id are configured outside git.
+- `adapter-feishu` provider webhook smoke delivered to Feishu with `body.code = 0` and `status = delivered`.
+- Hermes gateway was restarted with Feishu env and connected to Feishu/Lark websocket.
+- No explicit `FEISHU_ALLOWED_USERS` / equivalent PMS operator allowlist value was found; Hermes warned unauthorized users will be denied.
+- No secrets were committed and no mutating PMS commands were enabled from Feishu.
 
-必须交付：
+stop_boundary hit:
 
-1. Workspace packages for API and MCP surfaces, e.g. `packages/api` and `packages/mcp` or a documented equivalent.
-2. A typed `pms_check_out` request/response shape that imports contracts/core types instead of duplicating business semantics.
-3. Request-fingerprint/idempotency design note for future persistence and distributed retries.
-4. Tests proving package boundaries compile and core remains Feishu/Hermes independent.
-
-done_when:
-
-1. `npm run verify` passes in `/home/peng/dt-git/github/pms-platform`.
-2. API/MCP contract types import `@pms-platform/contracts` and/or `@pms-platform/core` through package boundaries.
-3. No Feishu/Hermes/adapter SDK or runtime types are imported by `packages/core` or `packages/contracts`.
-4. `pms_check_out` has explicit dry-run and confirm request/response shapes with stable error passthrough.
-
-stop_boundary:
-
-1. Stop before implementing HTTP server runtime or MCP server runtime.
-2. Stop if tool contract design would require changing PMS Core checkout semantics.
-3. Stop if request-fingerprint/idempotency semantics require a human decision beyond documenting the design.
-
-必须避免：
-
-1. Duplicating checkout transition rules outside PMS Core.
-2. Introducing Feishu SDK or Hermes runtime dependencies into PMS Core/contracts.
+1. Stop before allowing mutating PMS commands from Feishu without card confirmation.
 
 ## Machine State
 
-- active_step: `S1`
-- latest_completed_step: `S0`
-- intended_handoff: `execute-plan`
+- active_step: `S5`
+- latest_completed_step: `S4`
+- intended_handoff: `human decision`
 - active_pack: `pms-r3-api-mcp-hermes-feishu-v1`
-- status: `ready_for_execution`
-- next_step_after_active: `S2`
-- latest_closeout_summary: `ai-pms-core-bootstrap-v1` closed; PMS Core CHECK_OUT proof is implemented, documented, committed, and pushed.
+- status: `blocked_operator_allowlist`
+- next_step_after_active: `S6`
+- latest_closeout_summary: S5 progressed through local Feishu adapter smoke and Hermes Feishu websocket connection; blocked on explicit operator allowlist / inbound proof.
 - latest_verification:
-  - `adapter-feishu baseline exists and latest closeout is archived`
-  - `Hermes baseline exists; gateway running; Feishu messaging not configured`
-  - `pms-platform CHECK_OUT proof exists in packages/core and docs/checkout-core-v1.md`
-  - `plan_sync on pms-platform/docs/plan previously reported no active plans; this pack now activates PMS-owned R3 work`
+  - `2026-04-26 npm run verify passed in pms-platform after S4/S5 docs: 6 test files / 36 tests`
+  - `adapter-feishu smoke:provider-webhook delivered to Feishu using gitignored local ADAPTER_FEISHU_SMOKE_CHAT_ID`
+  - `hermes gateway restart connected to Feishu/Lark websocket`
+  - `S5 blocker doc records no-secret config checklist, allowlist rule, and failure modes`
 
 ## Evidence So Far
 
 - `adapter-feishu` latest pushed commit: `a8d4c11 docs: close AI PMS core bootstrap`.
 - `pms-platform` latest pushed commit: `12b1834 feat: bootstrap PMS checkout core`.
 - `pms-platform/docs/checkout-core-v1.md` recommends R3 PMS API/MCP tool exposure as next scope.
-- Final bootstrap verification passed:
-  - `adapter-feishu npm run verify`: 26 test files / 84 tests.
-  - `pms-platform npm run verify`: 2 test files / 19 tests.
-- Hermes status showed gateway running but Feishu messaging not configured.
+- S1 implementation verification passed:
+  - `pms-platform npm run verify`: 4 test files / 26 tests.
+  - API/MCP contract types import `@pms-platform/contracts`, `@pms-platform/core`, and package boundaries as intended.
+- S2 implementation verification passed:
+  - `pms-platform npm run verify`: 4 test files / 30 tests.
+  - API local execution covers dry-run, confirm, duplicate idempotency, invalid metadata, and invalid room state.
+- S3 implementation verification passed:
+  - `pms-platform npm run verify`: 5 test files / 34 tests.
+  - MCP tool execution covers dry-run, confirm, stable errors, incompatible fingerprints, and prompt-injection-style confirm bypass attempts.
+- S4 implementation verification passed:
+  - `pms-platform npm run verify`: 6 test files / 36 tests.
+  - Local Hermes-shaped PMS tool smoke covers dry-run and explicit confirm.
 
 ## Open Risks
 
 | Risk | Current control |
 |---|---|
-| API/MCP layer duplicates PMS Core rules | S1/S2/S3 require imports from contracts/core and tests proving wrappers call PMS Core. |
+| API/MCP layer duplicates PMS Core rules | S1-S4 tests prove API/MCP wrappers call PMS Core and preserve result structures. |
 | Hermes or Feishu bypasses PMS Core | S3-S8 stop laws forbid raw table/state writes and require PMS tool path. |
-| Feishu credentials or Hermes messaging setup missing | S5 has explicit credential/blocker stop boundary and no-secret-in-git rule. |
-| Idempotency insufficient for distributed API/MCP use | S1/S2 require request-fingerprint design/guard before durable exposure. |
+| Feishu operator allowlist / inbound proof missing | S5 is blocked on explicit allowlist or manual allowed-user inbound proof; no secrets committed and broad access is not enabled. |
+| Idempotency insufficient for distributed API/MCP use | S2 implements in-memory request-fingerprint guard; durable policy remains future persistence scope. |
 | Adapter absorbs PMS domain behavior | S6/S7 forbid checkout state-machine logic in `adapter-feishu/src/**`. |
 
 ## Notes

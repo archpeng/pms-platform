@@ -8,23 +8,23 @@
 
 ## Current Active Slice
 
-- `S1`
+- `S5`
 
 ## Intended Handoff
 
-- `execute-plan`
+- `human decision`
 
 ## Live control-plane state
 
-- active_step: `S1`
-- status: `ready_for_execution`
+- active_step: `S5`
+- status: `blocked_operator_allowlist`
 - active_pack: `pms-r3-api-mcp-hermes-feishu-v1`
 - latest_upstream_closed_pack: `adapter-feishu/docs/archive/plan/ai-pms-core-bootstrap-v1-2026-04-26_CLOSEOUT.md`
-- latest_completed_step: `S0`
+- latest_completed_step: `S4`
 
 ## Active slice summary
 
-`S1` creates the PMS-owned API/MCP package skeleton and tool contracts for exposing the proven `CHECK_OUT` core behavior without duplicating PMS Core rules or touching Feishu/Hermes runtime configuration.
+`S5` progressed: local adapter Feishu credentials and sandbox chat id are configured outside git, adapter Feishu smoke delivered, and Hermes gateway connected to Feishu/Lark. Remaining blocker is a safe operator allowlist / inbound proof; do not enable broad remote access with `GATEWAY_ALLOW_ALL_USERS=true`.
 
 ## Notes
 

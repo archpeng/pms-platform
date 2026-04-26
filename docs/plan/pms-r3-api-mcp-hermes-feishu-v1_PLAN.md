@@ -66,6 +66,67 @@ Ownership remains strict:
 4. Hermes integration may use local smoke tests/transcripts; secrets and allowlists must not be committed.
 5. Feishu remote operation proof must show dry-run -> human confirmation -> confirm -> result projection without bypassing PMS Core audit/idempotency.
 
+## Master Wave 推进纲领
+
+This pack is executed as bounded waves. Each wave must preserve the ownership table above and must not advance to a downstream integration surface until the previous surface has proof that it calls PMS Core rather than duplicating PMS rules.
+
+### Wave 1 — PMS-owned API/MCP contract foundation
+
+- Slices: `S1`, then review/replan if needed.
+- Primary goal: create `packages/api` and `packages/mcp` skeletons plus a shared `pms_check_out` contract shape around existing `CHECK_OUT` core types.
+- Current constraints: the repo currently has only `packages/contracts` and `packages/core`; workspace pattern is already `packages/*`; `tsconfig.json` includes package `src` and `test` globs; no HTTP server or MCP server runtime exists yet.
+- Missing pieces to close: package manifests, exported contract/request/response types, request-fingerprint/idempotency note, and boundary tests proving PMS Core/contracts stay Feishu/Hermes independent.
+- Validation path: `npm run verify` in `/home/peng/dt-git/github/pms-platform`, plus import-boundary assertions in tests or source shape.
+- Best first wave now: yes. It is the lowest-risk wave because it adds compile-time surfaces and contracts without credentials, networking, Feishu callbacks, or Hermes runtime setup.
+
+### Wave 2 — Local checkout API execution surface
+
+- Slices: `S2`, then review.
+- Primary goal: implement local API handler/functions for checkout dry-run and confirm over PMS Core.
+- Constraints: no network deployment, no Feishu callbacks, no database persistence; request-fingerprint guard may be in-memory/test-backed only.
+- Missing pieces to close: handler boundary, stable error/result mapping, duplicate-key/incompatible-payload behavior, and tests that prove `checkOut` is called through `@pms-platform/core`.
+- Validation path: `npm run verify`, with API tests covering dry-run, confirm, idempotency, invalid metadata, and invalid room state.
+
+### Wave 3 — MCP tool surface for Hermes
+
+- Slices: `S3`, then review.
+- Primary goal: expose `pms_check_out` as a safe MCP tool schema/handler that Hermes can call.
+- Constraints: do not configure Hermes or choose production transport in this wave; do not give Hermes raw table-write or arbitrary PMS mutation tools.
+- Missing pieces to close: MCP descriptor/schema, handler calling PMS API/core wrapper, confirm-gate enforcement, and anti-bypass tests.
+- Validation path: `npm run verify`, tool tests for dry-run/confirm/stable errors, and source proof that no Feishu SDK/adapter internals are imported.
+
+### Wave 4 — Hermes local PMS tool smoke, no Feishu messaging
+
+- Slices: `S4`, then review/replan if Hermes local registration is contested.
+- Primary goal: prove Hermes can invoke the PMS API/MCP tool locally and receive structured dry-run/confirm output.
+- Constraints: no real secrets in git; no Feishu messaging enablement; stop if Hermes tool registration requires credentials/global config.
+- Missing pieces to close: local tool config/runbook, transcript/probe evidence, confirm metadata proof, and guard note that Hermes remains operator not truth owner.
+- Validation path: PMS `npm run verify` plus a local smoke transcript or documented equivalent.
+
+### Wave 5 — Feishu remote entry and human confirmation loop
+
+- Slices: `S5`, `S6`, then review/replan around credentials/callback auth.
+- Primary goal: wire controlled Feishu messaging entry and card confirmation without letting Feishu or adapter-feishu own PMS business rules.
+- Constraints: stop on missing real Feishu credentials/tenant setup; no mutating PMS command from Feishu before card confirmation; adapter remains a channel adapter.
+- Missing pieces to close: local secret/config checklist, user allowlist, Feishu ingress smoke, adapter callback contract, card content, stale/duplicate confirmation handling.
+- Validation path: touched-repo `npm run verify`, Feishu sandbox smoke if credentials exist, and adapter tests proving no PMS state-machine duplication.
+
+### Wave 6 — PMS result projection back to Feishu
+
+- Slices: `S7`, then review.
+- Primary goal: project PMS checkout results/events to Feishu-visible UI while preserving PMS Core as canonical truth.
+- Constraints: no durable outbox/Postgres unless a new persistence pack is created; do not expand to other workflows.
+- Missing pieces to close: result projection contract, adapter helper/call path, structured failure feedback, and correlation/idempotency/audit references in visible output.
+- Validation path: adapter verify if touched, PMS verify if touched, and smoke/test evidence for `RoomCheckedOut` and `HousekeepingTaskCreated` projection.
+
+### Wave 7 — Sandbox end-to-end proof and closeout
+
+- Slices: `S8`, `S9`.
+- Primary goal: prove Feishu UI -> Hermes -> PMS API/MCP -> PMS Core -> adapter-feishu -> Feishu result, then close or supersede the pack.
+- Constraints: stop before production rollout; stop if any link bypasses PMS Core or lacks actor/authorization proof.
+- Missing pieces to close: reproducible E2E transcript/script, security checklist, residual list, closeout evidence, and next-pack recommendation.
+- Validation path: all touched repo verification commands, sandbox transcript covering dry-run -> human confirmation -> confirm -> result projection, and closeout document.
+
 ## Stage Plan
 
 ### `S0` — baseline-reanchor
@@ -107,7 +168,7 @@ stop_boundary:
 ### `S1` — api-mcp-contract-skeleton
 
 - Owner: `execute-plan`
-- State: `READY`
+- State: `DONE`
 - Priority: `high`
 
 目标：
@@ -139,10 +200,18 @@ stop_boundary:
 1. Duplicating checkout transition rules outside PMS Core.
 2. Introducing Feishu SDK or Hermes runtime dependencies into PMS Core/contracts.
 
+完成证据：
+
+1. `packages/api` and `packages/mcp` workspace packages were added.
+2. `pms_check_out` dry-run and confirm API/MCP contract types import PMS contracts/core/package boundaries.
+3. `docs/request-fingerprint-idempotency-v1.md` documents request-fingerprint/idempotency semantics and residuals.
+4. `npm run verify` passed after S1 with 4 test files / 26 tests.
+5. No HTTP server runtime, MCP server runtime, Feishu/Hermes runtime config, adapter integration, or durable persistence was introduced.
+
 ### `S2` — checkout-api-local-surface
 
 - Owner: `execute-plan`
-- State: `QUEUED`
+- State: `DONE`
 - Priority: `high`
 
 目标：
@@ -172,10 +241,19 @@ stop_boundary:
 
 1. Reimplementing the room transition matrix in the API layer.
 
+完成证据：
+
+1. `packages/api/src/index.ts` exports a local `executeCheckOutApiRequest` function for dry-run and confirm.
+2. API response mapping preserves PMS Core dry-run plans, confirm results, and stable domain errors.
+3. `createInMemoryApiIdempotencyRepository` provides an in-memory request-fingerprint guard for this slice.
+4. API tests cover dry-run, confirm, duplicate idempotency, invalid metadata, and invalid room state.
+5. `npm run verify` passed after S2 with 4 test files / 30 tests.
+6. No network deployment, Feishu callbacks, Hermes tool configuration, or database persistence was added.
+
 ### `S3` — checkout-mcp-tool-surface
 
 - Owner: `execute-plan`
-- State: `QUEUED`
+- State: `DONE`
 - Priority: `high`
 
 目标：
@@ -205,10 +283,19 @@ stop_boundary:
 
 1. Giving Hermes raw table-write or arbitrary state-write tools.
 
+完成证据：
+
+1. `packages/mcp/src/index.ts` exports `executePmsCheckOutTool` as the local tool handler.
+2. The tool handler calls the PMS API/Core boundary rather than Feishu SDK, adapter internals, or raw state/table writes.
+3. Tests cover dry-run, confirm, stable error passthrough, incompatible fingerprint guard, and prompt-injection-style attempts to bypass `mode: 'dryRun'`.
+4. `docs/hermes-pms-tooling-v1.md` documents Hermes should call `pms_check_out` instead of writing PMS/Feishu state directly.
+5. `npm run verify` passed after S3 with 5 test files / 34 tests.
+6. No Hermes runtime configuration or MCP transport/server selection was introduced.
+
 ### `S4` — hermes-local-pms-tool-smoke
 
 - Owner: `execute-plan`
-- State: `QUEUED`
+- State: `DONE`
 - Priority: `high`
 
 目标：
@@ -238,10 +325,18 @@ stop_boundary:
 
 1. Letting Hermes bypass PMS API/MCP and call repository internals directly.
 
+完成证据：
+
+1. `packages/mcp/test/hermes-local-smoke.test.ts` proves a Hermes-shaped local request can call `pms_check_out` dry-run and receive structured PMS output.
+2. The same probe proves confirm execution requires explicit confirmation metadata and preserves actor/source/correlation in audit output.
+3. `docs/hermes-local-pms-tool-smoke-v1.md` records the local transcript, guard note, and non-goals.
+4. `npm run verify` passed after S4 with 6 test files / 36 tests.
+5. No Feishu messaging, real secrets, MCP transport decision, or global Hermes config was added.
+
 ### `S5` — hermes-feishu-messaging-config
 
 - Owner: `execute-plan`
-- State: `QUEUED`
+- State: `BLOCKED`
 - Priority: `high`
 
 目标：
@@ -270,6 +365,12 @@ stop_boundary:
 必须避免：
 
 1. Enabling broad remote shell/tool access without user allowlists and confirmation gates.
+
+阻塞证据：
+
+1. `docs/hermes-feishu-messaging-config-v1.md` records the required local secret/config checklist, operator allowlist rule, and failure modes.
+2. S5 hit stop boundary: real Feishu credentials/tenant setup are missing from the repo/local execution context.
+3. No secrets were committed and no mutating PMS commands were enabled from Feishu.
 
 ### `S6` — feishu-card-confirmation-loop
 

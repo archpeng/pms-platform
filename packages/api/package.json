@@ -1,0 +1,13 @@
+{
+  "name": "@pms-platform/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@pms-platform/contracts": "0.0.0",
+    "@pms-platform/core": "0.0.0"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}
