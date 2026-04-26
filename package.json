@@ -1,0 +1,23 @@
+{
+  "name": "pms-platform",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "PMS-owned monorepo for core PMS business truth, contracts, and future service surfaces.",
+  "engines": {
+    "node": ">=22"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "verify": "npm run build && npm run test"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4"
+  }
+}
