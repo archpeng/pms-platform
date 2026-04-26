@@ -13,7 +13,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
-    "verify": "npm run build && npm run test"
+    "verify": "npm run build && npm run test",
+    "start:local-api": "npm run build && node dist/packages/api/src/localServerMain.js"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

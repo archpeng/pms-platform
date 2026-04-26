@@ -200,3 +200,4 @@ stop_boundary:
   - `hermes gateway restart connected to Feishu/Lark websocket.`
   - `Stage Order marks S0-S4 done; S5 remains active and blocked on operator allowlist / inbound proof.`
   - `docs/hermes-feishu-messaging-config-v1.md records no-secret checklist, allowlist rule, and failure modes.`
+  - `Cross-pack ai-pms product S2 landed PMS local HTTP sandbox runtime and durable checkout state/readback; this pack's S5 remains blocked on operator allowlist / inbound proof.`

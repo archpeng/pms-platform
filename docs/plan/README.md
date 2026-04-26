@@ -32,3 +32,4 @@
 - The adapter-hosted `ai-pms-core-bootstrap-v1` pack is closed and archived under `adapter-feishu/docs/archive/plan/`.
 - Keep PMS business truth in `packages/core`; API/MCP/Hermes/Feishu layers must call the core rather than reimplementing checkout rules.
 - `adapter-feishu` remains the Feishu channel adapter; Hermes remains AI operator/runtime; Feishu remains the human UI/collaboration surface.
+- 2026-04-26 cross-pack note: ai-pms product slice `S2 pms-platform-product-transport-and-state` landed a PMS-owned local HTTP sandbox runtime and durable checkout state/readback surface; this does not unblock or advance this pack's `S5` Feishu operator allowlist gate.

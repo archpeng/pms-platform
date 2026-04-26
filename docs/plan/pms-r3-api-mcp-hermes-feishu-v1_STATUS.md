@@ -79,6 +79,11 @@ stop_boundary hit:
 - S4 implementation verification passed:
   - `pms-platform npm run verify`: 6 test files / 36 tests.
   - Local Hermes-shaped PMS tool smoke covers dry-run and explicit confirm.
+- Cross-pack ai-pms product S2 implementation landed without advancing this blocked S5 gate:
+  - `docs/pms-checkout-local-sandbox-runtime-v1.md` documents the PMS-owned local HTTP sandbox boundary.
+  - `packages/api/src/localSandbox.ts` and `packages/api/src/localServerMain.ts` expose file-backed checkout state, auth env names, health, readback, reset, and `POST /v1/pms/check-out` through existing API/Core boundaries.
+  - `packages/api/test/local-sandbox-http.test.ts` covers auth, dry-run no-write, confirm write, restart persistence, incompatible fingerprint rejection, readback, reset, and prompt-injection text not changing mode.
+  - Verification after product S2: `npm run verify` passed with 7 test files / 39 tests.
 
 ## Open Risks
 
