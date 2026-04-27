@@ -2,6 +2,7 @@ import { resolve } from 'node:path';
 import { createDurableLocalSandboxStore, pmsLocalAuthTokenEnvName, pmsSandboxStatePathEnvName, startPmsLocalHttpServer } from './localSandbox.js';
 import type { RoomAggregate } from '@pms-platform/core';
 
+export const pmsLocalHostEnvName = 'PMS_PLATFORM_LOCAL_HOST';
 export const pmsLocalPortEnvName = 'PMS_PLATFORM_LOCAL_PORT';
 export const pmsLocalAuthRequiredEnvName = 'PMS_PLATFORM_LOCAL_AUTH_REQUIRED';
 export const pmsSandboxResetOnStartEnvName = 'PMS_PLATFORM_SANDBOX_RESET_ON_START';
@@ -12,6 +13,7 @@ const defaultStatePath = '.local/pms-checkout-sandbox-state.json';
 
 export async function main(): Promise<void> {
   const statePath = resolve(process.env[pmsSandboxStatePathEnvName] ?? defaultStatePath);
+  const host = process.env[pmsLocalHostEnvName] ?? '127.0.0.1';
   const port = Number.parseInt(process.env[pmsLocalPortEnvName] ?? '8791', 10);
   const authRequired = process.env[pmsLocalAuthRequiredEnvName] !== 'false';
   const resetOnStart = process.env[pmsSandboxResetOnStartEnvName] === 'true';
@@ -22,7 +24,7 @@ export async function main(): Promise<void> {
     resetOnStart,
   });
   const started = await startPmsLocalHttpServer({
-    host: '127.0.0.1',
+    host,
     port,
     store,
     auth: {
