@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { AuditEntry, DomainEvent, HousekeepingTask } from '@pms-platform/contracts';
@@ -21,12 +21,10 @@ import {
 import {
   pmsSandboxStateVersion,
   pmsSqliteDbPathEnvName,
-  type CoreIdempotencyStateRecord,
   type PmsLocalSandboxStore,
   type PmsLocalStorageMetadata,
   type PmsSandboxIdempotencyReadback,
   type PmsSandboxReadback,
-  type PmsSandboxStateFile,
 } from './localSandbox.js';
 
 export { pmsSqliteDbPathEnvName };
@@ -35,7 +33,6 @@ export interface CreateSqliteLocalSandboxStoreOptions {
   readonly dbPath: string;
   readonly seedRooms?: readonly RoomAggregate[];
   readonly resetOnStart?: boolean;
-  readonly importStatePath?: string;
   readonly now?: () => string;
 }
 
@@ -220,41 +217,7 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
       return;
     }
 
-    if (options.importStatePath && existsSync(options.importStatePath)) {
-      this.importStateFile(options.importStatePath);
-      return;
-    }
-
     this.reset(this.seedRooms);
-  }
-
-  private importStateFile(statePath: string): void {
-    const parsed = JSON.parse(readFileSync(statePath, 'utf8')) as PmsSandboxStateFile;
-    if (parsed.version !== pmsSandboxStateVersion) {
-      throw new Error(`unsupported sandbox state version ${String(parsed.version)}`);
-    }
-
-    this.runInTransaction(() => {
-      this.clearBusinessTables();
-      for (const room of parsed.rooms) {
-        this.saveRoom(room);
-      }
-      for (const task of parsed.housekeepingTasks) {
-        this.saveHousekeepingTask(task);
-      }
-      for (const audit of parsed.audits) {
-        this.appendAudit(audit);
-      }
-      for (const event of parsed.domainEvents) {
-        this.appendDomainEvent(event);
-      }
-      for (const record of parsed.coreIdempotency) {
-        this.saveCoreIdempotency(record.idempotencyKey, record.response);
-      }
-      for (const record of parsed.apiIdempotency) {
-        this.saveApiIdempotency(record);
-      }
-    });
   }
 
   private hasBusinessRows(): boolean {

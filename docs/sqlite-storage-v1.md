@@ -17,18 +17,16 @@ Risk:
 ## Env Contract
 
 ```text
-PMS_PLATFORM_STORAGE_KIND=file|sqlite
-PMS_PLATFORM_SANDBOX_STATE_PATH=<json file path, fallback/import source>
 PMS_PLATFORM_SQLITE_DB_PATH=<sqlite db path>
 ```
 
 Defaults:
 
 ```text
-PMS_PLATFORM_STORAGE_KIND=file
-PMS_PLATFORM_SANDBOX_STATE_PATH=.local/pms-checkout-sandbox-state.json
 PMS_PLATFORM_SQLITE_DB_PATH=.local/pms.sqlite
 ```
+
+SQLite is the only local sandbox persistence path. The earlier JSON file store, storage-kind selector, and JSON import fallback have been removed so runtime code cannot split between two canonical state stores.
 
 ## Boundary
 

@@ -9,7 +9,6 @@ import {
   pmsSandboxSeedRoomNumberEnvName,
 } from '../src/localServerMain.js';
 import {
-  pmsLocalStorageKindEnvName,
   pmsSqliteDbPathEnvName,
   startPmsLocalHttpServer,
   type PmsLocalSandboxStore,
@@ -28,20 +27,23 @@ afterEach(() => {
 });
 
 describe('PMS local server storage selection', () => {
-  it('defaults to file storage', async () => {
+  it('defaults to SQLite storage', async () => {
     const store = await createLocalSandboxStoreFromEnv({
-      PMS_PLATFORM_SANDBOX_STATE_PATH: tempPath('state.json'),
       [pmsSandboxResetOnStartEnvName]: 'true',
     });
     stores.push(store);
 
-    expect(store.storage.kind).toBe('file');
+    expect(store.storage).toMatchObject({
+      kind: 'sqlite',
+      envName: pmsSqliteDbPathEnvName,
+      driver: 'node:sqlite',
+      experimental: true,
+    });
     expect(store.readback().rooms).toMatchObject([{ roomId: 'room-1001', roomNumber: '1001' }]);
   });
 
-  it('starts the HTTP boundary with sqlite storage selected by env', async () => {
+  it('starts the HTTP boundary with sqlite storage path selected by env', async () => {
     const store = await createLocalSandboxStoreFromEnv({
-      [pmsLocalStorageKindEnvName]: 'sqlite',
       [pmsSqliteDbPathEnvName]: tempPath('pms.sqlite'),
       [pmsSandboxResetOnStartEnvName]: 'true',
       [pmsSandboxSeedRoomIdEnvName]: 'room-2001',
@@ -71,13 +73,6 @@ describe('PMS local server storage selection', () => {
     }
   });
 
-  it('fails fast for unsupported storage kind values', async () => {
-    await expect(
-      createLocalSandboxStoreFromEnv({
-        [pmsLocalStorageKindEnvName]: 'postgres',
-      }),
-    ).rejects.toThrow(`Unsupported ${pmsLocalStorageKindEnvName}`);
-  });
 });
 
 function tempPath(fileName: string): string {

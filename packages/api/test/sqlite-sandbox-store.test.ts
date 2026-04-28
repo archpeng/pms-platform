@@ -4,9 +4,6 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { pmsCheckOutOperation, type CheckOutConfirmApiRequest, type CheckOutDryRunApiRequest, executeCheckOutApiRequest } from '../src/index.js';
 import {
-  createDurableLocalSandboxStore,
-} from '../src/localSandbox.js';
-import {
   createSqliteLocalSandboxStore,
   pmsSqliteDbPathEnvName,
 } from '../src/sqliteSandboxStore.js';
@@ -173,44 +170,6 @@ describe('SQLite local sandbox store', () => {
       ],
     });
     restarted.close();
-  });
-
-  it('imports the existing JSON state shape into an empty SQLite database', () => {
-    const statePath = tempPath('state.json');
-    const fileStore = createDurableLocalSandboxStore({
-      statePath,
-      seedRooms: [dueOutRoom],
-      resetOnStart: true,
-      now: () => now,
-    });
-    const confirm = executeCheckOutApiRequest(confirmRequest, fileStore.ports, {
-      idempotency: fileStore.apiIdempotency,
-    });
-    expect(confirm.ok).toBe(true);
-
-    const sqliteStore = createSqliteLocalSandboxStore({
-      dbPath: tempPath('import.sqlite'),
-      importStatePath: statePath,
-      seedRooms: [],
-      resetOnStart: false,
-      now: () => now,
-    });
-
-    expect(sqliteStore.readback('room-1001')).toMatchObject({
-      storage: {
-        kind: 'sqlite',
-        envName: pmsSqliteDbPathEnvName,
-      },
-      rooms: [{ roomId: 'room-1001', occupancyStatus: 'vacant', cleaningStatus: 'dirty' }],
-    });
-    expect(sqliteStore.readback('room-1001').idempotencyRecords).toContainEqual({
-      operation: 'pms_check_out',
-      mode: 'confirm',
-      idempotencyKey: confirmRequest.idempotencyKey,
-      requestFingerprint: confirmRequest.requestFingerprint,
-      ok: true,
-    });
-    sqliteStore.close();
   });
 
   it('resets SQLite state back to explicit seed rooms', () => {

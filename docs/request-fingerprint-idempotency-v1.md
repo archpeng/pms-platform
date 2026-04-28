@@ -1,6 +1,6 @@
 # Request Fingerprint / Idempotency v1
 
-This note records the API/MCP boundary design for `pms_check_out`. It does not change PMS Core checkout semantics. S2 adds a local file-backed sandbox persistence implementation for checkout-state and request-fingerprint proof; production database policy remains a successor scope.
+This note records the API/MCP boundary design for `pms_check_out`. It does not change PMS Core checkout semantics. The local sandbox now persists checkout-state and request-fingerprint proof in SQLite; production database policy remains a successor scope.
 
 ## Scope
 
@@ -54,7 +54,7 @@ Confirm requests are mutating and must carry explicit `mode: 'confirm'`. MCP too
 
 `docs/pms-checkout-local-sandbox-runtime-v1.md` records the S2 live sandbox persistence surface.
 
-For the local product sandbox, the API stores request-fingerprint records in the file-backed state under `PMS_PLATFORM_SANDBOX_STATE_PATH`.
+For the local product sandbox, the API stores request-fingerprint records in the SQLite database at `PMS_PLATFORM_SQLITE_DB_PATH`.
 
 - Same idempotency key + same fingerprint returns the prior API response after restart.
 - Same idempotency key + different fingerprint returns `IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_FINGERPRINT` before PMS Core re-entry.

@@ -26,7 +26,7 @@ The script builds TypeScript first and runs the compiled local server. It prints
 |---|---|---|
 | `PMS_PLATFORM_LOCAL_AUTH_TOKEN` | Bearer token expected by mutating/readback sandbox calls | Required for protected calls when auth is enabled; value must stay in local env only |
 | `PMS_PLATFORM_LOCAL_AUTH_REQUIRED` | Set to `false` only for isolated local development without auth | Do not use to expose remote access |
-| `PMS_PLATFORM_SANDBOX_STATE_PATH` | File path for restart-safe sandbox state | Local path only; default is `.local/pms-checkout-sandbox-state.json` |
+| `PMS_PLATFORM_SQLITE_DB_PATH` | SQLite database path for restart-safe sandbox state | Local path only; default is `.local/pms.sqlite` |
 | `PMS_PLATFORM_LOCAL_PORT` | Local server port | Defaults to `8791` |
 | `PMS_PLATFORM_SANDBOX_RESET_ON_START` | Set to `true` to reset to seed room on process start | Safe sandbox reset control |
 | `PMS_PLATFORM_SANDBOX_SEED_ROOM_ID` | Optional seed room id | Fake/sandbox values only |
@@ -48,7 +48,12 @@ Expected shape:
   "service": "pms-platform",
   "boundary": "pms-checkout-local-sandbox",
   "operation": "pms_check_out",
-  "storage": { "kind": "file", "envName": "PMS_PLATFORM_SANDBOX_STATE_PATH" },
+  "storage": {
+    "kind": "sqlite",
+    "envName": "PMS_PLATFORM_SQLITE_DB_PATH",
+    "driver": "node:sqlite",
+    "experimental": true
+  },
   "auth": {
     "type": "bearer-token",
     "envName": "PMS_PLATFORM_LOCAL_AUTH_TOKEN",
@@ -115,7 +120,7 @@ Reset clears tasks, audits, events, and idempotency records. It is for local san
 
 ## Durable state contract
 
-The file store persists:
+The SQLite store persists:
 
 1. `rooms`
 2. `housekeepingTasks`
@@ -124,7 +129,7 @@ The file store persists:
 5. PMS Core confirm idempotency results
 6. API request idempotency/fingerprint records
 
-Durability is scoped to checkout sandbox state. It intentionally does not introduce a wider production database schema or cross-domain PMS persistence decision.
+Durability is scoped to checkout sandbox state. The prior JSON file store and storage selector have been removed so local sandbox code has one canonical persistence path. This intentionally does not introduce a wider production database schema or cross-domain PMS persistence decision.
 
 ## Validation
 
@@ -135,11 +140,11 @@ npm run test -- packages/api/test/local-sandbox-http.test.ts
 
 The local sandbox test proves:
 
-1. `/health` names the PMS boundary, file-backed state, and auth env names.
+1. `/health` names the PMS boundary, SQLite state, and auth env names.
 2. Protected checkout/readback/reset calls require bearer auth.
 3. Dry-run is non-mutating for room/task/audit/event state even when reason text asks to confirm.
 4. Confirm writes room/task/audit/event state through PMS Core/API.
-5. State and idempotency/fingerprint records survive process restart by reloading the same state file.
+5. State and idempotency/fingerprint records survive process restart by reopening the same SQLite database.
 6. Duplicate confirm is idempotent, while reused idempotency key with incompatible fingerprint returns `IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_FINGERPRINT`.
 7. Reset safely reseeds the sandbox and clears derived state.
 

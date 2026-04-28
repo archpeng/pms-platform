@@ -4,12 +4,11 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { pmsCheckOutOperation, type CheckOutConfirmApiRequest, type CheckOutDryRunApiRequest } from '../src/index.js';
 import {
-  createDurableLocalSandboxStore,
   pmsLocalAuthTokenEnvName,
-  pmsSandboxStatePathEnvName,
   startPmsLocalHttpServer,
   type StartedPmsLocalHttpServer,
 } from '../src/localSandbox.js';
+import { createSqliteLocalSandboxStore, pmsSqliteDbPathEnvName } from '../src/sqliteSandboxStore.js';
 import type { RoomAggregate } from '@pms-platform/core';
 
 const authToken = 'test-local-auth-token';
@@ -68,8 +67,10 @@ describe('PMS local durable checkout sandbox HTTP boundary', () => {
       boundary: 'pms-checkout-local-sandbox',
       operation: 'pms_check_out',
       storage: {
-        kind: 'file',
-        envName: pmsSandboxStatePathEnvName,
+        kind: 'sqlite',
+        envName: pmsSqliteDbPathEnvName,
+        driver: 'node:sqlite',
+        experimental: true,
       },
       auth: {
         type: 'bearer-token',
@@ -151,13 +152,13 @@ describe('PMS local durable checkout sandbox HTTP boundary', () => {
   });
 
   it('persists state and idempotency across restart, rejects incompatible fingerprints, and can reset safely', async () => {
-    const { statePath, url } = await startServer();
+    const { dbPath, url } = await startServer();
 
     const confirm = await authedPost(`${url}/v1/pms/check-out`, confirmRequest);
     expect(confirm).toMatchObject({ ok: true, mode: 'confirm' });
     await closeAllServers();
 
-    const restarted = await startServer(statePath, false);
+    const restarted = await startServer(dbPath, false);
     const readback = await authedGet(`${restarted.url}/v1/sandbox/readback/room-1001`);
     expect(readback.rooms[0]).toMatchObject({ occupancyStatus: 'vacant', cleaningStatus: 'dirty' });
     expect(readback.housekeepingTasks).toHaveLength(1);
@@ -198,9 +199,9 @@ async function startServer(existingPath?: string, resetOnStart = true) {
   if (tmpRoot) {
     tmpRoots.push(tmpRoot);
   }
-  const statePath = existingPath ?? join(tmpRoot!, 'state.json');
-  const store = createDurableLocalSandboxStore({
-    statePath,
+  const dbPath = existingPath ?? join(tmpRoot!, 'pms.sqlite');
+  const store = createSqliteLocalSandboxStore({
+    dbPath,
     seedRooms: [dueOutRoom],
     resetOnStart,
   });
@@ -212,7 +213,7 @@ async function startServer(existingPath?: string, resetOnStart = true) {
     },
   });
   servers.push(started);
-  return { ...started, statePath };
+  return { ...started, dbPath };
 }
 
 async function closeAllServers() {

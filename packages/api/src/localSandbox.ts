@@ -1,18 +1,9 @@
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import type { AuditEntry, DomainEvent, HousekeepingTask } from '@pms-platform/contracts';
 import {
-  type CoreCheckInConfirmResult,
-  type CoreCheckOutConfirmResult,
   type CorePorts,
-  type DomainEventCollector,
-  type IdempotencyRepository,
   type RoomAggregate,
-  type RoomRepository,
-  type HousekeepingTaskRepository,
-  type AuditRepository,
 } from '@pms-platform/core';
 import {
   executeCheckInApiRequest,
@@ -23,7 +14,6 @@ import {
   pmsCheckOutOperation,
   pmsDashboardOperation,
   pmsGetRoomOperation,
-  type ApiIdempotencyRecord,
   type ApiIdempotencyRepository,
   type CheckInApiRequest,
   type CheckOutApiRequest,
@@ -31,41 +21,16 @@ import {
 } from './index.js';
 
 export const pmsLocalAuthTokenEnvName = 'PMS_PLATFORM_LOCAL_AUTH_TOKEN';
-export const pmsLocalStorageKindEnvName = 'PMS_PLATFORM_STORAGE_KIND';
-export const pmsSandboxStatePathEnvName = 'PMS_PLATFORM_SANDBOX_STATE_PATH';
 export const pmsSqliteDbPathEnvName = 'PMS_PLATFORM_SQLITE_DB_PATH';
 export const pmsSandboxStateVersion = 'pms-checkout-local-sandbox-state-v1';
 
-export type PmsLocalStorageKind = 'file' | 'sqlite';
+export type PmsLocalStorageKind = 'sqlite';
 
 export interface PmsLocalStorageMetadata {
   readonly kind: PmsLocalStorageKind;
   readonly envName: string;
   readonly driver?: string;
   readonly experimental?: boolean;
-}
-
-export interface PmsSandboxStateFile {
-  readonly version: typeof pmsSandboxStateVersion;
-  readonly rooms: readonly RoomAggregate[];
-  readonly housekeepingTasks: readonly HousekeepingTask[];
-  readonly audits: readonly AuditEntry[];
-  readonly domainEvents: readonly DomainEvent[];
-  readonly coreIdempotency: readonly CoreIdempotencyStateRecord[];
-  readonly apiIdempotency: readonly ApiIdempotencyRecord[];
-  readonly updatedAt: string;
-}
-
-export interface CoreIdempotencyStateRecord {
-  readonly idempotencyKey: string;
-  readonly response: CoreCheckInConfirmResult | CoreCheckOutConfirmResult;
-}
-
-export interface CreateDurableLocalSandboxStoreOptions {
-  readonly statePath: string;
-  readonly seedRooms?: readonly RoomAggregate[];
-  readonly resetOnStart?: boolean;
-  readonly now?: () => string;
 }
 
 export interface PmsSandboxReadback {
@@ -102,204 +67,6 @@ export interface PmsLocalSandboxStore {
   close?(): void;
 }
 
-export class DurableLocalSandboxStore implements PmsLocalSandboxStore {
-  readonly statePath: string;
-  readonly storage: PmsLocalStorageMetadata = {
-    kind: 'file',
-    envName: pmsSandboxStatePathEnvName,
-  };
-  readonly ports: CorePorts;
-  readonly apiIdempotency: ApiIdempotencyRepository;
-  private state: MutableSandboxState;
-  private readonly seedRooms: readonly RoomAggregate[];
-  private readonly now: () => string;
-
-  constructor(options: CreateDurableLocalSandboxStoreOptions) {
-    this.statePath = options.statePath;
-    this.seedRooms = cloneValue(options.seedRooms ?? []);
-    this.now = options.now ?? (() => new Date().toISOString());
-    this.state = options.resetOnStart ? this.createInitialState(this.seedRooms) : this.loadOrCreateState(this.seedRooms);
-    this.persist();
-    this.ports = this.createCorePorts();
-    this.apiIdempotency = this.createApiIdempotencyRepository();
-  }
-
-  readback(roomId?: string): PmsSandboxReadback {
-    const rooms = roomId ? this.state.rooms.filter((room) => room.roomId === roomId) : this.state.rooms;
-    const roomIds = new Set(rooms.map((room) => room.roomId));
-    const filterByRoom = roomId ? <T extends { readonly roomId: string }>(items: readonly T[]) => items.filter((item) => roomIds.has(item.roomId)) : <T>(items: readonly T[]) => [...items];
-    const filteredTasks = filterByRoom(this.state.housekeepingTasks);
-    const filteredAudits = filterByRoom(this.state.audits);
-    const filteredEvents = roomId
-      ? this.state.domainEvents.filter((event) => eventHasRoom(event, roomIds))
-      : this.state.domainEvents;
-
-    return {
-      ok: true,
-      service: 'pms-platform',
-      stateVersion: pmsSandboxStateVersion,
-      generatedAt: this.now(),
-      storage: this.storage,
-      filter: roomId ? { roomId } : {},
-      rooms: cloneValue(rooms),
-      housekeepingTasks: cloneValue(filteredTasks),
-      audits: cloneValue(filteredAudits),
-      domainEvents: cloneValue(filteredEvents),
-      idempotencyRecords: this.state.apiIdempotency.map((record) => ({
-        operation: requestOperationFromRecord(record),
-        mode: requestModeFromRecord(record),
-        idempotencyKey: record.idempotencyKey,
-        requestFingerprint: record.requestFingerprint,
-        ok: record.response.ok,
-      })),
-    };
-  }
-
-  reset(seedRooms: readonly RoomAggregate[] = this.seedRooms): PmsSandboxReadback {
-    this.state = this.createInitialState(seedRooms);
-    this.persist();
-    return this.readback();
-  }
-
-  private loadOrCreateState(seedRooms: readonly RoomAggregate[]): MutableSandboxState {
-    try {
-      const parsed = JSON.parse(readFileSync(this.statePath, 'utf8')) as PmsSandboxStateFile;
-      if (parsed.version !== pmsSandboxStateVersion) {
-        throw new Error(`unsupported sandbox state version ${String(parsed.version)}`);
-      }
-      return mutableState(parsed);
-    } catch (error) {
-      if (isNodeError(error) && error.code === 'ENOENT') {
-        return this.createInitialState(seedRooms);
-      }
-      throw error;
-    }
-  }
-
-  private createInitialState(seedRooms: readonly RoomAggregate[]): MutableSandboxState {
-    return {
-      version: pmsSandboxStateVersion,
-      rooms: cloneArray(seedRooms),
-      housekeepingTasks: [],
-      audits: [],
-      domainEvents: [],
-      coreIdempotency: [],
-      apiIdempotency: [],
-      updatedAt: this.now(),
-    };
-  }
-
-  private persist(): void {
-    this.state.updatedAt = this.now();
-    mkdirSync(dirname(this.statePath), { recursive: true });
-    const tempPath = `${this.statePath}.tmp`;
-    writeFileSync(tempPath, `${JSON.stringify(this.state, null, 2)}\n`, 'utf8');
-    renameSync(tempPath, this.statePath);
-  }
-
-  private createCorePorts(): CorePorts {
-    return {
-      rooms: this.createRoomRepository(),
-      housekeepingTasks: this.createHousekeepingTaskRepository(),
-      audits: this.createAuditRepository(),
-      idempotency: this.createCoreIdempotencyRepository(),
-      events: this.createDomainEventCollector(),
-    };
-  }
-
-  private createRoomRepository(): RoomRepository {
-    return {
-      get: (roomId) => cloneValue(this.state.rooms.find((room) => room.roomId === roomId)),
-      save: (room) => {
-        const next = cloneValue(room);
-        const index = this.state.rooms.findIndex((entry) => entry.roomId === next.roomId);
-        if (index >= 0) {
-          this.state.rooms[index] = next;
-        } else {
-          this.state.rooms.push(next);
-        }
-        this.persist();
-      },
-      list: () => cloneValue(this.state.rooms),
-    };
-  }
-
-  private createHousekeepingTaskRepository(): HousekeepingTaskRepository {
-    return {
-      get: (taskId) => cloneValue(this.state.housekeepingTasks.find((task) => task.taskId === taskId)),
-      save: (task) => {
-        const next = cloneValue(task);
-        const index = this.state.housekeepingTasks.findIndex((entry) => entry.taskId === next.taskId);
-        if (index >= 0) {
-          this.state.housekeepingTasks[index] = next;
-        } else {
-          this.state.housekeepingTasks.push(next);
-        }
-        this.persist();
-      },
-      list: () => cloneValue(this.state.housekeepingTasks),
-    };
-  }
-
-  private createAuditRepository(): AuditRepository {
-    return {
-      append: (entry) => {
-        this.state.audits.push(cloneValue(entry));
-        this.persist();
-      },
-      list: () => cloneValue(this.state.audits),
-    };
-  }
-
-  private createCoreIdempotencyRepository(): IdempotencyRepository<CoreCheckInConfirmResult | CoreCheckOutConfirmResult> {
-    return {
-      get: (idempotencyKey) => cloneValue(this.state.coreIdempotency.find((entry) => entry.idempotencyKey === idempotencyKey)?.response),
-      save: (idempotencyKey, response) => {
-        const next = { idempotencyKey, response: cloneValue(response) };
-        const index = this.state.coreIdempotency.findIndex((entry) => entry.idempotencyKey === idempotencyKey);
-        if (index >= 0) {
-          this.state.coreIdempotency[index] = next;
-        } else {
-          this.state.coreIdempotency.push(next);
-        }
-        this.persist();
-      },
-      has: (idempotencyKey) => this.state.coreIdempotency.some((entry) => entry.idempotencyKey === idempotencyKey),
-    };
-  }
-
-  private createDomainEventCollector(): DomainEventCollector {
-    return {
-      append: (event) => {
-        this.state.domainEvents.push(cloneValue(event));
-        this.persist();
-      },
-      list: () => cloneValue(this.state.domainEvents),
-      clear: () => {
-        this.state.domainEvents = [];
-        this.persist();
-      },
-    };
-  }
-
-  private createApiIdempotencyRepository(): ApiIdempotencyRepository {
-    return {
-      get: (idempotencyKey) => cloneValue(this.state.apiIdempotency.find((entry) => entry.idempotencyKey === idempotencyKey)),
-      save: (record) => {
-        const next = cloneValue(record);
-        const index = this.state.apiIdempotency.findIndex((entry) => entry.idempotencyKey === next.idempotencyKey);
-        if (index >= 0) {
-          this.state.apiIdempotency[index] = next;
-        } else {
-          this.state.apiIdempotency.push(next);
-        }
-        this.persist();
-      },
-      list: () => cloneValue(this.state.apiIdempotency),
-    };
-  }
-}
-
 export interface PmsLocalAuthConfig {
   readonly envName?: typeof pmsLocalAuthTokenEnvName | string;
   readonly token?: string;
@@ -320,10 +87,6 @@ export interface StartedPmsLocalHttpServer {
   readonly server: Server;
   readonly url: string;
   close(): Promise<void>;
-}
-
-export function createDurableLocalSandboxStore(options: CreateDurableLocalSandboxStoreOptions): DurableLocalSandboxStore {
-  return new DurableLocalSandboxStore(options);
 }
 
 export function createPmsLocalHttpHandler(options: PmsLocalHttpHandlerOptions) {
@@ -553,64 +316,4 @@ function readJsonBody(request: IncomingMessage, allowEmpty = false): Promise<unk
 function writeJson(response: ServerResponse, statusCode: number, body: unknown): void {
   response.writeHead(statusCode, { 'content-type': 'application/json; charset=utf-8' });
   response.end(`${JSON.stringify(body)}\n`);
-}
-
-function mutableState(state: PmsSandboxStateFile): MutableSandboxState {
-  return {
-    version: state.version,
-    rooms: cloneArray(state.rooms),
-    housekeepingTasks: cloneArray(state.housekeepingTasks),
-    audits: cloneArray(state.audits),
-    domainEvents: cloneArray(state.domainEvents),
-    coreIdempotency: cloneArray(state.coreIdempotency),
-    apiIdempotency: cloneArray(state.apiIdempotency),
-    updatedAt: state.updatedAt,
-  };
-}
-
-function requestModeFromRecord(record: ApiIdempotencyRecord): CheckInApiRequest['mode'] | CheckOutApiRequest['mode'] | 'unknown' {
-  return record.response.ok ? record.response.mode : record.response.mode === 'dryRun' || record.response.mode === 'confirm' ? record.response.mode : 'unknown';
-}
-
-function requestOperationFromRecord(record: ApiIdempotencyRecord): PmsSandboxIdempotencyReadback['operation'] {
-  return record.response.ok && (record.response.operation === pmsCheckInOperation || record.response.operation === pmsCheckOutOperation)
-    ? record.response.operation
-    : 'unknown';
-}
-
-function eventHasRoom(event: DomainEvent, roomIds: ReadonlySet<string>): boolean {
-  if (event.type === 'RoomCheckedIn' || event.type === 'RoomCheckedOut') {
-    return roomIds.has(event.roomId);
-  }
-  return roomIds.has(event.task.roomId);
-}
-
-function isNodeError(error: unknown): error is NodeJS.ErrnoException {
-  return error instanceof Error && 'code' in error;
-}
-
-function cloneArray<TValue>(values: readonly TValue[]): TValue[] {
-  return values.map((value) => cloneValue(value));
-}
-
-function cloneValue<TValue>(value: TValue): TValue {
-  if (value === undefined) {
-    return value;
-  }
-  if (typeof globalThis.structuredClone === 'function') {
-    return globalThis.structuredClone(value);
-  }
-
-  return JSON.parse(JSON.stringify(value)) as TValue;
-}
-
-interface MutableSandboxState {
-  version: typeof pmsSandboxStateVersion;
-  rooms: RoomAggregate[];
-  housekeepingTasks: HousekeepingTask[];
-  audits: AuditEntry[];
-  domainEvents: DomainEvent[];
-  coreIdempotency: CoreIdempotencyStateRecord[];
-  apiIdempotency: ApiIdempotencyRecord[];
-  updatedAt: string;
 }
