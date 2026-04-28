@@ -4,6 +4,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from 'node:net';
 import type { AuditEntry, DomainEvent, HousekeepingTask } from '@pms-platform/contracts';
 import {
+  type CoreCheckInConfirmResult,
   type CoreCheckOutConfirmResult,
   type CorePorts,
   type DomainEventCollector,
@@ -14,11 +15,19 @@ import {
   type AuditRepository,
 } from '@pms-platform/core';
 import {
+  executeCheckInApiRequest,
   executeCheckOutApiRequest,
+  executeDashboardApiRequest,
+  executeGetRoomApiRequest,
+  pmsCheckInOperation,
   pmsCheckOutOperation,
+  pmsDashboardOperation,
+  pmsGetRoomOperation,
   type ApiIdempotencyRecord,
   type ApiIdempotencyRepository,
+  type CheckInApiRequest,
   type CheckOutApiRequest,
+  type PmsReadModelApiRequest,
 } from './index.js';
 
 export const pmsLocalAuthTokenEnvName = 'PMS_PLATFORM_LOCAL_AUTH_TOKEN';
@@ -38,7 +47,7 @@ export interface PmsSandboxStateFile {
 
 export interface CoreIdempotencyStateRecord {
   readonly idempotencyKey: string;
-  readonly response: CoreCheckOutConfirmResult;
+  readonly response: CoreCheckInConfirmResult | CoreCheckOutConfirmResult;
 }
 
 export interface CreateDurableLocalSandboxStoreOptions {
@@ -68,8 +77,8 @@ export interface PmsSandboxReadback {
 }
 
 export interface PmsSandboxIdempotencyReadback {
-  readonly operation: typeof pmsCheckOutOperation;
-  readonly mode: CheckOutApiRequest['mode'] | 'unknown';
+  readonly operation: typeof pmsCheckInOperation | typeof pmsCheckOutOperation | 'unknown';
+  readonly mode: CheckInApiRequest['mode'] | CheckOutApiRequest['mode'] | 'unknown';
   readonly idempotencyKey: string;
   readonly requestFingerprint: string;
   readonly ok: boolean;
@@ -118,7 +127,7 @@ export class DurableLocalSandboxStore {
       audits: cloneValue(filteredAudits),
       domainEvents: cloneValue(filteredEvents),
       idempotencyRecords: this.state.apiIdempotency.map((record) => ({
-        operation: pmsCheckOutOperation,
+        operation: requestOperationFromRecord(record),
         mode: requestModeFromRecord(record),
         idempotencyKey: record.idempotencyKey,
         requestFingerprint: record.requestFingerprint,
@@ -223,7 +232,7 @@ export class DurableLocalSandboxStore {
     };
   }
 
-  private createCoreIdempotencyRepository(): IdempotencyRepository<CoreCheckOutConfirmResult> {
+  private createCoreIdempotencyRepository(): IdempotencyRepository<CoreCheckInConfirmResult | CoreCheckOutConfirmResult> {
     return {
       get: (idempotencyKey) => cloneValue(this.state.coreIdempotency.find((entry) => entry.idempotencyKey === idempotencyKey)?.response),
       save: (idempotencyKey, response) => {
@@ -311,6 +320,7 @@ export function createPmsLocalHttpHandler(options: PmsLocalHttpHandlerOptions) {
           service: 'pms-platform',
           boundary: 'pms-checkout-local-sandbox',
           operation: pmsCheckOutOperation,
+          operations: [pmsCheckInOperation, pmsCheckOutOperation, pmsGetRoomOperation, pmsDashboardOperation],
           storage: {
             kind: 'file',
             envName: pmsSandboxStatePathEnvName,
@@ -338,12 +348,35 @@ export function createPmsLocalHttpHandler(options: PmsLocalHttpHandlerOptions) {
         return;
       }
 
+      if (request.method === 'POST' && url.pathname === '/v1/pms/check-in') {
+        const body = await readJsonBody(request);
+        const result = executeCheckInApiRequest(body as CheckInApiRequest, options.store.ports, {
+          idempotency: options.store.apiIdempotency,
+        });
+        writeJson(response, result.ok ? 200 : 400, result);
+        return;
+      }
+
       if (request.method === 'POST' && url.pathname === '/v1/pms/check-out') {
         const body = await readJsonBody(request);
         const result = executeCheckOutApiRequest(body as CheckOutApiRequest, options.store.ports, {
           idempotency: options.store.apiIdempotency,
         });
         writeJson(response, result.ok ? 200 : 400, result);
+        return;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/v1/pms/room') {
+        const body = await readJsonBody(request);
+        const result = executeGetRoomApiRequest(body as PmsReadModelApiRequest & { operation: typeof pmsGetRoomOperation }, options.store.ports);
+        writeJson(response, 200, result);
+        return;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/v1/pms/dashboard') {
+        const body = await readJsonBody(request);
+        const result = executeDashboardApiRequest(body as PmsReadModelApiRequest & { operation: typeof pmsDashboardOperation }, options.store.ports);
+        writeJson(response, 200, result);
         return;
       }
 
@@ -500,12 +533,18 @@ function mutableState(state: PmsSandboxStateFile): MutableSandboxState {
   };
 }
 
-function requestModeFromRecord(record: ApiIdempotencyRecord): CheckOutApiRequest['mode'] | 'unknown' {
+function requestModeFromRecord(record: ApiIdempotencyRecord): CheckInApiRequest['mode'] | CheckOutApiRequest['mode'] | 'unknown' {
   return record.response.ok ? record.response.mode : record.response.mode === 'dryRun' || record.response.mode === 'confirm' ? record.response.mode : 'unknown';
 }
 
+function requestOperationFromRecord(record: ApiIdempotencyRecord): PmsSandboxIdempotencyReadback['operation'] {
+  return record.response.ok && (record.response.operation === pmsCheckInOperation || record.response.operation === pmsCheckOutOperation)
+    ? record.response.operation
+    : 'unknown';
+}
+
 function eventHasRoom(event: DomainEvent, roomIds: ReadonlySet<string>): boolean {
-  if (event.type === 'RoomCheckedOut') {
+  if (event.type === 'RoomCheckedIn' || event.type === 'RoomCheckedOut') {
     return roomIds.has(event.roomId);
   }
   return roomIds.has(event.task.roomId);

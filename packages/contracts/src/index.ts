@@ -10,6 +10,8 @@ export type CommandSource = 'pms-core' | 'api' | 'mcp' | 'worker' | 'test';
 
 export type CommandExecutionMode = 'dryRun' | 'confirm';
 
+export type PmsCommandType = 'CHECK_IN' | 'CHECK_OUT' | 'HOUSEKEEPING_DONE' | 'REPORT_MAINTENANCE';
+
 export interface CommandMeta {
   readonly actor: Actor;
   readonly source: CommandSource;
@@ -70,7 +72,8 @@ export type DomainErrorCode =
   | 'INVALID_REQUESTED_AT'
   | 'INVALID_EXECUTION_MODE'
   | 'ROOM_NOT_FOUND'
-  | 'ROOM_NOT_CHECKOUTABLE';
+  | 'ROOM_NOT_CHECKOUTABLE'
+  | 'ROOM_NOT_CHECKIN_ELIGIBLE';
 
 export interface DomainError {
   readonly code: DomainErrorCode;
@@ -88,6 +91,14 @@ export interface DomainEventBase {
   readonly actor: Actor;
 }
 
+export interface RoomCheckedInEvent extends DomainEventBase {
+  readonly type: 'RoomCheckedIn';
+  readonly aggregateId: string;
+  readonly roomId: string;
+  readonly previousStatus: RoomStatus;
+  readonly nextStatus: RoomStatus;
+}
+
 export interface RoomCheckedOutEvent extends DomainEventBase {
   readonly type: 'RoomCheckedOut';
   readonly aggregateId: string;
@@ -102,12 +113,29 @@ export interface HousekeepingTaskCreatedEvent extends DomainEventBase {
   readonly task: HousekeepingTask;
 }
 
-export type DomainEvent = RoomCheckedOutEvent | HousekeepingTaskCreatedEvent;
+export type DomainEvent = RoomCheckedInEvent | RoomCheckedOutEvent | HousekeepingTaskCreatedEvent;
+
+export interface CheckInCommand {
+  readonly type: 'CHECK_IN';
+  readonly roomId: string;
+  readonly overrideDirtyRoom?: boolean;
+  readonly meta: CommandMeta;
+}
 
 export interface CheckOutCommand {
   readonly type: 'CHECK_OUT';
   readonly roomId: string;
   readonly meta: CommandMeta;
+}
+
+export interface CheckInDryRunPlan {
+  readonly commandType: 'CHECK_IN';
+  readonly roomId: string;
+  readonly currentStatus: RoomStatus;
+  readonly nextStatus: RoomStatus;
+  readonly overrideDirtyRoom: boolean;
+  readonly warnings: readonly string[];
+  readonly events: ReadonlyArray<'RoomCheckedIn'>;
 }
 
 export interface CheckOutDryRunPlan {
@@ -123,11 +151,143 @@ export interface CheckOutDryRunPlan {
 
 export const checkoutableOccupancyStatuses: ReadonlyArray<OccupancyStatus> = ['occupied', 'dueOut'];
 
+export const checkInNextStatus: RoomStatus = {
+  occupancy: 'occupied',
+  cleaning: 'clean',
+  sale: 'sellable',
+};
+
 export const checkoutNextStatus: RoomStatus = {
   occupancy: 'vacant',
   cleaning: 'dirty',
   sale: 'sellable',
 };
+
+export const pmsProjectionSchemaVersion = 'pms-dashboard-mvp-v1';
+
+export type ReadModelStatus = 'fresh' | 'stale' | 'partial' | 'unavailable';
+
+export interface ProjectionFreshness {
+  readonly status: ReadModelStatus;
+  readonly generatedAt: string;
+  readonly note: string;
+}
+
+export interface ReservationSummary {
+  readonly reservationCode: string;
+  readonly arrivalDate: string;
+  readonly departureDate: string;
+  readonly guestLabel: string;
+}
+
+export interface MaintenanceTicketSummary {
+  readonly ticketId: string;
+  readonly roomId: string;
+  readonly status: 'open' | 'inProgress' | 'resolved';
+  readonly reason: string;
+}
+
+export interface RoomReadModel {
+  readonly schemaVersion: typeof pmsProjectionSchemaVersion;
+  readonly generatedAt: string;
+  readonly summaryStatus: ReadModelStatus;
+  readonly room: RoomState | undefined;
+  readonly activeReservation: ReservationSummary | undefined;
+  readonly housekeepingTasks: readonly HousekeepingTask[];
+  readonly maintenanceTickets: readonly MaintenanceTicketSummary[];
+  readonly projectionFreshness: ProjectionFreshness;
+}
+
+export interface DashboardReadModel {
+  readonly schemaVersion: typeof pmsProjectionSchemaVersion;
+  readonly generatedAt: string;
+  readonly summaryStatus: ReadModelStatus;
+  readonly counts: {
+    readonly totalRooms: number;
+    readonly vacantClean: number;
+    readonly vacantDirty: number;
+    readonly inHouse: number;
+    readonly dueOut: number;
+    readonly stopSell: number;
+  };
+  readonly queues: {
+    readonly cleaning: number;
+    readonly inspection: number;
+    readonly pendingOperationRequests: number;
+    readonly failedOperationRequests: number;
+  };
+  readonly projectionFreshness: ProjectionFreshness;
+}
+
+export interface RoomLedgerProjection {
+  readonly schemaVersion: typeof pmsProjectionSchemaVersion;
+  readonly roomId: string;
+  readonly roomNumber: string;
+  readonly status: RoomStatus;
+  readonly roomCode: string;
+  readonly lastActor: Actor;
+  readonly lastReason: string;
+  readonly lastUpdatedAt: string;
+}
+
+export interface HousekeepingTaskProjection {
+  readonly taskId: string;
+  readonly roomId: string;
+  readonly kind: HousekeepingTaskKind;
+  readonly status: HousekeepingTaskStatus;
+  readonly reason: string;
+  readonly correlationId: string;
+  readonly createdAt: string;
+}
+
+export interface OperationLogProjection {
+  readonly auditId: string;
+  readonly commandType: PmsCommandType;
+  readonly roomId: string;
+  readonly actor: Actor;
+  readonly source: CommandSource;
+  readonly reason: string;
+  readonly idempotencyKey: string;
+  readonly correlationId: string;
+  readonly occurredAt: string;
+  readonly domainEventTypes: readonly DomainEvent['type'][];
+}
+
+export interface CommandProjection {
+  readonly schemaVersion: typeof pmsProjectionSchemaVersion;
+  readonly commandType: Extract<PmsCommandType, 'CHECK_IN' | 'CHECK_OUT'>;
+  readonly mode: Extract<CommandExecutionMode, 'confirm'>;
+  readonly correlationId: string;
+  readonly idempotencyKey: string;
+  readonly roomLedger: RoomLedgerProjection;
+  readonly housekeepingTask?: HousekeepingTaskProjection;
+  readonly operationLog: OperationLogProjection;
+}
+
+export interface DeferredPmsCommandStub {
+  readonly commandType: Extract<PmsCommandType, 'HOUSEKEEPING_DONE' | 'REPORT_MAINTENANCE'>;
+  readonly status: 'contract-stub';
+  readonly owner: 'pms-platform';
+  readonly mutationStatus: 'deferred';
+  readonly reason: string;
+}
+
+export const deferredPmsCommandStubs = [
+  {
+    commandType: 'HOUSEKEEPING_DONE',
+    status: 'contract-stub',
+    owner: 'pms-platform',
+    mutationStatus: 'deferred',
+    reason: 'Cleaning completion remains a named PMS-owned command contract; full workflow semantics are outside the dashboard MVP foundation slice.',
+  },
+  {
+    commandType: 'REPORT_MAINTENANCE',
+    status: 'contract-stub',
+    owner: 'pms-platform',
+    mutationStatus: 'deferred',
+    reason: 'Maintenance reporting remains a named PMS-owned command contract; stop-sell mutation requires a future typed command or approval path.',
+  },
+] as const satisfies readonly DeferredPmsCommandStub[];
 
 export function validateCommandMeta(meta: CommandMeta | undefined): DomainError[] {
   if (!meta) {
@@ -192,6 +352,45 @@ export function validateCommandMeta(meta: CommandMeta | undefined): DomainError[
 
   return errors;
 }
+
+export const checkinContractFixtures = {
+  actor: {
+    type: 'human',
+    id: 'user-frontdesk-1',
+    displayName: 'Front Desk',
+  } satisfies Actor,
+  room: {
+    roomId: 'room-1003',
+    roomNumber: '1003',
+    status: {
+      occupancy: 'vacant',
+      cleaning: 'clean',
+      sale: 'sellable',
+    },
+  } satisfies RoomState,
+  dryRunCommand: {
+    type: 'CHECK_IN',
+    roomId: 'room-1003',
+    meta: {
+      actor: {
+        type: 'human',
+        id: 'user-frontdesk-1',
+        displayName: 'Front Desk',
+      },
+      source: 'api',
+      reason: 'Guest arrived with verified reservation.',
+      idempotencyKey: 'checkin-room-1003-2026-04-25',
+      correlationId: 'corr-checkin-room-1003',
+      requestedAt: '2026-04-25T01:00:00.000Z',
+      mode: 'dryRun',
+    },
+  } satisfies CheckInCommand,
+  stableFailure: {
+    code: 'ROOM_NOT_CHECKIN_ELIGIBLE',
+    message: 'Room is not eligible for check-in.',
+    field: 'room.status',
+  } satisfies DomainError,
+} as const;
 
 export const checkoutContractFixtures = {
   actor: {

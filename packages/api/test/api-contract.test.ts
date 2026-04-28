@@ -1,9 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { checkoutContractFixtures } from '@pms-platform/contracts';
+import { checkinContractFixtures, checkoutContractFixtures } from '@pms-platform/contracts';
 import {
   createInMemoryCorePorts,
+  type CoreCheckInConfirmResult,
+  type CoreCheckInDryRunPlan,
   type CoreCheckOutConfirmResult,
   type CoreCheckOutDryRunPlan,
   type RoomAggregate,
@@ -11,12 +13,22 @@ import {
 import {
   createInMemoryApiIdempotencyRepository,
   describeApiContractBoundary,
+  executeCheckInApiRequest,
   executeCheckOutApiRequest,
+  executeDashboardApiRequest,
+  executeGetRoomApiRequest,
+  pmsCheckInOperation,
   pmsCheckOutOperation,
+  pmsDashboardOperation,
+  pmsGetRoomOperation,
   requestFingerprintInput,
+  toCheckInCommand,
   toCheckOutApiResponse,
   toCheckOutCommand,
   type ApiError,
+  type CheckInApiResponse,
+  type CheckInConfirmApiRequest,
+  type CheckInDryRunApiRequest,
   type CheckOutApiResponse,
   type CheckOutConfirmApiRequest,
   type CheckOutDryRunApiRequest,
@@ -26,6 +38,22 @@ const dueOutRoom: RoomAggregate = {
   roomId: 'room-1001',
   roomNumber: '1001',
   occupancyStatus: 'dueOut',
+  cleaningStatus: 'clean',
+  saleStatus: 'sellable',
+};
+
+const occupiedRoom: RoomAggregate = {
+  roomId: 'room-1002',
+  roomNumber: '1002',
+  occupancyStatus: 'occupied',
+  cleaningStatus: 'clean',
+  saleStatus: 'sellable',
+};
+
+const vacantCleanRoom: RoomAggregate = {
+  roomId: 'room-1003',
+  roomNumber: '1003',
+  occupancyStatus: 'vacant',
   cleaningStatus: 'clean',
   saleStatus: 'sellable',
 };
@@ -49,17 +77,38 @@ const confirmRequest: CheckOutConfirmApiRequest = {
   requestFingerprint: 'sha256:confirm-fingerprint',
 };
 
+const checkInDryRunRequest: CheckInDryRunApiRequest = {
+  operation: pmsCheckInOperation,
+  mode: 'dryRun',
+  roomId: checkinContractFixtures.dryRunCommand.roomId,
+  actor: checkinContractFixtures.actor,
+  source: 'api',
+  reason: checkinContractFixtures.dryRunCommand.meta.reason,
+  idempotencyKey: checkinContractFixtures.dryRunCommand.meta.idempotencyKey,
+  correlationId: checkinContractFixtures.dryRunCommand.meta.correlationId,
+  requestedAt: checkinContractFixtures.dryRunCommand.meta.requestedAt,
+  requestFingerprint: 'sha256:check-in-dry-run-fingerprint',
+};
+
+const checkInConfirmRequest: CheckInConfirmApiRequest = {
+  ...checkInDryRunRequest,
+  mode: 'confirm',
+  requestFingerprint: 'sha256:check-in-confirm-fingerprint',
+};
+
 describe('API checkout contract skeleton', () => {
   it('imports PMS contracts/core types through package boundaries', () => {
     expect(describeApiContractBoundary()).toEqual({
       packageName: '@pms-platform/api',
       operation: 'pms_check_out',
+      operations: ['pms_check_in', 'pms_check_out', 'pms_get_room', 'pms_dashboard'],
       importsCoreResult: true,
       exposesLocalHandler: true,
       supportedModes: ['dryRun', 'confirm'],
     });
 
     expect(toCheckOutCommand(dryRunRequest)).toEqual(checkoutContractFixtures.dryRunCommand);
+    expect(toCheckInCommand(checkInDryRunRequest)).toEqual(checkinContractFixtures.dryRunCommand);
   });
 
   it('defines explicit dry-run and confirm request shapes with request fingerprints', () => {
@@ -77,6 +126,59 @@ describe('API checkout contract skeleton', () => {
       operation: 'pms_check_out',
       mode: 'confirm',
       roomId: 'room-1001',
+    });
+    expect(requestFingerprintInput(checkInDryRunRequest)).toMatchObject({
+      operation: 'pms_check_in',
+      mode: 'dryRun',
+      roomId: 'room-1003',
+      reason: 'Guest arrived with verified reservation.',
+    });
+  });
+
+  it('defines pms_get_room and pms_dashboard read-model responses at the API boundary', () => {
+    const ports = createInMemoryCorePorts([dueOutRoom, occupiedRoom, vacantCleanRoom]);
+    const roomResponse = executeGetRoomApiRequest(
+      {
+        operation: pmsGetRoomOperation,
+        roomId: 'room-1001',
+        requestedAt: '2026-04-25T02:00:00.000Z',
+      },
+      ports,
+    );
+    const dashboardResponse = executeDashboardApiRequest(
+      {
+        operation: pmsDashboardOperation,
+        requestedAt: '2026-04-25T02:00:00.000Z',
+      },
+      ports,
+    );
+
+    expect(roomResponse).toMatchObject({
+      ok: true,
+      operation: 'pms_get_room',
+      readModel: {
+        schemaVersion: 'pms-dashboard-mvp-v1',
+        summaryStatus: 'fresh',
+        room: {
+          roomId: 'room-1001',
+          status: {
+            occupancy: 'dueOut',
+          },
+        },
+      },
+    });
+    expect(dashboardResponse).toMatchObject({
+      ok: true,
+      operation: 'pms_dashboard',
+      readModel: {
+        counts: {
+          totalRooms: 3,
+          vacantClean: 1,
+          inHouse: 1,
+          dueOut: 1,
+          stopSell: 0,
+        },
+      },
     });
   });
 
@@ -124,6 +226,58 @@ describe('API checkout contract skeleton', () => {
       errors: [checkoutContractFixtures.stableFailure],
     };
 
+    const checkInPlan = {
+      commandType: 'CHECK_IN',
+      roomId: 'room-1003',
+      roomNumber: '1003',
+      currentStatus: checkinContractFixtures.room.status,
+      nextStatus: {
+        occupancy: 'occupied',
+        cleaning: 'clean',
+        sale: 'sellable',
+      },
+      overrideDirtyRoom: false,
+      warnings: [],
+      events: ['RoomCheckedIn'],
+      reason: checkInDryRunRequest.reason,
+      correlationId: checkInDryRunRequest.correlationId,
+      idempotencyKey: checkInDryRunRequest.idempotencyKey,
+      requestedAt: checkInDryRunRequest.requestedAt,
+      actor: checkInDryRunRequest.actor,
+    } satisfies CoreCheckInDryRunPlan;
+
+    const checkInDryRunResponse: CheckInApiResponse = {
+      ok: true,
+      operation: 'pms_check_in',
+      mode: 'dryRun',
+      request: {
+        idempotencyKey: checkInDryRunRequest.idempotencyKey,
+        requestFingerprint: checkInDryRunRequest.requestFingerprint,
+        fingerprintInput: requestFingerprintInput(checkInDryRunRequest),
+      },
+      plan: checkInPlan,
+    };
+
+    const checkInConfirmResult = {
+      commandType: 'CHECK_IN',
+      roomId: 'room-1003',
+      roomNumber: '1003',
+      previousStatus: checkinContractFixtures.room.status,
+      nextStatus: checkInPlan.nextStatus,
+      auditEntry: {
+        auditId: 'audit-checkin-1',
+        commandType: 'CHECK_IN',
+        roomId: 'room-1003',
+        actor: checkInDryRunRequest.actor,
+        source: checkInDryRunRequest.source,
+        reason: checkInDryRunRequest.reason,
+        idempotencyKey: checkInDryRunRequest.idempotencyKey,
+        correlationId: checkInDryRunRequest.correlationId,
+        occurredAt: checkInDryRunRequest.requestedAt,
+      },
+      events: [],
+    } satisfies CoreCheckInConfirmResult;
+
     const confirmResult = {
       commandType: 'CHECK_OUT',
       roomId: 'room-1001',
@@ -154,7 +308,9 @@ describe('API checkout contract skeleton', () => {
     } satisfies CoreCheckOutConfirmResult;
 
     expect(dryRunResponse).toMatchObject({ ok: true, mode: 'dryRun', operation: 'pms_check_out' });
+    expect(checkInDryRunResponse).toMatchObject({ ok: true, mode: 'dryRun', operation: 'pms_check_in' });
     expect(stableFailure.errors).toEqual<readonly ApiError[]>([checkoutContractFixtures.stableFailure]);
+    expect(checkInConfirmResult.commandType).toBe('CHECK_IN');
     expect(confirmResult.commandType).toBe('CHECK_OUT');
   });
 
@@ -188,6 +344,50 @@ describe('API checkout contract skeleton', () => {
       mode: 'dryRun',
       errors: [checkoutContractFixtures.stableFailure],
     });
+  });
+
+  it('executes check-in dry-run and confirm through PMS Core at the API boundary', () => {
+    const ports = createInMemoryCorePorts([vacantCleanRoom]);
+    const dryRun = executeCheckInApiRequest(checkInDryRunRequest, ports);
+    const confirm = executeCheckInApiRequest(checkInConfirmRequest, ports);
+
+    expect(dryRun).toMatchObject({
+      ok: true,
+      operation: 'pms_check_in',
+      mode: 'dryRun',
+      plan: {
+        commandType: 'CHECK_IN',
+        roomId: 'room-1003',
+        nextStatus: {
+          occupancy: 'occupied',
+          cleaning: 'clean',
+          sale: 'sellable',
+        },
+      },
+    });
+    expect(confirm).toMatchObject({
+      ok: true,
+      operation: 'pms_check_in',
+      mode: 'confirm',
+      result: {
+        commandType: 'CHECK_IN',
+        roomId: 'room-1003',
+        previousStatus: {
+          occupancy: 'vacant',
+          cleaning: 'clean',
+          sale: 'sellable',
+        },
+        nextStatus: {
+          occupancy: 'occupied',
+          cleaning: 'clean',
+          sale: 'sellable',
+        },
+      },
+    });
+    expect(ports.rooms.get('room-1003')?.occupancyStatus).toBe('occupied');
+    expect(ports.housekeepingTasks.list()).toHaveLength(0);
+    expect(ports.audits.list()).toHaveLength(1);
+    expect(ports.events.list().map((event) => event.type)).toEqual(['RoomCheckedIn']);
   });
 
   it('executes confirm through PMS Core and preserves result structure', () => {

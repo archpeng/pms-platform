@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { checkoutContractFixtures, type CheckOutCommand } from '@pms-platform/contracts';
+import { checkinContractFixtures, checkoutContractFixtures, type CheckInCommand, type CheckOutCommand } from '@pms-platform/contracts';
 import {
+  buildCheckInProjection,
+  buildCheckOutProjection,
+  checkIn,
   checkOut,
   createCheckoutCleaningTask,
   createInMemoryCorePorts,
@@ -9,11 +12,14 @@ import {
   createInMemoryRoomRepository,
   deriveRoomCode,
   describeCoreContractBoundary,
+  getDashboardReadModel,
+  getRoomReadModel,
   roomAggregateFromState,
   roomStateFromAggregate,
   supportedCleaningStatuses,
   supportedOccupancyStatuses,
   supportedSaleStatuses,
+  validateCheckInDomainInput,
   validateCheckoutDomainInput,
   type CorePorts,
   type RoomAggregate,
@@ -35,11 +41,29 @@ const occupiedRoom: RoomAggregate = {
   saleStatus: 'outOfOrder',
 };
 
+const vacantCleanRoom: RoomAggregate = {
+  roomId: 'room-1003',
+  roomNumber: '1003',
+  occupancyStatus: 'vacant',
+  cleaningStatus: 'clean',
+  saleStatus: 'sellable',
+};
+
+const vacantDirtyRoom: RoomAggregate = {
+  roomId: 'room-1004',
+  roomNumber: '1004',
+  occupancyStatus: 'vacant',
+  cleaningStatus: 'dirty',
+  saleStatus: 'sellable',
+};
+
 describe('core contract boundary', () => {
   it('consumes PMS contracts through the workspace package import', () => {
     expect(describeCoreContractBoundary()).toEqual({
       packageName: '@pms-platform/core',
       supportedCommandType: 'CHECK_OUT',
+      supportedCommandTypes: ['CHECK_IN', 'CHECK_OUT'],
+      supportedReadModels: ['pms_get_room', 'pms_dashboard'],
       supportedExecutionModes: ['dryRun', 'confirm'],
     });
   });
@@ -116,6 +140,180 @@ describe('domain validation helpers', () => {
         field: 'room.occupancyStatus',
       },
     ]);
+  });
+
+  it('validates check-in eligibility without presentation-specific fields', () => {
+    expect(validateCheckInDomainInput(checkinCommandForRoom(vacantCleanRoom.roomId), vacantCleanRoom)).toEqual([]);
+
+    expect(validateCheckInDomainInput(checkinCommandForRoom('missing-room'), undefined)).toEqual([
+      {
+        code: 'ROOM_NOT_FOUND',
+        message: 'Room was not found.',
+        field: 'roomId',
+      },
+    ]);
+
+    expect(validateCheckInDomainInput(checkinCommandForRoom(occupiedRoom.roomId), occupiedRoom)).toEqual([
+      {
+        code: 'ROOM_NOT_CHECKIN_ELIGIBLE',
+        message: 'Room is not eligible for check-in.',
+        field: 'room.status',
+      },
+    ]);
+    expect(validateCheckInDomainInput({ ...checkinCommandForRoom(vacantDirtyRoom.roomId), overrideDirtyRoom: true }, vacantDirtyRoom)).toEqual([]);
+  });
+});
+
+describe('room and dashboard read models', () => {
+  it('returns a PMS-owned one-room read model with task and freshness summary', () => {
+    const ports = createInMemoryCorePorts([dueOutRoom, vacantCleanRoom]);
+    const checkout = checkOut({ ...checkoutContractFixtures.dryRunCommand, meta: { ...checkoutContractFixtures.dryRunCommand.meta, mode: 'confirm' } }, ports);
+
+    expect(checkout.ok).toBe(true);
+    const readModel = getRoomReadModel('room-1001', ports, '2026-04-25T02:00:00.000Z');
+
+    expect(readModel).toMatchObject({
+      schemaVersion: 'pms-dashboard-mvp-v1',
+      summaryStatus: 'fresh',
+      room: {
+        roomId: 'room-1001',
+        roomNumber: '1001',
+        status: {
+          occupancy: 'vacant',
+          cleaning: 'dirty',
+          sale: 'sellable',
+        },
+      },
+      projectionFreshness: {
+        status: 'fresh',
+      },
+    });
+    expect(readModel.housekeepingTasks).toHaveLength(1);
+    expect(readModel.activeReservation).toBeUndefined();
+    expect(readModel.maintenanceTickets).toEqual([]);
+  });
+
+  it('returns dashboard counts and queues without mutating PMS state', () => {
+    const ports = createInMemoryCorePorts([dueOutRoom, occupiedRoom, vacantCleanRoom, vacantDirtyRoom]);
+    const before = snapshotPorts(ports);
+
+    const readModel = getDashboardReadModel(ports, '2026-04-25T02:30:00.000Z');
+
+    expect(readModel).toMatchObject({
+      schemaVersion: 'pms-dashboard-mvp-v1',
+      summaryStatus: 'fresh',
+      counts: {
+        totalRooms: 4,
+        vacantClean: 1,
+        vacantDirty: 1,
+        inHouse: 1,
+        dueOut: 1,
+        stopSell: 1,
+      },
+      queues: {
+        cleaning: 0,
+        inspection: 0,
+        pendingOperationRequests: 0,
+        failedOperationRequests: 0,
+      },
+    });
+    expect(snapshotPorts(ports)).toEqual(before);
+  });
+});
+
+describe('check-in dry-run and confirm execution', () => {
+  it('returns a structural check-in dry-run without mutating ports', () => {
+    const ports = createInMemoryCorePorts([vacantCleanRoom]);
+    const before = snapshotPorts(ports, checkinContractFixtures.dryRunCommand.meta.idempotencyKey);
+
+    const result = checkIn(checkinContractFixtures.dryRunCommand, ports);
+
+    expect(result).toEqual({
+      ok: true,
+      mode: 'dryRun',
+      plan: {
+        commandType: 'CHECK_IN',
+        roomId: 'room-1003',
+        roomNumber: '1003',
+        currentStatus: {
+          occupancy: 'vacant',
+          cleaning: 'clean',
+          sale: 'sellable',
+        },
+        nextStatus: {
+          occupancy: 'occupied',
+          cleaning: 'clean',
+          sale: 'sellable',
+        },
+        overrideDirtyRoom: false,
+        warnings: [],
+        events: ['RoomCheckedIn'],
+        reason: 'Guest arrived with verified reservation.',
+        correlationId: 'corr-checkin-room-1003',
+        idempotencyKey: 'checkin-room-1003-2026-04-25',
+        requestedAt: '2026-04-25T01:00:00.000Z',
+        actor: checkinContractFixtures.actor,
+      },
+    });
+    expect(snapshotPorts(ports, checkinContractFixtures.dryRunCommand.meta.idempotencyKey)).toEqual(before);
+  });
+
+  it('confirms check-in through PMS state, audit, event, and idempotency only', () => {
+    const ports = createInMemoryCorePorts([vacantCleanRoom]);
+    const command = confirmCheckInCommand(vacantCleanRoom.roomId);
+
+    const result = checkIn(command, ports);
+    const repeated = checkIn(command, ports);
+
+    expect(result).toEqual(repeated);
+    expect(result).toMatchObject({
+      ok: true,
+      mode: 'confirm',
+      result: {
+        commandType: 'CHECK_IN',
+        roomId: 'room-1003',
+        previousStatus: {
+          occupancy: 'vacant',
+          cleaning: 'clean',
+          sale: 'sellable',
+        },
+        nextStatus: {
+          occupancy: 'occupied',
+          cleaning: 'clean',
+          sale: 'sellable',
+        },
+      },
+    });
+    expect(ports.rooms.get('room-1003')?.occupancyStatus).toBe('occupied');
+    expect(ports.housekeepingTasks.list()).toHaveLength(0);
+    expect(ports.audits.list()).toHaveLength(1);
+    expect(ports.events.list().map((event) => event.type)).toEqual(['RoomCheckedIn']);
+  });
+
+  it('requires explicit override for dirty-room check-in and rejects prose-like invalid metadata', () => {
+    const ports = createInMemoryCorePorts([vacantDirtyRoom]);
+
+    expect(checkIn(checkinCommandForRoom(vacantDirtyRoom.roomId), ports)).toEqual({
+      ok: false,
+      mode: 'dryRun',
+      errors: [checkinContractFixtures.stableFailure],
+    });
+
+    const override = checkIn({ ...checkinCommandForRoom(vacantDirtyRoom.roomId), overrideDirtyRoom: true }, ports);
+    expect(override).toMatchObject({
+      ok: true,
+      mode: 'dryRun',
+      plan: {
+        overrideDirtyRoom: true,
+        warnings: ['DIRTY_ROOM_OVERRIDE_APPROVED'],
+      },
+    });
+
+    expect(checkIn({ ...checkinCommandForRoom(vacantCleanRoom.roomId), meta: { ...checkinContractFixtures.dryRunCommand.meta, reason: ' ' } }, createInMemoryCorePorts([vacantCleanRoom]))).toEqual({
+      ok: false,
+      mode: 'dryRun',
+      errors: [checkoutContractFixtures.stableFailure],
+    });
   });
 });
 
@@ -344,6 +542,50 @@ describe('checkout confirm execution', () => {
     expect(ports.idempotency.has(command.meta.idempotencyKey)).toBe(true);
   });
 
+  it('builds stable command projection objects for check-in and checkout integration', () => {
+    const checkInPorts = createInMemoryCorePorts([vacantCleanRoom]);
+    const checkInResult = checkIn(confirmCheckInCommand(vacantCleanRoom.roomId), checkInPorts);
+    const checkOutPorts = createInMemoryCorePorts([dueOutRoom]);
+    const checkOutResult = checkOut(commandWithMeta({ mode: 'confirm' }), checkOutPorts);
+
+    expect(checkInResult.ok && checkInResult.mode === 'confirm' ? buildCheckInProjection(checkInResult.result) : undefined).toMatchObject({
+      schemaVersion: 'pms-dashboard-mvp-v1',
+      commandType: 'CHECK_IN',
+      roomLedger: {
+        roomId: 'room-1003',
+        status: {
+          occupancy: 'occupied',
+          cleaning: 'clean',
+          sale: 'sellable',
+        },
+      },
+      operationLog: {
+        commandType: 'CHECK_IN',
+        domainEventTypes: ['RoomCheckedIn'],
+      },
+    });
+    expect(checkOutResult.ok && checkOutResult.mode === 'confirm' ? buildCheckOutProjection(checkOutResult.result) : undefined).toMatchObject({
+      schemaVersion: 'pms-dashboard-mvp-v1',
+      commandType: 'CHECK_OUT',
+      roomLedger: {
+        roomId: 'room-1001',
+        status: {
+          occupancy: 'vacant',
+          cleaning: 'dirty',
+          sale: 'sellable',
+        },
+      },
+      housekeepingTask: {
+        roomId: 'room-1001',
+        kind: 'checkout-cleaning',
+      },
+      operationLog: {
+        commandType: 'CHECK_OUT',
+        domainEventTypes: ['RoomCheckedOut', 'HousekeepingTaskCreated'],
+      },
+    });
+  });
+
   it('confirms checkout for occupied rooms and preserves sale status', () => {
     const command = {
       ...commandForRoom(occupiedRoom.roomId),
@@ -489,6 +731,29 @@ describe('replaceable in-memory ports', () => {
     expect(events.list()).toEqual([]);
   });
 });
+
+function checkinCommandForRoom(roomId: string): CheckInCommand {
+  return {
+    ...checkinContractFixtures.dryRunCommand,
+    roomId,
+    meta: {
+      ...checkinContractFixtures.dryRunCommand.meta,
+      idempotencyKey: `checkin-${roomId}`,
+      correlationId: `corr-${roomId}`,
+    },
+  };
+}
+
+function confirmCheckInCommand(roomId: string): CheckInCommand {
+  const command = checkinCommandForRoom(roomId);
+  return {
+    ...command,
+    meta: {
+      ...command.meta,
+      mode: 'confirm',
+    },
+  };
+}
 
 function commandForRoom(roomId: string): CheckOutCommand {
   return {
