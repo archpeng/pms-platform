@@ -31,8 +31,19 @@ import {
 } from './index.js';
 
 export const pmsLocalAuthTokenEnvName = 'PMS_PLATFORM_LOCAL_AUTH_TOKEN';
+export const pmsLocalStorageKindEnvName = 'PMS_PLATFORM_STORAGE_KIND';
 export const pmsSandboxStatePathEnvName = 'PMS_PLATFORM_SANDBOX_STATE_PATH';
+export const pmsSqliteDbPathEnvName = 'PMS_PLATFORM_SQLITE_DB_PATH';
 export const pmsSandboxStateVersion = 'pms-checkout-local-sandbox-state-v1';
+
+export type PmsLocalStorageKind = 'file' | 'sqlite';
+
+export interface PmsLocalStorageMetadata {
+  readonly kind: PmsLocalStorageKind;
+  readonly envName: string;
+  readonly driver?: string;
+  readonly experimental?: boolean;
+}
 
 export interface PmsSandboxStateFile {
   readonly version: typeof pmsSandboxStateVersion;
@@ -62,10 +73,7 @@ export interface PmsSandboxReadback {
   readonly service: 'pms-platform';
   readonly stateVersion: typeof pmsSandboxStateVersion;
   readonly generatedAt: string;
-  readonly storage: {
-    readonly kind: 'file';
-    readonly envName: typeof pmsSandboxStatePathEnvName;
-  };
+  readonly storage: PmsLocalStorageMetadata;
   readonly filter: {
     readonly roomId?: string;
   };
@@ -84,8 +92,22 @@ export interface PmsSandboxIdempotencyReadback {
   readonly ok: boolean;
 }
 
-export class DurableLocalSandboxStore {
+export interface PmsLocalSandboxStore {
+  readonly ports: CorePorts;
+  readonly apiIdempotency: ApiIdempotencyRepository;
+  readonly storage: PmsLocalStorageMetadata;
+  readback(roomId?: string): PmsSandboxReadback;
+  reset(seedRooms?: readonly RoomAggregate[]): PmsSandboxReadback;
+  runInTransaction?<TValue>(operation: () => TValue): TValue;
+  close?(): void;
+}
+
+export class DurableLocalSandboxStore implements PmsLocalSandboxStore {
   readonly statePath: string;
+  readonly storage: PmsLocalStorageMetadata = {
+    kind: 'file',
+    envName: pmsSandboxStatePathEnvName,
+  };
   readonly ports: CorePorts;
   readonly apiIdempotency: ApiIdempotencyRepository;
   private state: MutableSandboxState;
@@ -117,10 +139,7 @@ export class DurableLocalSandboxStore {
       service: 'pms-platform',
       stateVersion: pmsSandboxStateVersion,
       generatedAt: this.now(),
-      storage: {
-        kind: 'file',
-        envName: pmsSandboxStatePathEnvName,
-      },
+      storage: this.storage,
       filter: roomId ? { roomId } : {},
       rooms: cloneValue(rooms),
       housekeepingTasks: cloneValue(filteredTasks),
@@ -288,7 +307,7 @@ export interface PmsLocalAuthConfig {
 }
 
 export interface PmsLocalHttpHandlerOptions {
-  readonly store: DurableLocalSandboxStore;
+  readonly store: PmsLocalSandboxStore;
   readonly auth?: PmsLocalAuthConfig;
 }
 
@@ -321,10 +340,7 @@ export function createPmsLocalHttpHandler(options: PmsLocalHttpHandlerOptions) {
           boundary: 'pms-checkout-local-sandbox',
           operation: pmsCheckOutOperation,
           operations: [pmsCheckInOperation, pmsCheckOutOperation, pmsGetRoomOperation, pmsDashboardOperation],
-          storage: {
-            kind: 'file',
-            envName: pmsSandboxStatePathEnvName,
-          },
+          storage: options.store.storage,
           auth: {
             type: 'bearer-token',
             envName: auth.envName,
@@ -350,18 +366,22 @@ export function createPmsLocalHttpHandler(options: PmsLocalHttpHandlerOptions) {
 
       if (request.method === 'POST' && url.pathname === '/v1/pms/check-in') {
         const body = await readJsonBody(request);
-        const result = executeCheckInApiRequest(body as CheckInApiRequest, options.store.ports, {
-          idempotency: options.store.apiIdempotency,
-        });
+        const result = executeWithStoreTransaction(options.store, () =>
+          executeCheckInApiRequest(body as CheckInApiRequest, options.store.ports, {
+            idempotency: options.store.apiIdempotency,
+          }),
+        );
         writeJson(response, result.ok ? 200 : 400, result);
         return;
       }
 
       if (request.method === 'POST' && url.pathname === '/v1/pms/check-out') {
         const body = await readJsonBody(request);
-        const result = executeCheckOutApiRequest(body as CheckOutApiRequest, options.store.ports, {
-          idempotency: options.store.apiIdempotency,
-        });
+        const result = executeWithStoreTransaction(options.store, () =>
+          executeCheckOutApiRequest(body as CheckOutApiRequest, options.store.ports, {
+            idempotency: options.store.apiIdempotency,
+          }),
+        );
         writeJson(response, result.ok ? 200 : 400, result);
         return;
       }
@@ -438,9 +458,24 @@ export async function startPmsLocalHttpServer(options: PmsLocalHttpServerOptions
     url,
     close: () =>
       new Promise<void>((resolve, reject) => {
-        server.close((error) => (error ? reject(error) : resolve()));
+        server.close((error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          try {
+            options.store.close?.();
+            resolve();
+          } catch (closeError) {
+            reject(closeError);
+          }
+        });
       }),
   };
+}
+
+function executeWithStoreTransaction<TValue>(store: PmsLocalSandboxStore, operation: () => TValue): TValue {
+  return store.runInTransaction ? store.runInTransaction(operation) : operation();
 }
 
 function resolveAuth(auth: PmsLocalAuthConfig | undefined) {

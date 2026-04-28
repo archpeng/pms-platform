@@ -1,5 +1,13 @@
 import { resolve } from 'node:path';
-import { createDurableLocalSandboxStore, pmsLocalAuthTokenEnvName, pmsSandboxStatePathEnvName, startPmsLocalHttpServer } from './localSandbox.js';
+import {
+  createDurableLocalSandboxStore,
+  pmsLocalAuthTokenEnvName,
+  pmsLocalStorageKindEnvName,
+  pmsSandboxStatePathEnvName,
+  pmsSqliteDbPathEnvName,
+  startPmsLocalHttpServer,
+  type PmsLocalSandboxStore,
+} from './localSandbox.js';
 import type { RoomAggregate } from '@pms-platform/core';
 
 export const pmsLocalHostEnvName = 'PMS_PLATFORM_LOCAL_HOST';
@@ -9,20 +17,17 @@ export const pmsSandboxResetOnStartEnvName = 'PMS_PLATFORM_SANDBOX_RESET_ON_STAR
 export const pmsSandboxSeedRoomIdEnvName = 'PMS_PLATFORM_SANDBOX_SEED_ROOM_ID';
 export const pmsSandboxSeedRoomNumberEnvName = 'PMS_PLATFORM_SANDBOX_SEED_ROOM_NUMBER';
 
-const defaultStatePath = '.local/pms-checkout-sandbox-state.json';
+export const defaultStatePath = '.local/pms-checkout-sandbox-state.json';
+export const defaultSqliteDbPath = '.local/pms.sqlite';
+
+type LocalServerEnv = Record<string, string | undefined>;
 
 export async function main(): Promise<void> {
-  const statePath = resolve(process.env[pmsSandboxStatePathEnvName] ?? defaultStatePath);
   const host = process.env[pmsLocalHostEnvName] ?? '127.0.0.1';
   const port = Number.parseInt(process.env[pmsLocalPortEnvName] ?? '8791', 10);
   const authRequired = process.env[pmsLocalAuthRequiredEnvName] !== 'false';
   const resetOnStart = process.env[pmsSandboxResetOnStartEnvName] === 'true';
-  const seedRoom = createSeedRoomFromEnv();
-  const store = createDurableLocalSandboxStore({
-    statePath,
-    seedRooms: [seedRoom],
-    resetOnStart,
-  });
+  const store = await createLocalSandboxStoreFromEnv(process.env);
   const started = await startPmsLocalHttpServer({
     host,
     port,
@@ -39,7 +44,10 @@ export async function main(): Promise<void> {
       service: 'pms-platform',
       boundary: 'pms-checkout-local-sandbox',
       url: started.url,
+      storage: store.storage,
+      storageKindEnvName: pmsLocalStorageKindEnvName,
       statePathEnvName: pmsSandboxStatePathEnvName,
+      sqliteDbPathEnvName: pmsSqliteDbPathEnvName,
       authEnvName: pmsLocalAuthTokenEnvName,
       authRequired,
       resetOnStart,
@@ -53,10 +61,37 @@ export async function main(): Promise<void> {
   }
 }
 
-function createSeedRoomFromEnv(): RoomAggregate {
+export async function createLocalSandboxStoreFromEnv(env: LocalServerEnv = process.env): Promise<PmsLocalSandboxStore> {
+  const storageKind = env[pmsLocalStorageKindEnvName] ?? 'file';
+  const statePath = resolve(env[pmsSandboxStatePathEnvName] ?? defaultStatePath);
+  const seedRoom = createSeedRoomFromEnv(env);
+  const resetOnStart = env[pmsSandboxResetOnStartEnvName] === 'true';
+
+  if (storageKind === 'file') {
+    return createDurableLocalSandboxStore({
+      statePath,
+      seedRooms: [seedRoom],
+      resetOnStart,
+    });
+  }
+
+  if (storageKind === 'sqlite') {
+    const { createSqliteLocalSandboxStore } = await import('./sqliteSandboxStore.js');
+    return createSqliteLocalSandboxStore({
+      dbPath: resolve(env[pmsSqliteDbPathEnvName] ?? defaultSqliteDbPath),
+      importStatePath: statePath,
+      seedRooms: [seedRoom],
+      resetOnStart,
+    });
+  }
+
+  throw new Error(`Unsupported ${pmsLocalStorageKindEnvName} value "${storageKind}". Expected "file" or "sqlite".`);
+}
+
+function createSeedRoomFromEnv(env: LocalServerEnv = process.env): RoomAggregate {
   return {
-    roomId: process.env[pmsSandboxSeedRoomIdEnvName] ?? 'room-1001',
-    roomNumber: process.env[pmsSandboxSeedRoomNumberEnvName] ?? '1001',
+    roomId: env[pmsSandboxSeedRoomIdEnvName] ?? 'room-1001',
+    roomNumber: env[pmsSandboxSeedRoomNumberEnvName] ?? '1001',
     occupancyStatus: 'dueOut',
     cleaningStatus: 'clean',
     saleStatus: 'sellable',
