@@ -46,6 +46,12 @@ const vacantCleanRoom: RoomAggregate = {
   cleaningStatus: 'clean',
   saleStatus: 'sellable',
 };
+const vacantCleanRoomB: RoomAggregate = {
+  ...vacantCleanRoom,
+  roomId: 'room-A3',
+  roomNumber: 'A3',
+  sortKey: 'A3',
+};
 
 const dryRunRequest: CheckOutDryRunApiRequest = {
   operation: pmsCheckOutOperation,
@@ -195,6 +201,70 @@ describe('SQLite local sandbox store', () => {
     store.close();
   });
 
+  it('derives inventory reservations, stays, intervals, and day/type summaries from SQLite state', () => {
+    const store = createSqliteLocalSandboxStore({
+      dbPath: tempPath('inventory-reservations.sqlite'),
+      seedRooms: [vacantCleanRoom, vacantCleanRoomB],
+      resetOnStart: true,
+      now: () => now,
+    });
+
+    store.importReservations([
+      {
+        reservationId: 'res-A2-reserved',
+        reservationCode: 'R-A2-RESERVED',
+        propertyId: 'property-small-hotel',
+        roomId: 'room-A2',
+        roomNumber: 'A2',
+        roomTypeId: 'room-type-garden-villa',
+        roomType: '花园别墅',
+        guestDisplayName: 'Guest Reserved',
+        arrivalDate: '2026-04-28',
+        departureDate: '2026-04-29',
+        status: 'booked',
+        allocation: { allocationId: 'alloc-A2-reserved', status: 'allocated' },
+      },
+      {
+        reservationId: 'res-A3-occupied',
+        reservationCode: 'R-A3-OCCUPIED',
+        propertyId: 'property-small-hotel',
+        roomId: 'room-A3',
+        roomNumber: 'A3',
+        roomTypeId: 'room-type-garden-villa',
+        roomType: '花园别墅',
+        guestDisplayName: 'Guest Occupied',
+        arrivalDate: '2026-04-28',
+        departureDate: '2026-04-30',
+        status: 'checkedIn',
+        allocation: { allocationId: 'alloc-A3-occupied', status: 'allocated' },
+        stay: { stayId: 'stay-A3-occupied', checkedInAt: '2026-04-28T15:00:00.000Z', status: 'checkedIn' },
+      },
+    ]);
+
+    const inventory = store.inventoryIntervals({ startDate: '2026-04-28', horizonDays: 1 });
+    expect(inventory.dayRooms).toMatchObject([
+      { businessDate: '2026-04-28', roomId: 'room-A2', availabilityStatus: 'reserved' },
+      { businessDate: '2026-04-28', roomId: 'room-A3', availabilityStatus: 'occupied' },
+    ]);
+    expect(inventory.intervals).toEqual(expect.arrayContaining([
+      expect.objectContaining({ roomId: 'room-A2', calendarKind: 'reserved', startDate: '2026-04-28', endDate: '2026-04-29' }),
+      expect.objectContaining({ roomId: 'room-A3', calendarKind: 'occupied', startDate: '2026-04-28', endDate: '2026-04-29' }),
+    ]));
+    expect(inventory.summaries).toMatchObject([
+      {
+        businessDate: '2026-04-28',
+        roomTypeId: 'room-type-garden-villa',
+        totalRooms: 2,
+        availableRooms: 0,
+        occupiedRooms: 1,
+        blockedRooms: 0,
+        reservedRooms: 1,
+      },
+    ]);
+    expect(store.readback().inventorySummaryDayType[0]).toMatchObject({ reservedRooms: 1, occupiedRooms: 1 });
+    store.close();
+  });
+
   it('keeps dry-run non-mutating while recording API idempotency', () => {
     const store = createSqliteLocalSandboxStore({
       dbPath: tempPath('dry-run.sqlite'),
@@ -203,6 +273,7 @@ describe('SQLite local sandbox store', () => {
       now: () => now,
     });
 
+    const beforeInventory = store.inventoryIntervals({ roomId: 'room-1001', startDate: '2026-04-28', horizonDays: 1 });
     const dryRun = store.runInTransaction(() =>
       executeCheckOutApiRequest(dryRunRequest, store.ports, {
         idempotency: store.apiIdempotency,
@@ -211,6 +282,7 @@ describe('SQLite local sandbox store', () => {
 
     expect(dryRun).toMatchObject({ ok: true, operation: 'pms_check_out', mode: 'dryRun' });
     const readback = store.readback('room-1001');
+    expect(store.inventoryIntervals({ roomId: 'room-1001', startDate: '2026-04-28', horizonDays: 1 })).toEqual(beforeInventory);
     expect(readback.rooms).toEqual([dueOutRoom]);
     expect(readback.housekeepingTasks).toEqual([]);
     expect(readback.audits).toEqual([]);
@@ -316,6 +388,30 @@ describe('SQLite local sandbox store', () => {
       }),
     );
     expect(reported).toMatchObject({ ok: true, operation: 'pms_report_maintenance', mode: 'confirm' });
+    expect(store.inventoryIntervals({ roomId: 'room-A2', startDate: '2026-04-28', horizonDays: 1 })).toMatchObject({
+      blocks: [{ roomId: 'room-A2', status: 'active', sourceType: 'maintenance_ticket' }],
+      dayRooms: [{ roomId: 'room-A2', availabilityStatus: 'blocked' }],
+      summaries: [{ totalRooms: 1, availableRooms: 0, blockedRooms: 1 }],
+    });
+    const duplicateReport = store.runInTransaction(() =>
+      executePmsExtendedCommandApiRequest(reportRequest, store.ports, {
+        idempotency: store.apiIdempotency,
+      }),
+    );
+    const incompatibleReport = store.runInTransaction(() =>
+      executePmsExtendedCommandApiRequest(
+        {
+          ...reportRequest,
+          reason: 'Different maintenance report with reused idempotency key.',
+          requestFingerprint: 'sha256:sqlite-maintenance-report-incompatible',
+        },
+        store.ports,
+        { idempotency: store.apiIdempotency },
+      ),
+    );
+    expect(duplicateReport).toEqual(reported);
+    expect(incompatibleReport).toMatchObject({ ok: false, errors: [{ code: 'IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_FINGERPRINT' }] });
+    expect(store.readback('room-A2').inventoryBlocks).toHaveLength(1);
     store.close();
 
     const restarted = createSqliteLocalSandboxStore({
@@ -356,6 +452,7 @@ describe('SQLite local sandbox store', () => {
         idempotency: restarted.apiIdempotency,
       }),
     );
+    const completedInventory = restarted.inventoryIntervals({ roomId: 'room-A2', startDate: '2026-04-28', horizonDays: 1 });
     const restored = restarted.runInTransaction(() =>
       executePmsExtendedCommandApiRequest(restoreRequest, restarted.ports, {
         idempotency: restarted.apiIdempotency,
@@ -363,10 +460,16 @@ describe('SQLite local sandbox store', () => {
     );
 
     expect(completed).toMatchObject({ ok: true, operation: 'pms_maintenance_done', mode: 'confirm' });
+    expect(completedInventory.blocks).toMatchObject([{ roomId: 'room-A2', status: 'active', blockType: 'repair' }]);
+    expect(completedInventory.intervals).toEqual(expect.arrayContaining([expect.objectContaining({ calendarKind: 'blocked' })]));
     expect(restored).toMatchObject({ ok: true, operation: 'pms_restore_sellable', mode: 'confirm' });
     const readback = restarted.readback('room-A2');
+    const restoredInventory = restarted.inventoryIntervals({ roomId: 'room-A2', startDate: '2026-04-28', horizonDays: 1 });
     expect(readback.rooms).toMatchObject([{ roomId: 'room-A2', saleStatus: 'sellable' }]);
     expect(readback.maintenanceTickets).toMatchObject([{ roomId: 'room-A2', status: 'resolved', stopSellRequested: true }]);
+    expect(readback.inventoryBlocks).toMatchObject([{ roomId: 'room-A2', status: 'closed', endDate: '2026-04-28' }]);
+    expect(restoredInventory.intervals).toEqual(expect.arrayContaining([expect.objectContaining({ calendarKind: 'available' })]));
+    expect(restoredInventory.intervals.some((interval) => interval.calendarKind === 'blocked')).toBe(false);
     expect(readback.domainEvents.map((event) => event.type)).toEqual([
       'MaintenanceReported',
       'MaintenanceCompleted',

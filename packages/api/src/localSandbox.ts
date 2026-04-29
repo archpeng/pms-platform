@@ -4,6 +4,12 @@ import type {
   AuditEntry,
   DomainEvent,
   HousekeepingTask,
+  InventoryBlock,
+  InventoryDayRoom,
+  InventoryHorizonRequest,
+  InventoryIntervalProjection,
+  InventoryReadModel,
+  InventorySummaryDayType,
   MaintenanceTicket,
   ReservationReadModel,
   RoomReservationContextReadModel,
@@ -26,6 +32,8 @@ import {
   pmsHousekeepingDoneOperation,
   pmsHousekeepingInspectionOperation,
   pmsHousekeepingReworkOperation,
+  pmsInventoryIntervalsOperation,
+  pmsInventorySummaryOperation,
   pmsMaintenanceDoneOperation,
   pmsReservationGetOperation,
   pmsReportMaintenanceOperation,
@@ -144,6 +152,10 @@ export interface PmsSandboxReadback {
   readonly reservations: readonly ReservationReadModel[];
   readonly reservationAllocations: readonly PmsSandboxReservationAllocationReadback[];
   readonly stays: readonly PmsSandboxStayReadback[];
+  readonly inventoryBlocks: readonly InventoryBlock[];
+  readonly inventoryDayRooms: readonly InventoryDayRoom[];
+  readonly inventoryIntervalProjection: readonly InventoryIntervalProjection[];
+  readonly inventorySummaryDayType: readonly InventorySummaryDayType[];
   readonly housekeepingTasks: readonly HousekeepingTask[];
   readonly maintenanceTickets: readonly MaintenanceTicket[];
   readonly audits: readonly AuditEntry[];
@@ -170,6 +182,9 @@ export interface PmsLocalSandboxStore {
   todayArrivals(businessDate: string, requestedAt: string): TodayReservationsReadModel;
   todayDepartures(businessDate: string, requestedAt: string): TodayReservationsReadModel;
   roomReservationContext(roomId: string, requestedAt: string): RoomReservationContextReadModel;
+  rebuildInventory(options?: Partial<InventoryHorizonRequest>): InventoryReadModel;
+  inventoryIntervals(options?: Partial<InventoryHorizonRequest>): InventoryReadModel;
+  inventorySummary(options?: Partial<InventoryHorizonRequest>): InventoryReadModel;
   runInTransaction?<TValue>(operation: () => TValue): TValue;
   close?(): void;
 }
@@ -224,6 +239,8 @@ export function createPmsLocalHttpHandler(options: PmsLocalHttpHandlerOptions) {
             pmsTodayArrivalsOperation,
             pmsTodayDeparturesOperation,
             pmsRoomReservationContextOperation,
+            pmsInventoryIntervalsOperation,
+            pmsInventorySummaryOperation,
           ],
           storage: options.store.storage,
           auth: {
@@ -342,6 +359,26 @@ export function createPmsLocalHttpHandler(options: PmsLocalHttpHandlerOptions) {
           ok: true,
           operation: pmsRoomReservationContextOperation,
           readModel: options.store.roomReservationContext(String(body.roomId ?? ''), requestedAt),
+        });
+        return;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/v1/pms/inventory/intervals') {
+        const body = await readJsonBody(request) as Partial<InventoryHorizonRequest>;
+        writeJson(response, 200, {
+          ok: true,
+          operation: pmsInventoryIntervalsOperation,
+          readModel: options.store.inventoryIntervals(body),
+        });
+        return;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/v1/pms/inventory/summary') {
+        const body = await readJsonBody(request) as Partial<InventoryHorizonRequest>;
+        writeJson(response, 200, {
+          ok: true,
+          operation: pmsInventorySummaryOperation,
+          readModel: options.store.inventorySummary(body),
         });
         return;
       }

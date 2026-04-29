@@ -5,6 +5,16 @@ import type {
   AuditEntry,
   DomainEvent,
   HousekeepingTask,
+  InventoryAvailabilityStatus,
+  InventoryBlock,
+  InventoryCalendarKind,
+  InventoryDayRoom,
+  InventoryHorizonRequest,
+  InventoryIntervalProjection,
+  InventoryReadModel,
+  InventorySellableStatus,
+  InventorySourceRef,
+  InventorySummaryDayType,
   MaintenanceTicket,
   ReservationReadModel,
   RoomReservationContextReadModel,
@@ -72,6 +82,7 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
   private readonly seedReservations: readonly PmsSandboxReservationImportRecord[];
   private readonly now: () => string;
   private transactionDepth = 0;
+  private inventoryDirty = false;
 
   constructor(options: CreateSqliteLocalSandboxStoreOptions) {
     if (options.dbPath !== ':memory:') {
@@ -88,6 +99,7 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
   }
 
   readback(roomId?: string): PmsSandboxReadback {
+    const horizon = this.rebuildInventory({ roomId });
     const properties = this.listProperties();
     const roomTypes = this.listRoomTypes();
     const rooms = roomId ? this.getRoomsByRoomId(roomId) : this.listRooms();
@@ -113,6 +125,10 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
       reservations: cloneValue(reservations),
       reservationAllocations: cloneValue(reservationAllocations),
       stays: cloneValue(stays),
+      inventoryBlocks: cloneValue(horizon.blocks),
+      inventoryDayRooms: cloneValue(horizon.dayRooms),
+      inventoryIntervalProjection: cloneValue(horizon.intervals),
+      inventorySummaryDayType: cloneValue(horizon.summaries),
       housekeepingTasks: cloneValue(housekeepingTasks),
       maintenanceTickets: cloneValue(maintenanceTickets),
       audits: cloneValue(audits),
@@ -143,14 +159,28 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
   }
 
   importReservations(reservations: readonly PmsSandboxReservationImportRecord[]) {
-    const imported: ReservationReadModel[] = [];
-    for (const reservation of reservations) {
-      imported.push(this.saveReservationImportRecord(reservation));
-    }
-    return {
-      importedCount: imported.length,
-      reservations: imported,
-    };
+    return this.runInTransaction(() => {
+      const imported: ReservationReadModel[] = [];
+      for (const reservation of reservations) {
+        imported.push(this.saveReservationImportRecord(reservation));
+      }
+      return {
+        importedCount: imported.length,
+        reservations: imported,
+      };
+    });
+  }
+
+  rebuildInventory(options: Partial<InventoryHorizonRequest> = {}): InventoryReadModel {
+    return this.runInTransaction(() => this.rebuildInventoryHorizon(options));
+  }
+
+  inventoryIntervals(options: Partial<InventoryHorizonRequest> = {}): InventoryReadModel {
+    return this.rebuildInventory(options);
+  }
+
+  inventorySummary(options: Partial<InventoryHorizonRequest> = {}): InventoryReadModel {
+    return this.rebuildInventory(options);
   }
 
   runInTransaction<TValue>(operation: () => TValue): TValue {
@@ -162,10 +192,15 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
     this.transactionDepth += 1;
     try {
       const result = operation();
+      if (this.inventoryDirty) {
+        this.rebuildInventoryHorizon();
+        this.inventoryDirty = false;
+      }
       this.db.exec('COMMIT');
       return result;
     } catch (error) {
       this.db.exec('ROLLBACK');
+      this.inventoryDirty = false;
       throw error;
     } finally {
       this.transactionDepth -= 1;
@@ -292,6 +327,67 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
         FOREIGN KEY (reservation_id) REFERENCES reservations(reservation_id) ON DELETE CASCADE
       );
 
+      CREATE TABLE IF NOT EXISTS inventory_blocks (
+        block_id TEXT PRIMARY KEY,
+        property_id TEXT NOT NULL,
+        room_id TEXT NOT NULL,
+        room_type_id TEXT,
+        block_type TEXT NOT NULL,
+        start_date TEXT NOT NULL,
+        end_date TEXT,
+        status TEXT NOT NULL,
+        source_type TEXT NOT NULL,
+        source_id TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        closed_at TEXT,
+        UNIQUE (source_type, source_id, room_id, block_type)
+      );
+
+      CREATE TABLE IF NOT EXISTS inventory_day_room (
+        business_date TEXT NOT NULL,
+        property_id TEXT NOT NULL,
+        room_id TEXT NOT NULL,
+        room_number TEXT NOT NULL,
+        room_type_id TEXT,
+        room_type TEXT,
+        availability_status TEXT NOT NULL,
+        source_refs_json TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (business_date, room_id)
+      );
+
+      CREATE TABLE IF NOT EXISTS inventory_interval_projection (
+        projection_id TEXT PRIMARY KEY,
+        property_id TEXT NOT NULL,
+        room_id TEXT NOT NULL,
+        room_number TEXT NOT NULL,
+        room_type_id TEXT,
+        room_type TEXT,
+        start_date TEXT NOT NULL,
+        end_date TEXT NOT NULL,
+        calendar_kind TEXT NOT NULL,
+        sellable_status TEXT NOT NULL,
+        title TEXT NOT NULL,
+        source_refs_json TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS inventory_summary_day_type (
+        business_date TEXT NOT NULL,
+        property_id TEXT NOT NULL,
+        room_type_id TEXT NOT NULL,
+        room_type TEXT,
+        total_rooms INTEGER NOT NULL,
+        available_rooms INTEGER NOT NULL,
+        occupied_rooms INTEGER NOT NULL,
+        blocked_rooms INTEGER NOT NULL,
+        reserved_rooms INTEGER NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (business_date, property_id, room_type_id)
+      );
+
       CREATE TABLE IF NOT EXISTS audits (
         audit_id TEXT PRIMARY KEY,
         room_id TEXT NOT NULL,
@@ -340,6 +436,11 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
       CREATE INDEX IF NOT EXISTS idx_reservations_departure_date ON reservations(departure_date);
       CREATE INDEX IF NOT EXISTS idx_reservation_allocations_room_id ON reservation_room_allocations(room_id);
       CREATE INDEX IF NOT EXISTS idx_stays_room_id ON stays(room_id);
+      CREATE INDEX IF NOT EXISTS idx_inventory_blocks_room_id ON inventory_blocks(room_id);
+      CREATE INDEX IF NOT EXISTS idx_inventory_blocks_source ON inventory_blocks(source_type, source_id);
+      CREATE INDEX IF NOT EXISTS idx_inventory_day_room_date ON inventory_day_room(business_date);
+      CREATE INDEX IF NOT EXISTS idx_inventory_interval_projection_room_id ON inventory_interval_projection(room_id);
+      CREATE INDEX IF NOT EXISTS idx_inventory_summary_day_type_date ON inventory_summary_day_type(business_date);
       CREATE INDEX IF NOT EXISTS idx_audits_room_id ON audits(room_id);
       CREATE INDEX IF NOT EXISTS idx_audits_correlation_id ON audits(correlation_id);
       CREATE INDEX IF NOT EXISTS idx_audits_idempotency_key ON audits(idempotency_key);
@@ -407,6 +508,10 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
       DELETE FROM core_idempotency;
       DELETE FROM domain_events;
       DELETE FROM audits;
+      DELETE FROM inventory_summary_day_type;
+      DELETE FROM inventory_interval_projection;
+      DELETE FROM inventory_day_room;
+      DELETE FROM inventory_blocks;
       DELETE FROM stays;
       DELETE FROM reservation_room_allocations;
       DELETE FROM reservations;
@@ -417,6 +522,7 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
       DELETE FROM room_types;
       DELETE FROM properties;
     `);
+    this.inventoryDirty = true;
   }
 
   private createCorePorts(): CorePorts {
@@ -486,6 +592,7 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
   }
 
   private saveRoom(room: RoomAggregate): void {
+    const previous = this.getRoom(room.roomId);
     this.ensureCatalogForRoom(room);
     this.db
       .prepare(
@@ -518,6 +625,10 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
         room.saleStatus,
         this.now(),
       );
+    if (previous && previous.saleStatus !== 'sellable' && room.saleStatus === 'sellable') {
+      this.closeActiveStopSellBlocks(room.roomId, this.now());
+    }
+    this.inventoryDirty = true;
   }
 
   private seedCatalogFromRooms(rooms: readonly RoomAggregate[]): void {
@@ -826,6 +937,7 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
         createdAt,
         createdAt,
       );
+    this.inventoryDirty = true;
 
     if (record.allocation || record.roomId || record.roomNumber) {
       const allocation = {
@@ -911,6 +1023,7 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
         timestamp,
         timestamp,
       );
+    this.inventoryDirty = true;
   }
 
   private saveStay(
@@ -951,6 +1064,7 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
         timestamp,
         timestamp,
       );
+    this.inventoryDirty = true;
   }
 
   private getLatestReservationAllocation(reservationId: string): PmsSandboxReservationAllocationReadback | undefined {
@@ -1046,6 +1160,315 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
     };
   }
 
+  private rebuildInventoryHorizon(options: Partial<InventoryHorizonRequest> = {}): InventoryReadModel {
+    const generatedAt = this.now();
+    const startDate = normalizeBusinessDate(options.startDate ?? generatedAt);
+    const horizonDays = normalizeInventoryHorizonDays(options.horizonDays);
+    const endDate = addBusinessDays(startDate, horizonDays);
+    const rooms = this.listRooms();
+    const reservations = this.listReservations();
+    const reservationsById = new Map(reservations.map((reservation) => [reservation.reservationId, reservation]));
+    const allocations = this.listReservationAllocations();
+    const stays = this.listStays();
+    const allBlocks = this.listInventoryBlocks();
+
+    this.clearInventoryDerivedTables(startDate, endDate);
+
+    const dayRooms: InventoryDayRoom[] = [];
+    for (const businessDate of businessDateRange(startDate, endDate)) {
+      for (const room of rooms) {
+        const dayRoom = this.deriveInventoryDayRoom({
+          businessDate,
+          endDate,
+          room,
+          blocks: allBlocks,
+          reservationsById,
+          allocations,
+          stays,
+          updatedAt: generatedAt,
+        });
+        this.saveInventoryDayRoom(dayRoom);
+        dayRooms.push(dayRoom);
+      }
+    }
+
+    for (const interval of compressInventoryIntervals(dayRooms, generatedAt)) {
+      this.saveInventoryIntervalProjection(interval);
+    }
+    for (const summary of summarizeInventoryDayRooms(dayRooms, generatedAt)) {
+      this.saveInventorySummaryDayType(summary);
+    }
+
+    this.inventoryDirty = false;
+    const filteredDayRooms = this.listInventoryDayRooms(startDate, endDate, options.roomId);
+    const summaryRoomTypeIds = options.roomId ? new Set(filteredDayRooms.map((row) => row.roomTypeId ?? 'room-type-unknown')) : undefined;
+    return {
+      schemaVersion: 'pms-dashboard-mvp-v1',
+      generatedAt,
+      startDate,
+      endDate,
+      horizonDays,
+      summaryStatus: 'fresh',
+      blocks: this.listInventoryBlocks(options.roomId),
+      dayRooms: filteredDayRooms,
+      intervals: this.listInventoryIntervalProjection(startDate, endDate, options.roomId),
+      summaries: this.listInventorySummaryDayType(startDate, endDate, summaryRoomTypeIds),
+      projectionFreshness: createProjectionFreshness(generatedAt, 'fresh'),
+    };
+  }
+
+  private deriveInventoryDayRoom(input: {
+    readonly businessDate: string;
+    readonly endDate: string;
+    readonly room: RoomAggregate;
+    readonly blocks: readonly InventoryBlock[];
+    readonly reservationsById: ReadonlyMap<string, ReservationReadModel>;
+    readonly allocations: readonly PmsSandboxReservationAllocationReadback[];
+    readonly stays: readonly PmsSandboxStayReadback[];
+    readonly updatedAt: string;
+  }): InventoryDayRoom {
+    const activeBlock = input.blocks.find((block) => block.roomId === input.room.roomId && block.status === 'active' && dateInRange(input.businessDate, block.startDate, block.endDate ?? input.endDate));
+    const occupiedStay = findOccupiedStayForRoomDate(input.stays, input.reservationsById, input.room.roomId, input.businessDate);
+    const reservedAllocation = findReservedAllocationForRoomDate(input.allocations, input.reservationsById, input.room.roomId, input.businessDate);
+    const reservedReservation = reservedAllocation ? undefined : findReservedReservationForRoomDate(input.reservationsById, input.room.roomId, input.businessDate);
+    const propertyId = input.room.propertyId ?? 'property-small-hotel';
+
+    if (activeBlock) {
+      return inventoryDayRoomForStatus(input.room, propertyId, input.businessDate, 'blocked', [{ sourceType: 'inventory_block', sourceId: activeBlock.blockId, label: activeBlock.reason }], input.updatedAt);
+    }
+    if (input.room.saleStatus !== 'sellable') {
+      return inventoryDayRoomForStatus(input.room, propertyId, input.businessDate, 'blocked', [{ sourceType: 'room_status', sourceId: input.room.roomId, label: input.room.saleStatus }], input.updatedAt);
+    }
+    if (occupiedStay) {
+      const reservation = input.reservationsById.get(occupiedStay.reservationId);
+      return inventoryDayRoomForStatus(input.room, propertyId, input.businessDate, 'occupied', [{ sourceType: 'stay', sourceId: occupiedStay.stayId, label: reservation?.reservationCode }], input.updatedAt);
+    }
+    if (reservedAllocation) {
+      const reservation = input.reservationsById.get(reservedAllocation.reservationId);
+      return inventoryDayRoomForStatus(input.room, propertyId, input.businessDate, 'reserved', [{ sourceType: 'reservation', sourceId: reservedAllocation.reservationId, label: reservation?.reservationCode }], input.updatedAt);
+    }
+    if (reservedReservation) {
+      return inventoryDayRoomForStatus(input.room, propertyId, input.businessDate, 'reserved', [{ sourceType: 'reservation', sourceId: reservedReservation.reservationId, label: reservedReservation.reservationCode }], input.updatedAt);
+    }
+    return inventoryDayRoomForStatus(input.room, propertyId, input.businessDate, 'available', [], input.updatedAt);
+  }
+
+  private clearInventoryDerivedTables(startDate: string, endDate: string): void {
+    this.db.prepare('DELETE FROM inventory_summary_day_type WHERE business_date >= ? AND business_date < ?').run(startDate, endDate);
+    this.db.prepare('DELETE FROM inventory_interval_projection WHERE start_date < ? AND end_date > ?').run(endDate, startDate);
+    this.db.prepare('DELETE FROM inventory_day_room WHERE business_date >= ? AND business_date < ?').run(startDate, endDate);
+  }
+
+  private listInventoryBlocks(roomId?: string): InventoryBlock[] {
+    const rows = roomId
+      ? this.db.prepare('SELECT * FROM inventory_blocks WHERE room_id = ? ORDER BY start_date, block_id').all(roomId) as unknown as InventoryBlockRow[]
+      : this.db.prepare('SELECT * FROM inventory_blocks ORDER BY start_date, block_id').all() as unknown as InventoryBlockRow[];
+    return rows.map(inventoryBlockFromRow);
+  }
+
+  private getInventoryBlockBySource(sourceType: InventoryBlock['sourceType'], sourceId: string, roomId: string, blockType: InventoryBlock['blockType']): InventoryBlock | undefined {
+    const row = this.db
+      .prepare('SELECT * FROM inventory_blocks WHERE source_type = ? AND source_id = ? AND room_id = ? AND block_type = ?')
+      .get(sourceType, sourceId, roomId, blockType) as InventoryBlockRow | undefined;
+    return row ? inventoryBlockFromRow(row) : undefined;
+  }
+
+  private upsertInventoryBlock(block: InventoryBlock): void {
+    this.db
+      .prepare(
+        `
+          INSERT INTO inventory_blocks (
+            block_id, property_id, room_id, room_type_id, block_type, start_date, end_date, status,
+            source_type, source_id, reason, created_at, updated_at, closed_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(source_type, source_id, room_id, block_type) DO UPDATE SET
+            property_id = excluded.property_id,
+            room_type_id = excluded.room_type_id,
+            start_date = excluded.start_date,
+            end_date = excluded.end_date,
+            status = excluded.status,
+            reason = excluded.reason,
+            updated_at = excluded.updated_at,
+            closed_at = excluded.closed_at
+        `,
+      )
+      .run(
+        block.blockId,
+        block.propertyId,
+        block.roomId,
+        block.roomTypeId ?? null,
+        block.blockType,
+        block.startDate,
+        block.endDate ?? null,
+        block.status,
+        block.sourceType,
+        block.sourceId,
+        block.reason,
+        block.createdAt,
+        block.updatedAt,
+        block.closedAt ?? null,
+      );
+    this.inventoryDirty = true;
+  }
+
+  private upsertMaintenanceInventoryBlock(ticket: MaintenanceTicket): void {
+    if (!ticket.stopSellRequested) {
+      return;
+    }
+    const existing = this.getInventoryBlockBySource('maintenance_ticket', ticket.ticketId, ticket.roomId, 'repair');
+    if (existing?.status === 'closed') {
+      return;
+    }
+    const room = this.getRoom(ticket.roomId);
+    const timestamp = this.now();
+    this.upsertInventoryBlock({
+      blockId: existing?.blockId ?? `block-${ticket.ticketId}`,
+      propertyId: room?.propertyId ?? 'property-small-hotel',
+      roomId: ticket.roomId,
+      ...(room?.roomTypeId ? { roomTypeId: room.roomTypeId } : {}),
+      blockType: 'repair',
+      startDate: normalizeBusinessDate(ticket.createdAt),
+      status: 'active',
+      sourceType: 'maintenance_ticket',
+      sourceId: ticket.ticketId,
+      reason: ticket.reason,
+      createdAt: existing?.createdAt ?? ticket.createdAt,
+      updatedAt: timestamp,
+    });
+  }
+
+  private closeActiveStopSellBlocks(roomId: string, timestamp: string): void {
+    const closeDate = normalizeBusinessDate(timestamp);
+    const result = this.db
+      .prepare(
+        `
+          UPDATE inventory_blocks
+          SET status = 'closed', end_date = ?, closed_at = ?, updated_at = ?
+          WHERE room_id = ? AND status = 'active' AND block_type = 'repair' AND source_type = 'maintenance_ticket'
+        `,
+      )
+      .run(closeDate, timestamp, timestamp, roomId);
+    if (result.changes > 0) {
+      this.inventoryDirty = true;
+    }
+  }
+
+  private saveInventoryDayRoom(row: InventoryDayRoom): void {
+    this.db
+      .prepare(
+        `
+          INSERT INTO inventory_day_room (
+            business_date, property_id, room_id, room_number, room_type_id, room_type, availability_status, source_refs_json, updated_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(business_date, room_id) DO UPDATE SET
+            property_id = excluded.property_id,
+            room_number = excluded.room_number,
+            room_type_id = excluded.room_type_id,
+            room_type = excluded.room_type,
+            availability_status = excluded.availability_status,
+            source_refs_json = excluded.source_refs_json,
+            updated_at = excluded.updated_at
+        `,
+      )
+      .run(row.businessDate, row.propertyId, row.roomId, row.roomNumber, row.roomTypeId ?? null, row.roomType ?? null, row.availabilityStatus, JSON.stringify(row.sourceRefs), row.updatedAt);
+  }
+
+  private listInventoryDayRooms(startDate: string, endDate: string, roomId?: string): InventoryDayRoom[] {
+    const rows = roomId
+      ? this.db.prepare('SELECT * FROM inventory_day_room WHERE business_date >= ? AND business_date < ? AND room_id = ? ORDER BY business_date, room_id').all(startDate, endDate, roomId) as unknown as InventoryDayRoomRow[]
+      : this.db.prepare('SELECT * FROM inventory_day_room WHERE business_date >= ? AND business_date < ? ORDER BY business_date, room_id').all(startDate, endDate) as unknown as InventoryDayRoomRow[];
+    return rows.map(inventoryDayRoomFromRow);
+  }
+
+  private saveInventoryIntervalProjection(interval: InventoryIntervalProjection): void {
+    this.db
+      .prepare(
+        `
+          INSERT INTO inventory_interval_projection (
+            projection_id, property_id, room_id, room_number, room_type_id, room_type, start_date, end_date,
+            calendar_kind, sellable_status, title, source_refs_json, updated_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(projection_id) DO UPDATE SET
+            property_id = excluded.property_id,
+            room_id = excluded.room_id,
+            room_number = excluded.room_number,
+            room_type_id = excluded.room_type_id,
+            room_type = excluded.room_type,
+            start_date = excluded.start_date,
+            end_date = excluded.end_date,
+            calendar_kind = excluded.calendar_kind,
+            sellable_status = excluded.sellable_status,
+            title = excluded.title,
+            source_refs_json = excluded.source_refs_json,
+            updated_at = excluded.updated_at
+        `,
+      )
+      .run(
+        interval.projectionId,
+        interval.propertyId,
+        interval.roomId,
+        interval.roomNumber,
+        interval.roomTypeId ?? null,
+        interval.roomType ?? null,
+        interval.startDate,
+        interval.endDate,
+        interval.calendarKind,
+        interval.sellableStatus,
+        interval.title,
+        JSON.stringify(interval.sourceRefs),
+        interval.updatedAt,
+      );
+  }
+
+  private listInventoryIntervalProjection(startDate: string, endDate: string, roomId?: string): InventoryIntervalProjection[] {
+    const rows = roomId
+      ? this.db.prepare('SELECT * FROM inventory_interval_projection WHERE start_date < ? AND end_date > ? AND room_id = ? ORDER BY start_date, room_id, projection_id').all(endDate, startDate, roomId) as unknown as InventoryIntervalProjectionRow[]
+      : this.db.prepare('SELECT * FROM inventory_interval_projection WHERE start_date < ? AND end_date > ? ORDER BY start_date, room_id, projection_id').all(endDate, startDate) as unknown as InventoryIntervalProjectionRow[];
+    return rows.map(inventoryIntervalProjectionFromRow);
+  }
+
+  private saveInventorySummaryDayType(summary: InventorySummaryDayType): void {
+    this.db
+      .prepare(
+        `
+          INSERT INTO inventory_summary_day_type (
+            business_date, property_id, room_type_id, room_type, total_rooms, available_rooms, occupied_rooms, blocked_rooms, reserved_rooms, updated_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(business_date, property_id, room_type_id) DO UPDATE SET
+            room_type = excluded.room_type,
+            total_rooms = excluded.total_rooms,
+            available_rooms = excluded.available_rooms,
+            occupied_rooms = excluded.occupied_rooms,
+            blocked_rooms = excluded.blocked_rooms,
+            reserved_rooms = excluded.reserved_rooms,
+            updated_at = excluded.updated_at
+        `,
+      )
+      .run(
+        summary.businessDate,
+        summary.propertyId,
+        summary.roomTypeId,
+        summary.roomType ?? null,
+        summary.totalRooms,
+        summary.availableRooms,
+        summary.occupiedRooms,
+        summary.blockedRooms,
+        summary.reservedRooms,
+        summary.updatedAt,
+      );
+  }
+
+  private listInventorySummaryDayType(startDate: string, endDate: string, roomTypeIds?: ReadonlySet<string>): InventorySummaryDayType[] {
+    const rows = this.db
+      .prepare('SELECT * FROM inventory_summary_day_type WHERE business_date >= ? AND business_date < ? ORDER BY business_date, room_type_id')
+      .all(startDate, endDate) as unknown as InventorySummaryDayTypeRow[];
+    return rows.map(inventorySummaryDayTypeFromRow).filter((row) => !roomTypeIds || roomTypeIds.has(row.roomTypeId));
+  }
+
   private getHousekeepingTask(taskId: string): HousekeepingTask | undefined {
     const row = this.db.prepare('SELECT payload_json FROM housekeeping_tasks WHERE task_id = ?').get(taskId) as JsonPayloadRow | undefined;
     return row ? parseJson<HousekeepingTask>(row.payload_json) : undefined;
@@ -1112,6 +1535,8 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
         `,
       )
       .run(ticket.ticketId, ticket.roomId, JSON.stringify(ticket), ticket.createdAt, this.now());
+    this.upsertMaintenanceInventoryBlock(ticket);
+    this.inventoryDirty = true;
   }
 
   private appendAudit(entry: AuditEntry): void {
@@ -1269,6 +1694,64 @@ interface ReservationRow {
   readonly status: ReservationReadModel['status'];
 }
 
+interface InventoryBlockRow {
+  readonly block_id: string;
+  readonly property_id: string;
+  readonly room_id: string;
+  readonly room_type_id?: string | null;
+  readonly block_type: InventoryBlock['blockType'];
+  readonly start_date: string;
+  readonly end_date?: string | null;
+  readonly status: InventoryBlock['status'];
+  readonly source_type: InventoryBlock['sourceType'];
+  readonly source_id: string;
+  readonly reason: string;
+  readonly created_at: string;
+  readonly updated_at: string;
+  readonly closed_at?: string | null;
+}
+
+interface InventoryDayRoomRow {
+  readonly business_date: string;
+  readonly property_id: string;
+  readonly room_id: string;
+  readonly room_number: string;
+  readonly room_type_id?: string | null;
+  readonly room_type?: string | null;
+  readonly availability_status: InventoryAvailabilityStatus;
+  readonly source_refs_json: string;
+  readonly updated_at: string;
+}
+
+interface InventoryIntervalProjectionRow {
+  readonly projection_id: string;
+  readonly property_id: string;
+  readonly room_id: string;
+  readonly room_number: string;
+  readonly room_type_id?: string | null;
+  readonly room_type?: string | null;
+  readonly start_date: string;
+  readonly end_date: string;
+  readonly calendar_kind: InventoryCalendarKind;
+  readonly sellable_status: InventorySellableStatus;
+  readonly title: string;
+  readonly source_refs_json: string;
+  readonly updated_at: string;
+}
+
+interface InventorySummaryDayTypeRow {
+  readonly business_date: string;
+  readonly property_id: string;
+  readonly room_type_id: string;
+  readonly room_type?: string | null;
+  readonly total_rooms: number;
+  readonly available_rooms: number;
+  readonly occupied_rooms: number;
+  readonly blocked_rooms: number;
+  readonly reserved_rooms: number;
+  readonly updated_at: string;
+}
+
 function roomFromRow(row: RoomRow): RoomAggregate {
   return {
     roomId: row.room_id,
@@ -1281,6 +1764,72 @@ function roomFromRow(row: RoomRow): RoomAggregate {
     occupancyStatus: row.occupancy_status,
     cleaningStatus: row.cleaning_status,
     saleStatus: row.sale_status,
+  };
+}
+
+function inventoryBlockFromRow(row: InventoryBlockRow): InventoryBlock {
+  return {
+    blockId: row.block_id,
+    propertyId: row.property_id,
+    roomId: row.room_id,
+    ...(row.room_type_id ? { roomTypeId: row.room_type_id } : {}),
+    blockType: row.block_type,
+    startDate: row.start_date,
+    ...(row.end_date ? { endDate: row.end_date } : {}),
+    status: row.status,
+    sourceType: row.source_type,
+    sourceId: row.source_id,
+    reason: row.reason,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    ...(row.closed_at ? { closedAt: row.closed_at } : {}),
+  };
+}
+
+function inventoryDayRoomFromRow(row: InventoryDayRoomRow): InventoryDayRoom {
+  return {
+    businessDate: row.business_date,
+    propertyId: row.property_id,
+    roomId: row.room_id,
+    roomNumber: row.room_number,
+    ...(row.room_type_id ? { roomTypeId: row.room_type_id } : {}),
+    ...(row.room_type ? { roomType: row.room_type } : {}),
+    availabilityStatus: row.availability_status,
+    sourceRefs: parseJson<InventorySourceRef[]>(row.source_refs_json),
+    updatedAt: row.updated_at,
+  };
+}
+
+function inventoryIntervalProjectionFromRow(row: InventoryIntervalProjectionRow): InventoryIntervalProjection {
+  return {
+    projectionId: row.projection_id,
+    propertyId: row.property_id,
+    roomId: row.room_id,
+    roomNumber: row.room_number,
+    ...(row.room_type_id ? { roomTypeId: row.room_type_id } : {}),
+    ...(row.room_type ? { roomType: row.room_type } : {}),
+    startDate: row.start_date,
+    endDate: row.end_date,
+    calendarKind: row.calendar_kind,
+    sellableStatus: row.sellable_status,
+    title: row.title,
+    sourceRefs: parseJson<InventorySourceRef[]>(row.source_refs_json),
+    updatedAt: row.updated_at,
+  };
+}
+
+function inventorySummaryDayTypeFromRow(row: InventorySummaryDayTypeRow): InventorySummaryDayType {
+  return {
+    businessDate: row.business_date,
+    propertyId: row.property_id,
+    roomTypeId: row.room_type_id,
+    ...(row.room_type ? { roomType: row.room_type } : {}),
+    totalRooms: row.total_rooms,
+    availableRooms: row.available_rooms,
+    occupiedRooms: row.occupied_rooms,
+    blockedRooms: row.blocked_rooms,
+    reservedRooms: row.reserved_rooms,
+    updatedAt: row.updated_at,
   };
 }
 
@@ -1367,6 +1916,193 @@ function roomIdFromEvent(event: DomainEvent): string | undefined {
     return event.task.roomId;
   }
   return event.roomId;
+}
+
+function inventoryDayRoomForStatus(
+  room: RoomAggregate,
+  propertyId: string,
+  businessDate: string,
+  availabilityStatus: InventoryAvailabilityStatus,
+  sourceRefs: readonly InventorySourceRef[],
+  updatedAt: string,
+): InventoryDayRoom {
+  return {
+    businessDate,
+    propertyId,
+    roomId: room.roomId,
+    roomNumber: room.roomNumber,
+    ...(room.roomTypeId ? { roomTypeId: room.roomTypeId } : {}),
+    ...(room.roomType ? { roomType: room.roomType } : {}),
+    availabilityStatus,
+    sourceRefs,
+    updatedAt,
+  };
+}
+
+function findOccupiedStayForRoomDate(
+  stays: readonly PmsSandboxStayReadback[],
+  reservationsById: ReadonlyMap<string, ReservationReadModel>,
+  roomId: string,
+  businessDate: string,
+): PmsSandboxStayReadback | undefined {
+  return stays.find((stay) => {
+    if (stay.roomId !== roomId || stay.status !== 'checkedIn') {
+      return false;
+    }
+    const reservation = reservationsById.get(stay.reservationId);
+    const startDate = normalizeBusinessDate(stay.checkedInAt ?? reservation?.arrivalDate ?? businessDate);
+    const endDate = normalizeBusinessDate(stay.checkedOutAt ?? reservation?.departureDate ?? addBusinessDays(businessDate, 1));
+    return dateInRange(businessDate, startDate, endDate);
+  });
+}
+
+function findReservedAllocationForRoomDate(
+  allocations: readonly PmsSandboxReservationAllocationReadback[],
+  reservationsById: ReadonlyMap<string, ReservationReadModel>,
+  roomId: string,
+  businessDate: string,
+): PmsSandboxReservationAllocationReadback | undefined {
+  return allocations.find((allocation) => {
+    const reservation = reservationsById.get(allocation.reservationId);
+    if (allocation.roomId !== roomId || !reservation || reservation.status === 'cancelled' || reservation.status === 'checkedOut') {
+      return false;
+    }
+    return dateInRange(businessDate, allocation.startDate, allocation.endDate);
+  });
+}
+
+function findReservedReservationForRoomDate(
+  reservationsById: ReadonlyMap<string, ReservationReadModel>,
+  roomId: string,
+  businessDate: string,
+): ReservationReadModel | undefined {
+  return Array.from(reservationsById.values()).find((reservation) => {
+    if (reservation.roomId !== roomId || reservation.status === 'cancelled' || reservation.status === 'checkedOut') {
+      return false;
+    }
+    return dateInRange(businessDate, reservation.arrivalDate, reservation.departureDate);
+  });
+}
+
+function compressInventoryIntervals(dayRooms: readonly InventoryDayRoom[], updatedAt: string): InventoryIntervalProjection[] {
+  const intervals: InventoryIntervalProjection[] = [];
+  const rowsByRoom = new Map<string, InventoryDayRoom[]>();
+  for (const row of dayRooms) {
+    rowsByRoom.set(row.roomId, [...(rowsByRoom.get(row.roomId) ?? []), row]);
+  }
+
+  for (const rows of rowsByRoom.values()) {
+    rows.sort((left, right) => left.businessDate.localeCompare(right.businessDate));
+    let current: InventoryDayRoom | undefined;
+    let startDate: string | undefined;
+    for (const row of rows) {
+      if (!current) {
+        current = row;
+        startDate = row.businessDate;
+        continue;
+      }
+      if (sameInventoryInterval(current, row)) {
+        current = row;
+        continue;
+      }
+      intervals.push(inventoryIntervalFromDayRoom(current, startDate!, row.businessDate, updatedAt));
+      current = row;
+      startDate = row.businessDate;
+    }
+    if (current && startDate) {
+      intervals.push(inventoryIntervalFromDayRoom(current, startDate, addBusinessDays(current.businessDate, 1), updatedAt));
+    }
+  }
+
+  return intervals;
+}
+
+function sameInventoryInterval(left: InventoryDayRoom, right: InventoryDayRoom): boolean {
+  return left.availabilityStatus === right.availabilityStatus && JSON.stringify(left.sourceRefs) === JSON.stringify(right.sourceRefs);
+}
+
+function inventoryIntervalFromDayRoom(row: InventoryDayRoom, startDate: string, endDate: string, updatedAt: string): InventoryIntervalProjection {
+  const calendarKind = row.availabilityStatus;
+  return {
+    projectionId: `inventory-${row.roomId}-${startDate}-${endDate}-${calendarKind}`,
+    propertyId: row.propertyId,
+    roomId: row.roomId,
+    roomNumber: row.roomNumber,
+    ...(row.roomTypeId ? { roomTypeId: row.roomTypeId } : {}),
+    ...(row.roomType ? { roomType: row.roomType } : {}),
+    startDate,
+    endDate,
+    calendarKind,
+    sellableStatus: calendarKind === 'blocked' ? 'outOfOrder' : 'sellable',
+    title: `${row.roomNumber} ${calendarKind}`,
+    sourceRefs: row.sourceRefs,
+    updatedAt,
+  };
+}
+
+function summarizeInventoryDayRooms(dayRooms: readonly InventoryDayRoom[], updatedAt: string): InventorySummaryDayType[] {
+  const summaries = new Map<string, InventorySummaryDayType>();
+  for (const row of dayRooms) {
+    const roomTypeId = row.roomTypeId ?? 'room-type-unknown';
+    const key = `${row.businessDate}:${row.propertyId}:${roomTypeId}`;
+    const current = summaries.get(key) ?? {
+      businessDate: row.businessDate,
+      propertyId: row.propertyId,
+      roomTypeId,
+      ...(row.roomType ? { roomType: row.roomType } : {}),
+      totalRooms: 0,
+      availableRooms: 0,
+      occupiedRooms: 0,
+      blockedRooms: 0,
+      reservedRooms: 0,
+      updatedAt,
+    };
+    summaries.set(key, {
+      ...current,
+      totalRooms: current.totalRooms + 1,
+      availableRooms: current.availableRooms + (row.availabilityStatus === 'available' ? 1 : 0),
+      occupiedRooms: current.occupiedRooms + (row.availabilityStatus === 'occupied' ? 1 : 0),
+      blockedRooms: current.blockedRooms + (row.availabilityStatus === 'blocked' ? 1 : 0),
+      reservedRooms: current.reservedRooms + (row.availabilityStatus === 'reserved' ? 1 : 0),
+    });
+  }
+  return Array.from(summaries.values()).sort((left, right) => left.businessDate.localeCompare(right.businessDate) || left.roomTypeId.localeCompare(right.roomTypeId));
+}
+
+function inventoryBlockOverlaps(block: InventoryBlock, startDate: string, endDate: string): boolean {
+  return block.startDate < endDate && (block.endDate ?? endDate) > startDate;
+}
+
+function businessDateRange(startDate: string, endDate: string): string[] {
+  const days: string[] = [];
+  for (let date = startDate; date < endDate; date = addBusinessDays(date, 1)) {
+    days.push(date);
+  }
+  return days;
+}
+
+function dateInRange(businessDate: string, startDate: string, endDate: string): boolean {
+  return businessDate >= normalizeBusinessDate(startDate) && businessDate < normalizeBusinessDate(endDate);
+}
+
+function normalizeInventoryHorizonDays(value: number | undefined): number {
+  if (value === 30 || value === 60 || value === 90) {
+    return value;
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return Math.min(90, Math.max(1, Math.trunc(value)));
+  }
+  return 60;
+}
+
+function addBusinessDays(startDate: string, days: number): string {
+  const date = new Date(`${normalizeBusinessDate(startDate)}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function normalizeBusinessDate(value: string): string {
+  return value.slice(0, 10);
 }
 
 function parseJson<TValue>(raw: string): TValue {

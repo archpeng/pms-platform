@@ -17,6 +17,11 @@ import {
   type DomainEvent,
   type HousekeepingDoneCommand,
   type HousekeepingTaskCreatedEvent,
+  type InventoryBlock,
+  type InventoryDayRoom,
+  type InventoryIntervalProjection,
+  type InventoryReadModel,
+  type InventorySummaryDayType,
   type MaintenanceDoneCommand,
   type PmsCommandDryRunPlan,
   type ReportMaintenanceCommand,
@@ -198,6 +203,82 @@ describe('PMS command contracts', () => {
     expect(dashboardReadModel.counts.dueOut).toBe(1);
     expect(projection.roomLedger.status.occupancy).toBe('vacant');
     expect(projection.operationLog.commandType).toBe('CHECK_OUT');
+  });
+
+  it('defines PMS-owned inventory calendar read-model contracts', () => {
+    const block: InventoryBlock = {
+      blockId: 'block-maintenance-ticket-1',
+      propertyId: 'property-small-hotel',
+      roomId: 'room-A2',
+      roomTypeId: 'room-type-garden-villa',
+      blockType: 'repair',
+      startDate: '2026-04-28',
+      status: 'active',
+      sourceType: 'maintenance_ticket',
+      sourceId: 'ticket-1',
+      reason: 'Stop-sell repair.',
+      createdAt: validMeta.requestedAt,
+      updatedAt: validMeta.requestedAt,
+    };
+    const dayRoom: InventoryDayRoom = {
+      businessDate: '2026-04-28',
+      propertyId: 'property-small-hotel',
+      roomId: 'room-A2',
+      roomNumber: 'A2',
+      roomTypeId: 'room-type-garden-villa',
+      roomType: 'Garden Villa',
+      availabilityStatus: 'blocked',
+      sourceRefs: [{ sourceType: 'inventory_block', sourceId: block.blockId }],
+      updatedAt: validMeta.requestedAt,
+    };
+    const interval: InventoryIntervalProjection = {
+      projectionId: 'inventory-room-A2-2026-04-28-blocked',
+      propertyId: 'property-small-hotel',
+      roomId: 'room-A2',
+      roomNumber: 'A2',
+      roomTypeId: 'room-type-garden-villa',
+      roomType: 'Garden Villa',
+      startDate: '2026-04-28',
+      endDate: '2026-04-29',
+      calendarKind: 'blocked',
+      sellableStatus: 'outOfOrder',
+      title: 'A2 blocked',
+      sourceRefs: dayRoom.sourceRefs,
+      updatedAt: validMeta.requestedAt,
+    };
+    const summary: InventorySummaryDayType = {
+      businessDate: '2026-04-28',
+      propertyId: 'property-small-hotel',
+      roomTypeId: 'room-type-garden-villa',
+      roomType: 'Garden Villa',
+      totalRooms: 1,
+      availableRooms: 0,
+      occupiedRooms: 0,
+      blockedRooms: 1,
+      reservedRooms: 0,
+      updatedAt: validMeta.requestedAt,
+    };
+    const readModel: InventoryReadModel = {
+      schemaVersion: pmsProjectionSchemaVersion,
+      generatedAt: validMeta.requestedAt,
+      startDate: '2026-04-28',
+      endDate: '2026-04-29',
+      horizonDays: 1,
+      summaryStatus: 'fresh',
+      blocks: [block],
+      dayRooms: [dayRoom],
+      intervals: [interval],
+      summaries: [summary],
+      projectionFreshness: {
+        status: 'fresh',
+        generatedAt: validMeta.requestedAt,
+        note: 'pms-read-model-current',
+      },
+    };
+
+    expect(readModel.intervals[0].calendarKind).toBe('blocked');
+    expect(readModel.summaries[0].blockedRooms).toBe(1);
+    expect(readModel.blocks[0].sourceType).toBe('maintenance_ticket');
   });
 
   it('defines housekeeping and maintenance as executable PMS-owned command contracts', () => {

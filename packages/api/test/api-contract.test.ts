@@ -23,6 +23,8 @@ import {
   pmsDashboardOperation,
   pmsGetRoomOperation,
   pmsHousekeepingDoneOperation,
+  pmsInventoryIntervalsOperation,
+  pmsInventorySummaryOperation,
   pmsMaintenanceDoneOperation,
   pmsReportMaintenanceOperation,
   pmsRestoreSellableOperation,
@@ -163,6 +165,8 @@ describe('API checkout contract skeleton', () => {
         'pms_today_arrivals',
         'pms_today_departures',
         'pms_room_reservation_context',
+        'pms_inventory_intervals',
+        'pms_inventory_summary',
       ],
       importsCoreResult: true,
       exposesLocalHandler: true,
@@ -195,6 +199,11 @@ describe('API checkout contract skeleton', () => {
       roomId: 'room-1003',
       reason: 'Guest arrived with verified reservation.',
     });
+  });
+
+  it('defines inventory read-model operation names at the API boundary', () => {
+    expect(pmsInventoryIntervalsOperation).toBe('pms_inventory_intervals');
+    expect(pmsInventorySummaryOperation).toBe('pms_inventory_summary');
   });
 
   it('defines pms_get_room and pms_dashboard read-model responses at the API boundary', () => {

@@ -66,6 +66,7 @@ describe('PMS local durable checkout sandbox HTTP boundary', () => {
     const { url } = await startServer();
 
     const health = await getJson(`${url}/health`);
+    expect(health.operations).toEqual(expect.arrayContaining(['pms_inventory_intervals', 'pms_inventory_summary']));
     expect(health).toMatchObject({
       ok: true,
       service: 'pms-platform',
@@ -247,6 +248,31 @@ describe('PMS local durable checkout sandbox HTTP boundary', () => {
       readModel: {
         roomId: 'room-1001',
         reservations: [{ reservationCode: 'R-HTTP-1' }],
+      },
+    });
+
+    const inventoryIntervals = await authedPost(`${url}/v1/pms/inventory/intervals`, {
+      roomId: 'room-1001',
+      startDate: '2026-04-26',
+      horizonDays: 1,
+    });
+    expect(inventoryIntervals).toMatchObject({
+      ok: true,
+      operation: 'pms_inventory_intervals',
+      readModel: {
+        intervals: [{ roomId: 'room-1001', calendarKind: 'reserved', startDate: '2026-04-26', endDate: '2026-04-27' }],
+      },
+    });
+
+    const inventorySummary = await authedPost(`${url}/v1/pms/inventory/summary`, {
+      startDate: '2026-04-26',
+      horizonDays: 1,
+    });
+    expect(inventorySummary).toMatchObject({
+      ok: true,
+      operation: 'pms_inventory_summary',
+      readModel: {
+        summaries: [{ businessDate: '2026-04-26', totalRooms: 1, reservedRooms: 1 }],
       },
     });
   });

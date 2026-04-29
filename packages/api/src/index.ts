@@ -9,6 +9,8 @@ import type {
   HousekeepingDoneCommand,
   HousekeepingInspectionCommand,
   HousekeepingReworkCommand,
+  InventoryHorizonRequest,
+  InventoryReadModel,
   MaintenanceDoneCommand,
   ReservationReadModel,
   ReportMaintenanceCommand,
@@ -54,6 +56,8 @@ export const pmsReservationGetOperation = 'pms_reservation_get';
 export const pmsTodayArrivalsOperation = 'pms_today_arrivals';
 export const pmsTodayDeparturesOperation = 'pms_today_departures';
 export const pmsRoomReservationContextOperation = 'pms_room_reservation_context';
+export const pmsInventoryIntervalsOperation = 'pms_inventory_intervals';
+export const pmsInventorySummaryOperation = 'pms_inventory_summary';
 
 export type PmsCommandOperation =
   | typeof pmsCheckInOperation
@@ -70,7 +74,9 @@ export type PmsReadModelOperation =
   | typeof pmsReservationGetOperation
   | typeof pmsTodayArrivalsOperation
   | typeof pmsTodayDeparturesOperation
-  | typeof pmsRoomReservationContextOperation;
+  | typeof pmsRoomReservationContextOperation
+  | typeof pmsInventoryIntervalsOperation
+  | typeof pmsInventorySummaryOperation;
 export type PmsApiMode = 'dryRun' | 'confirm';
 export type CheckOutApiMode = PmsApiMode;
 export type ApiBoundaryErrorCode = 'IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_FINGERPRINT';
@@ -315,18 +321,42 @@ export interface RoomReservationContextApiResponse {
   readonly readModel: RoomReservationContextReadModel;
 }
 
+export interface InventoryIntervalsApiRequest extends InventoryHorizonRequest {
+  readonly operation: typeof pmsInventoryIntervalsOperation;
+}
+
+export interface InventoryIntervalsApiResponse {
+  readonly ok: true;
+  readonly operation: typeof pmsInventoryIntervalsOperation;
+  readonly readModel: InventoryReadModel;
+}
+
+export interface InventorySummaryApiRequest extends InventoryHorizonRequest {
+  readonly operation: typeof pmsInventorySummaryOperation;
+}
+
+export interface InventorySummaryApiResponse {
+  readonly ok: true;
+  readonly operation: typeof pmsInventorySummaryOperation;
+  readonly readModel: InventoryReadModel;
+}
+
 export type PmsReadModelApiRequest =
   | GetRoomApiRequest
   | DashboardApiRequest
   | ReservationGetApiRequest
   | TodayReservationsApiRequest
-  | RoomReservationContextApiRequest;
+  | RoomReservationContextApiRequest
+  | InventoryIntervalsApiRequest
+  | InventorySummaryApiRequest;
 export type PmsReadModelApiResponse =
   | GetRoomApiResponse
   | DashboardApiResponse
   | ReservationGetApiResponse
   | TodayReservationsApiResponse
-  | RoomReservationContextApiResponse;
+  | RoomReservationContextApiResponse
+  | InventoryIntervalsApiResponse
+  | InventorySummaryApiResponse;
 
 export interface ApiIdempotencyRecord {
   readonly idempotencyKey: string;
@@ -664,6 +694,8 @@ export function describeApiContractBoundary() {
       pmsTodayArrivalsOperation,
       pmsTodayDeparturesOperation,
       pmsRoomReservationContextOperation,
+      pmsInventoryIntervalsOperation,
+      pmsInventorySummaryOperation,
     ] as const,
     importsCoreResult: true,
     exposesLocalHandler: true,
