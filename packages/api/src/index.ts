@@ -137,6 +137,8 @@ export interface CheckInDryRunApiRequest extends PmsCommandApiRequestBase {
   readonly operation: typeof pmsCheckInOperation;
   readonly mode: 'dryRun';
   readonly source: Extract<CommandMeta['source'], 'api' | 'mcp' | 'test'>;
+  readonly reservationId?: string;
+  readonly reservationCode?: string;
   readonly overrideDirtyRoom?: boolean;
 }
 
@@ -144,6 +146,8 @@ export interface CheckInConfirmApiRequest extends PmsCommandApiRequestBase {
   readonly operation: typeof pmsCheckInOperation;
   readonly mode: 'confirm';
   readonly source: Extract<CommandMeta['source'], 'api' | 'mcp' | 'test'>;
+  readonly reservationId?: string;
+  readonly reservationCode?: string;
   readonly overrideDirtyRoom?: boolean;
 }
 
@@ -153,12 +157,16 @@ export interface CheckOutDryRunApiRequest extends PmsCommandApiRequestBase {
   readonly operation: typeof pmsCheckOutOperation;
   readonly mode: 'dryRun';
   readonly source: Extract<CommandMeta['source'], 'api' | 'mcp' | 'test'>;
+  readonly reservationId?: string;
+  readonly reservationCode?: string;
 }
 
 export interface CheckOutConfirmApiRequest extends PmsCommandApiRequestBase {
   readonly operation: typeof pmsCheckOutOperation;
   readonly mode: 'confirm';
   readonly source: Extract<CommandMeta['source'], 'api' | 'mcp' | 'test'>;
+  readonly reservationId?: string;
+  readonly reservationCode?: string;
 }
 
 export type CheckOutApiRequest = CheckOutDryRunApiRequest | CheckOutConfirmApiRequest;
@@ -443,8 +451,14 @@ export interface ApiIdempotencyRepository {
   list(): readonly ApiIdempotencyRecord[];
 }
 
+export interface StayLifecycleHooks {
+  afterCheckInConfirm?(input: { readonly request: CheckInConfirmApiRequest; readonly result: CoreCheckInConfirmResult }): void;
+  afterCheckOutConfirm?(input: { readonly request: CheckOutConfirmApiRequest; readonly result: CoreCheckOutConfirmResult }): void;
+}
+
 export interface ExecuteCheckOutApiOptions {
   readonly idempotency?: ApiIdempotencyRepository;
+  readonly stayLifecycle?: StayLifecycleHooks;
 }
 
 export type ExecuteCheckInApiOptions = ExecuteCheckOutApiOptions;
@@ -466,6 +480,9 @@ export function executeCheckInApiRequest(
   }
 
   const response = toCheckInApiResponse(request, checkIn(toCheckInCommand(request), ports));
+  if (response.ok && response.mode === 'confirm') {
+    options.stayLifecycle?.afterCheckInConfirm?.({ request: request as CheckInConfirmApiRequest, result: response.result });
+  }
   idempotency?.save({
     idempotencyKey: request.idempotencyKey,
     requestFingerprint: request.requestFingerprint,
@@ -491,6 +508,9 @@ export function executeCheckOutApiRequest(
   }
 
   const response = toCheckOutApiResponse(request, checkOut(toCheckOutCommand(request), ports));
+  if (response.ok && response.mode === 'confirm') {
+    options.stayLifecycle?.afterCheckOutConfirm?.({ request: request as CheckOutConfirmApiRequest, result: response.result });
+  }
   idempotency?.save({
     idempotencyKey: request.idempotencyKey,
     requestFingerprint: request.requestFingerprint,
@@ -528,6 +548,8 @@ export function toCheckInCommand(request: CheckInApiRequest): CheckInCommand {
   return {
     type: 'CHECK_IN',
     roomId: request.roomId,
+    ...(request.reservationId ? { reservationId: request.reservationId } : {}),
+    ...(request.reservationCode ? { reservationCode: request.reservationCode } : {}),
     overrideDirtyRoom: request.overrideDirtyRoom,
     meta: {
       actor: { ...request.actor },
@@ -545,6 +567,8 @@ export function toCheckOutCommand(request: CheckOutApiRequest): CheckOutCommand 
   return {
     type: 'CHECK_OUT',
     roomId: request.roomId,
+    ...(request.reservationId ? { reservationId: request.reservationId } : {}),
+    ...(request.reservationCode ? { reservationCode: request.reservationCode } : {}),
     meta: {
       actor: { ...request.actor },
       source: request.source,
@@ -792,12 +816,12 @@ function executeCoreExtendedCommand(request: PmsExtendedCommandApiRequest, ports
 function extendedFingerprintParameters(
   request: CheckInApiRequest | CheckOutApiRequest | PmsExtendedCommandApiRequest,
 ): { readonly parameters?: Record<string, unknown> } {
-  if (request.operation === pmsCheckInOperation || request.operation === pmsCheckOutOperation) {
-    return {};
-  }
   const record = request as unknown as Record<string, unknown>;
   const parameters: Record<string, unknown> = {};
-  for (const key of ['inspectionRequired', 'result', 'taskId', 'severity', 'stopSellRequested', 'note', 'ticketId'] as const) {
+  const keys = request.operation === pmsCheckInOperation || request.operation === pmsCheckOutOperation
+    ? ['reservationId', 'reservationCode'] as const
+    : ['inspectionRequired', 'result', 'taskId', 'severity', 'stopSellRequested', 'note', 'ticketId'] as const;
+  for (const key of keys) {
     if (record[key] !== undefined) {
       parameters[key] = record[key];
     }

@@ -2,10 +2,17 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { pmsCheckOutOperation, type CheckOutConfirmApiRequest, type CheckOutDryRunApiRequest } from '../src/index.js';
+import {
+  pmsCheckInOperation,
+  pmsCheckOutOperation,
+  type CheckInConfirmApiRequest,
+  type CheckOutConfirmApiRequest,
+  type CheckOutDryRunApiRequest,
+} from '../src/index.js';
 import {
   pmsLocalAuthTokenEnvName,
   startPmsLocalHttpServer,
+  type PmsSandboxReservationImportRecord,
   type StartedPmsLocalHttpServer,
 } from '../src/localSandbox.js';
 import { createSqliteLocalSandboxStore, pmsSqliteDbPathEnvName } from '../src/sqliteSandboxStore.js';
@@ -21,6 +28,18 @@ const dueOutRoom: RoomAggregate = {
   zone: 'A',
   sortKey: 'A1',
   occupancyStatus: 'dueOut',
+  cleaningStatus: 'clean',
+  saleStatus: 'sellable',
+};
+const vacantCleanRoom: RoomAggregate = {
+  roomId: 'room-A2',
+  roomNumber: 'A2',
+  propertyId: 'property-small-hotel',
+  roomTypeId: 'room-type-garden-villa',
+  roomType: '花园别墅',
+  zone: 'A',
+  sortKey: 'A2',
+  occupancyStatus: 'vacant',
   cleaningStatus: 'clean',
   saleStatus: 'sellable',
 };
@@ -47,6 +66,25 @@ const confirmRequest: CheckOutConfirmApiRequest = {
   mode: 'confirm',
   idempotencyKey: 'live-sandbox-confirm-room-1001',
   requestFingerprint: 'sha256:live-sandbox-confirm-room-1001',
+};
+
+const checkInConfirmRequest: CheckInConfirmApiRequest = {
+  operation: pmsCheckInOperation,
+  mode: 'confirm',
+  roomId: 'room-A2',
+  reservationId: 'res-A2-http',
+  reservationCode: 'R-A2-HTTP',
+  actor: {
+    type: 'human',
+    id: 'frontdesk-1',
+    displayName: 'Front Desk',
+  },
+  source: 'api',
+  reason: 'Guest arrived with verified reservation.',
+  idempotencyKey: 'live-sandbox-checkin-room-A2',
+  correlationId: 'corr-live-sandbox-checkin-room-A2',
+  requestedAt: '2026-04-26T15:00:00.000Z',
+  requestFingerprint: 'sha256:live-sandbox-checkin-room-A2',
 };
 
 const tmpRoots: string[] = [];
@@ -161,6 +199,70 @@ describe('PMS local durable checkout sandbox HTTP boundary', () => {
       requestFingerprint: 'sha256:live-sandbox-confirm-room-1001',
       ok: true,
     });
+  });
+
+  it('records projection-safe stays through HTTP check-in and checkout commands', async () => {
+    const { url } = await startServer(undefined, true, [vacantCleanRoom], [
+      {
+        reservationId: 'res-A2-http',
+        reservationCode: 'R-A2-HTTP',
+        propertyId: 'property-small-hotel',
+        roomId: 'room-A2',
+        roomNumber: 'A2',
+        roomTypeId: 'room-type-garden-villa',
+        roomType: '花园别墅',
+        guestDisplayName: 'Guest HTTP',
+        arrivalDate: '2026-04-26',
+        departureDate: '2026-04-27',
+        status: 'booked',
+        allocation: { allocationId: 'alloc-A2-http', status: 'allocated' },
+      },
+    ]);
+
+    const before = await authedGet(`${url}/v1/sandbox/readback/room-A2`);
+    expect(before.stays).toEqual([]);
+
+    const checkIn = await authedPost(`${url}/v1/pms/check-in`, checkInConfirmRequest);
+    expect(checkIn).toMatchObject({ ok: true, operation: 'pms_check_in', mode: 'confirm' });
+    const afterCheckIn = await authedGet(`${url}/v1/sandbox/readback/room-A2`);
+    expect(afterCheckIn.stays).toMatchObject([
+      {
+        reservationId: 'res-A2-http',
+        reservationCode: 'R-A2-HTTP',
+        roomId: 'room-A2',
+        roomNumber: 'A2',
+        checkedInAt: '2026-04-26T15:00:00.000Z',
+        status: 'inHouse',
+      },
+    ]);
+
+    const checkoutRequest: CheckOutConfirmApiRequest = {
+      operation: pmsCheckOutOperation,
+      mode: 'confirm',
+      roomId: 'room-A2',
+      reservationId: 'res-A2-http',
+      reservationCode: 'R-A2-HTTP',
+      actor: checkInConfirmRequest.actor,
+      source: 'api',
+      reason: 'Guest departed and returned room cards.',
+      idempotencyKey: 'live-sandbox-checkout-room-A2',
+      correlationId: 'corr-live-sandbox-checkout-room-A2',
+      requestedAt: '2026-04-27T10:00:00.000Z',
+      requestFingerprint: 'sha256:live-sandbox-checkout-room-A2',
+    };
+    const checkout = await authedPost(`${url}/v1/pms/check-out`, checkoutRequest);
+    expect(checkout).toMatchObject({ ok: true, operation: 'pms_check_out', mode: 'confirm' });
+    const afterCheckout = await authedGet(`${url}/v1/sandbox/readback/room-A2`);
+    expect(afterCheckout.stays).toMatchObject([
+      {
+        reservationId: 'res-A2-http',
+        reservationCode: 'R-A2-HTTP',
+        roomId: 'room-A2',
+        checkedInAt: '2026-04-26T15:00:00.000Z',
+        checkedOutAt: '2026-04-27T10:00:00.000Z',
+        status: 'checkedOut',
+      },
+    ]);
   });
 
   it('persists state and idempotency across restart, rejects incompatible fingerprints, and can reset safely', async () => {
@@ -334,7 +436,12 @@ describe('PMS local durable checkout sandbox HTTP boundary', () => {
   });
 });
 
-async function startServer(existingPath?: string, resetOnStart = true) {
+async function startServer(
+  existingPath?: string,
+  resetOnStart = true,
+  seedRooms: readonly RoomAggregate[] = [dueOutRoom],
+  seedReservations: readonly PmsSandboxReservationImportRecord[] = [],
+) {
   const tmpRoot = existingPath ? undefined : mkdtempSync(join(tmpdir(), 'pms-sandbox-'));
   if (tmpRoot) {
     tmpRoots.push(tmpRoot);
@@ -342,7 +449,8 @@ async function startServer(existingPath?: string, resetOnStart = true) {
   const dbPath = existingPath ?? join(tmpRoot!, 'pms.sqlite');
   const store = createSqliteLocalSandboxStore({
     dbPath,
-    seedRooms: [dueOutRoom],
+    seedRooms,
+    seedReservations,
     resetOnStart,
   });
   const started = await startPmsLocalHttpServer({

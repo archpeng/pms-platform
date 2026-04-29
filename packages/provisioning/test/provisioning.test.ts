@@ -28,6 +28,7 @@ describe('PMS Base provisioning contract and generator', () => {
       'HousekeepingTasks',
       'MaintenanceTickets',
       'Reservations',
+      'Stays',
       'OperationLogs',
       'InventoryCalendar',
       'ProjectionStatus',
@@ -38,6 +39,7 @@ describe('PMS Base provisioning contract and generator', () => {
       '保洁任务',
       '维修工单',
       '预订',
+      '入住记录',
       '操作日志',
       '库存日历',
       '投影状态',
@@ -137,6 +139,51 @@ describe('PMS Base provisioning contract and generator', () => {
     expect(spec.adapterRegistryBindings.pmsBaseProjection.bindings.inventoryCalendar.fieldMap.intervalKey).toBe('库存区间键');
     expect(spec.adapterRegistryBindings.pmsBaseProjection.bindings.operationLogs.tableLogicalName).toBe('OperationLogs');
 
+    const stays = requiredTable(spec, 'Stays');
+    expect(stays.fields.map((field) => field.displayName)).toEqual([
+      '后端ID',
+      '预订号',
+      '房号',
+      '关联房间',
+      '入住状态',
+      '入住时间',
+      '离店时间',
+      '版本',
+    ]);
+    expect(stays.fields.find((field) => field.displayName === '后端ID')).toMatchObject({ kind: 'text', hidden: true, required: false });
+    expect(stays.fields.find((field) => field.displayName === '关联房间')).toMatchObject({
+      logicalName: 'relatedRoom',
+      kind: 'linkedRecord',
+      required: false,
+      linkedRecord: {
+        targetTableLogicalName: 'RoomLedger',
+        targetDisplayFieldName: '房号',
+        cardinality: 'single',
+        configMode: 'symbolic',
+      },
+    });
+    expect(stays.upsertPolicy).toEqual({
+      strategy: 'adapterUpsert',
+      uniqueField: '后端ID',
+      createOnMissing: true,
+      updateAllowedFields: ['预订号', '房号', '关联房间', '入住状态', '入住时间', '离店时间', '版本'],
+    });
+    expect(spec.adapterRegistryBindings.pmsBaseProjection.bindings.stays).toMatchObject({
+      tableLogicalName: 'Stays',
+      fieldMap: {
+        backendId: '后端ID',
+        reservationCode: '预订号',
+        roomNumber: '房号',
+        relatedRoom: '关联房间',
+        status: '入住状态',
+        checkedInAt: '入住时间',
+        checkedOutAt: '离店时间',
+        schemaVersion: '版本',
+      },
+      requiredFields: ['backendId', 'reservationCode', 'roomNumber', 'status', 'checkedInAt', 'schemaVersion'],
+      updateAllowedFields: ['reservationCode', 'roomNumber', 'relatedRoom', 'status', 'checkedInAt', 'checkedOutAt', 'schemaVersion'],
+    });
+
     const projectionStatus = requiredTable(spec, 'ProjectionStatus');
     expect(projectionStatus.fields.map((field) => field.displayName)).toEqual([
       '后端ID',
@@ -183,6 +230,7 @@ describe('PMS Base provisioning contract and generator', () => {
       'HousekeepingTasks',
       'MaintenanceTickets',
       'Reservations',
+      'Stays',
       'OperationLogs',
       'InventoryCalendar',
       'ProjectionStatus',
@@ -221,6 +269,7 @@ describe('PMS Base provisioning contract and generator', () => {
     expect(requiredTable(spec, 'HousekeepingTasks').fields.map((field) => field.displayName)).toContain('任务ID');
     expect(requiredTable(spec, 'MaintenanceTickets').fields.map((field) => field.displayName)).toContain('工单ID');
     expect(requiredTable(spec, 'Reservations').fields.map((field) => field.displayName)).toContain('预订号');
+    expect(requiredTable(spec, 'Stays').fields.map((field) => field.displayName)).toEqual(expect.arrayContaining(['预订号', '房号', '关联房间', '入住状态', '入住时间', '离店时间']));
     expect(requiredTable(spec, 'InventoryCalendar').fields.map((field) => field.displayName)).toContain('库存区间键');
     expect(requiredTable(spec, 'OperationLogs').fields.map((field) => field.displayName)).toContain('审计ID');
     expect(JSON.stringify(spec)).not.toMatch(/tbl[a-zA-Z0-9]|bascn|app_token|record_id|form_id/);
@@ -393,8 +442,8 @@ describe('PMS Base provisioning contract and generator', () => {
         'linked_record_field_missing:Reservations:关联房间',
         'linked_record_field_must_be_optional:OperationLogs:关联操作请求',
         'linked_record_target_mismatch:InventoryCalendar:关联房间:RoomLedger',
-        'tracked_target_value_forbidden:tables[6].fields[5].linkedRecord.targetTableLogicalName',
-        'tracked_target_value_forbidden:tables[6].fields[5].linkedRecord.targetDisplayFieldName',
+        'tracked_target_value_forbidden:tables[7].fields[5].linkedRecord.targetTableLogicalName',
+        'tracked_target_value_forbidden:tables[7].fields[5].linkedRecord.targetDisplayFieldName',
       ]),
     );
   });

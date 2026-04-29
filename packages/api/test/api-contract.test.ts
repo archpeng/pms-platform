@@ -205,6 +205,19 @@ describe('API checkout contract skeleton', () => {
       roomId: 'room-1003',
       reason: 'Guest arrived with verified reservation.',
     });
+    expect(requestFingerprintInput({
+      ...checkInConfirmRequest,
+      reservationId: 'res-1003-1',
+      reservationCode: 'R-1003-1',
+    })).toMatchObject({
+      operation: 'pms_check_in',
+      mode: 'confirm',
+      roomId: 'room-1003',
+      parameters: {
+        reservationId: 'res-1003-1',
+        reservationCode: 'R-1003-1',
+      },
+    });
   });
 
   it('defines inventory and operation-request operation names at the API boundary', () => {

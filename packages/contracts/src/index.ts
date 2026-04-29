@@ -251,6 +251,8 @@ export type DomainEvent =
 export interface CheckInCommand {
   readonly type: 'CHECK_IN';
   readonly roomId: string;
+  readonly reservationId?: string;
+  readonly reservationCode?: string;
   readonly overrideDirtyRoom?: boolean;
   readonly meta: CommandMeta;
 }
@@ -258,6 +260,8 @@ export interface CheckInCommand {
 export interface CheckOutCommand {
   readonly type: 'CHECK_OUT';
   readonly roomId: string;
+  readonly reservationId?: string;
+  readonly reservationCode?: string;
   readonly meta: CommandMeta;
 }
 
@@ -310,6 +314,8 @@ export interface RestoreSellableCommand {
 export interface CheckInDryRunPlan {
   readonly commandType: 'CHECK_IN';
   readonly roomId: string;
+  readonly reservationId?: string;
+  readonly reservationCode?: string;
   readonly propertyId?: string;
   readonly roomTypeId?: string;
   readonly roomType?: string;
@@ -325,6 +331,8 @@ export interface CheckInDryRunPlan {
 export interface CheckOutDryRunPlan {
   readonly commandType: 'CHECK_OUT';
   readonly roomId: string;
+  readonly reservationId?: string;
+  readonly reservationCode?: string;
   readonly propertyId?: string;
   readonly roomTypeId?: string;
   readonly roomType?: string;
@@ -391,6 +399,7 @@ export interface ReservationSummary {
 }
 
 export type ReservationStatus = 'booked' | 'checkedIn' | 'checkedOut' | 'cancelled';
+export type StayStatus = 'inHouse' | 'checkedOut';
 
 export interface ReservationReadModel {
   readonly reservationId: string;
@@ -404,6 +413,18 @@ export interface ReservationReadModel {
   readonly arrivalDate: string;
   readonly departureDate: string;
   readonly status: ReservationStatus;
+  readonly projectionFreshness: ProjectionFreshness;
+}
+
+export interface StayReadModel {
+  readonly stayId: string;
+  readonly reservationId: string;
+  readonly reservationCode?: string;
+  readonly roomId?: string;
+  readonly roomNumber?: string;
+  readonly checkedInAt?: string;
+  readonly checkedOutAt?: string;
+  readonly status: StayStatus;
   readonly projectionFreshness: ProjectionFreshness;
 }
 

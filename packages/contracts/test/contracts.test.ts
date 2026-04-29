@@ -32,6 +32,8 @@ import {
   type RoomCheckedInEvent,
   type RoomCheckedOutEvent,
   type RoomReadModel,
+  type StayReadModel,
+  type StayStatus,
   validateCommandMeta,
 } from '../src/index.js';
 
@@ -131,6 +133,28 @@ describe('PMS command contracts', () => {
         sale: 'sellable',
       },
     });
+  });
+
+  it('defines PMS-owned bounded stay lifecycle read-model fields', () => {
+    const stayStatus: StayStatus = 'inHouse';
+    const stay: StayReadModel = {
+      stayId: 'stay-res-A2-room-A2-checkin-1',
+      reservationId: 'res-A2-1',
+      reservationCode: 'R-A2-1',
+      roomId: 'room-A2',
+      roomNumber: 'A2',
+      checkedInAt: validMeta.requestedAt,
+      status: stayStatus,
+      projectionFreshness: {
+        status: 'fresh',
+        generatedAt: validMeta.requestedAt,
+        note: 'pms-read-model-current',
+      },
+    };
+
+    expect(stay.status).toBe('inHouse');
+    expect(['inHouse', 'checkedOut']).toContain(stay.status);
+    expect(stay.reservationCode).toBe('R-A2-1');
   });
 
   it('defines PMS-owned room/dashboard read models and command projection shapes', () => {

@@ -23,6 +23,7 @@ import {
   type OperationRequest,
   type ReservationReadModel,
   type RoomReservationContextReadModel,
+  type StayStatus,
   type TodayReservationsReadModel,
 } from '@pms-platform/contracts';
 import {
@@ -50,7 +51,9 @@ import {
   type ApiIdempotencyRecord,
   type ApiIdempotencyRepository,
   type CheckInApiRequest,
+  type CheckInConfirmApiRequest,
   type CheckOutApiRequest,
+  type CheckOutConfirmApiRequest,
   type OperationRequestCreateApiRequest,
   type OperationRequestCreateApiResponse,
   type OperationRequestGetApiRequest,
@@ -214,6 +217,14 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
 
   updateOperationRequest(request: OperationRequestUpdateApiRequest): OperationRequestUpdateApiResponse {
     return this.runInTransaction(() => this.updateOperationRequestRecord(request));
+  }
+
+  recordCheckInStay(request: CheckInConfirmApiRequest, result: CoreCheckInConfirmResult): PmsSandboxStayReadback | undefined {
+    return this.runInTransaction(() => this.recordCheckInStayFromConfirm(request, result));
+  }
+
+  recordCheckOutStay(request: CheckOutConfirmApiRequest, result: CoreCheckOutConfirmResult): PmsSandboxStayReadback | undefined {
+    return this.runInTransaction(() => this.recordCheckOutStayFromConfirm(request, result));
   }
 
   runInTransaction<TValue>(operation: () => TValue): TValue {
@@ -999,29 +1010,14 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
     const rows = this.db
       .prepare(
         `
-          SELECT stay_id, reservation_id, room_id, room_number, checked_in_at, checked_out_at, status
-          FROM stays
-          ORDER BY created_at, stay_id
+          SELECT s.stay_id, s.reservation_id, r.reservation_code, s.room_id, s.room_number, s.checked_in_at, s.checked_out_at, s.status
+          FROM stays s
+          INNER JOIN reservations r ON r.reservation_id = s.reservation_id
+          ORDER BY s.created_at, s.stay_id
         `,
       )
-      .all() as Array<{
-        stay_id: string;
-        reservation_id: string;
-        room_id?: string | null;
-        room_number?: string | null;
-        checked_in_at?: string | null;
-        checked_out_at?: string | null;
-        status: string;
-      }>;
-    return rows.map((row) => ({
-      stayId: row.stay_id,
-      reservationId: row.reservation_id,
-      ...(row.room_id ? { roomId: row.room_id } : {}),
-      ...(row.room_number ? { roomNumber: row.room_number } : {}),
-      ...(row.checked_in_at ? { checkedInAt: row.checked_in_at } : {}),
-      ...(row.checked_out_at ? { checkedOutAt: row.checked_out_at } : {}),
-      status: row.status,
-    }));
+      .all() as unknown as StayRow[];
+    return rows.map(stayFromRow);
   }
 
   private listStaysByRoomIds(roomIds: ReadonlySet<string>): PmsSandboxStayReadback[] {
@@ -1114,14 +1110,14 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
       this.saveReservationAllocation(record.reservationId, allocation, createdAt);
     }
 
-    if (record.stay || record.status === 'checkedIn' || record.status === 'checkedOut') {
+    if (record.stay) {
       this.saveStay(record.reservationId, {
-        stayId: record.stay?.stayId ?? `stay-${record.reservationId}`,
-        roomId: record.stay?.roomId ?? record.roomId ?? room?.roomId,
-        roomNumber: record.stay?.roomNumber ?? record.roomNumber ?? room?.roomNumber,
-        checkedInAt: record.stay?.checkedInAt ?? (record.status === 'checkedIn' || record.status === 'checkedOut' ? createdAt : undefined),
-        checkedOutAt: record.stay?.checkedOutAt,
-        status: record.stay?.status ?? (record.status === 'checkedOut' ? 'checkedOut' : 'checkedIn'),
+        stayId: record.stay.stayId ?? stayIdForReservationRoom(record.reservationId, record.stay.roomId ?? record.roomId ?? room?.roomId ?? 'unknown'),
+        roomId: record.stay.roomId ?? record.roomId ?? room?.roomId,
+        roomNumber: record.stay.roomNumber ?? record.roomNumber ?? room?.roomNumber,
+        checkedInAt: record.stay.checkedInAt,
+        checkedOutAt: record.stay.checkedOutAt,
+        status: record.stay.status ?? (record.stay.checkedOutAt ? 'checkedOut' : 'inHouse'),
       }, createdAt);
     }
 
@@ -1195,7 +1191,7 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
       roomNumber?: string;
       checkedInAt?: string;
       checkedOutAt?: string;
-      status: string;
+      status: StayStatus;
     },
     timestamp: string,
   ): void {
@@ -1226,6 +1222,93 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
         timestamp,
       );
     this.inventoryDirty = true;
+  }
+
+  private recordCheckInStayFromConfirm(request: CheckInConfirmApiRequest, result: CoreCheckInConfirmResult): PmsSandboxStayReadback | undefined {
+    const reservation = this.resolveStayReservation(request.reservationId, request.reservationCode);
+    if (!reservation) {
+      return undefined;
+    }
+    const active = this.findLatestStay({ reservationId: reservation.reservation_id, roomId: result.roomId, status: 'inHouse' });
+    if (active) {
+      return active;
+    }
+    const timestamp = nonEmptyString(result.auditEntry.occurredAt, request.requestedAt);
+    const stayId = stayIdForCheckIn(reservation.reservation_id, result.roomId, request.idempotencyKey);
+    this.saveStay(reservation.reservation_id, {
+      stayId,
+      roomId: result.roomId,
+      roomNumber: result.roomNumber,
+      checkedInAt: timestamp,
+      status: 'inHouse',
+    }, timestamp);
+    return this.findLatestStay({ reservationId: reservation.reservation_id, roomId: result.roomId, status: 'inHouse' });
+  }
+
+  private recordCheckOutStayFromConfirm(request: CheckOutConfirmApiRequest, result: CoreCheckOutConfirmResult): PmsSandboxStayReadback | undefined {
+    const hasReservationIdentity = Boolean(optionalString(request.reservationId) || optionalString(request.reservationCode));
+    const reservation = this.resolveStayReservation(request.reservationId, request.reservationCode);
+    if (hasReservationIdentity && !reservation) {
+      return undefined;
+    }
+    const active = this.findLatestStay({ reservationId: reservation?.reservation_id, roomId: result.roomId, status: 'inHouse' });
+    if (!active) {
+      return this.findLatestStay({ reservationId: reservation?.reservation_id, roomId: result.roomId, status: 'checkedOut' });
+    }
+    const timestamp = nonEmptyString(result.auditEntry.occurredAt, request.requestedAt);
+    this.saveStay(active.reservationId, {
+      stayId: active.stayId,
+      roomId: active.roomId ?? result.roomId,
+      roomNumber: active.roomNumber ?? result.roomNumber,
+      checkedInAt: active.checkedInAt,
+      checkedOutAt: timestamp,
+      status: 'checkedOut',
+    }, timestamp);
+    return this.findLatestStay({ reservationId: active.reservationId, roomId: result.roomId, status: 'checkedOut' });
+  }
+
+  private resolveStayReservation(reservationId?: string, reservationCode?: string): ReservationRow | undefined {
+    const normalizedId = optionalString(reservationId);
+    if (normalizedId) {
+      const byId = this.getReservationRowById(normalizedId);
+      if (byId) return byId;
+    }
+    const normalizedCode = optionalString(reservationCode);
+    return normalizedCode ? this.getReservationRowByCode(normalizedCode) : undefined;
+  }
+
+  private getReservationRowById(reservationId: string): ReservationRow | undefined {
+    return this.db
+      .prepare(
+        `
+          SELECT r.*, g.display_name
+          FROM reservations r
+          INNER JOIN guests g ON g.guest_id = r.guest_id
+          WHERE r.reservation_id = ?
+        `,
+      )
+      .get(reservationId) as ReservationRow | undefined;
+  }
+
+  private getReservationRowByCode(reservationCode: string): ReservationRow | undefined {
+    return this.db
+      .prepare(
+        `
+          SELECT r.*, g.display_name
+          FROM reservations r
+          INNER JOIN guests g ON g.guest_id = r.guest_id
+          WHERE r.reservation_code = ?
+        `,
+      )
+      .get(reservationCode) as ReservationRow | undefined;
+  }
+
+  private findLatestStay(filter: { readonly reservationId?: string; readonly roomId?: string; readonly status: StayStatus }): PmsSandboxStayReadback | undefined {
+    return this.listStays()
+      .filter((stay) => stay.status === filter.status)
+      .filter((stay) => !filter.reservationId || stay.reservationId === filter.reservationId)
+      .filter((stay) => !filter.roomId || stay.roomId === filter.roomId)
+      .at(-1);
   }
 
   private getLatestReservationAllocation(reservationId: string): PmsSandboxReservationAllocationReadback | undefined {
@@ -1266,36 +1349,18 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
   }
 
   private getLatestStay(reservationId: string): PmsSandboxStayReadback | undefined {
-    const rows = this.db
+    const row = this.db
       .prepare(
         `
-          SELECT stay_id, reservation_id, room_id, room_number, checked_in_at, checked_out_at, status
-          FROM stays
-          WHERE reservation_id = ?
-          ORDER BY updated_at DESC, stay_id DESC
+          SELECT s.stay_id, s.reservation_id, r.reservation_code, s.room_id, s.room_number, s.checked_in_at, s.checked_out_at, s.status
+          FROM stays s
+          INNER JOIN reservations r ON r.reservation_id = s.reservation_id
+          WHERE s.reservation_id = ?
+          ORDER BY s.updated_at DESC, s.stay_id DESC
         `,
       )
-      .all(reservationId) as Array<{
-        stay_id: string;
-        reservation_id: string;
-        room_id?: string | null;
-        room_number?: string | null;
-        checked_in_at?: string | null;
-        checked_out_at?: string | null;
-        status: string;
-      }>;
-    const row = rows[0];
-    return row
-      ? {
-          stayId: row.stay_id,
-          reservationId: row.reservation_id,
-          ...(row.room_id ? { roomId: row.room_id } : {}),
-          ...(row.room_number ? { roomNumber: row.room_number } : {}),
-          ...(row.checked_in_at ? { checkedInAt: row.checked_in_at } : {}),
-          ...(row.checked_out_at ? { checkedOutAt: row.checked_out_at } : {}),
-          status: row.status,
-        }
-      : undefined;
+      .get(reservationId) as StayRow | undefined;
+    return row ? stayFromRow(row) : undefined;
   }
 
   private reservationReadModelFromRow(row: ReservationRow, generatedAt: string): ReservationReadModel {
@@ -1312,7 +1377,7 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
       guestDisplayName: row.display_name,
       arrivalDate: row.arrival_date,
       departureDate: row.departure_date,
-      status: stay?.status === 'checkedIn'
+      status: stay?.status === 'inHouse'
         ? 'checkedIn'
         : stay?.status === 'checkedOut'
           ? 'checkedOut'
@@ -1938,6 +2003,17 @@ interface ReservationRow {
   readonly status: ReservationReadModel['status'];
 }
 
+interface StayRow {
+  readonly stay_id: string;
+  readonly reservation_id: string;
+  readonly reservation_code?: string | null;
+  readonly room_id?: string | null;
+  readonly room_number?: string | null;
+  readonly checked_in_at?: string | null;
+  readonly checked_out_at?: string | null;
+  readonly status: string;
+}
+
 interface InventoryBlockRow {
   readonly block_id: string;
   readonly property_id: string;
@@ -2104,6 +2180,23 @@ function operationRequestFromRow(row: OperationRequestRow): OperationRequest {
   };
 }
 
+function stayFromRow(row: StayRow): PmsSandboxStayReadback {
+  return {
+    stayId: row.stay_id,
+    reservationId: row.reservation_id,
+    ...(row.reservation_code ? { reservationCode: row.reservation_code } : {}),
+    ...(row.room_id ? { roomId: row.room_id } : {}),
+    ...(row.room_number ? { roomNumber: row.room_number } : {}),
+    ...(row.checked_in_at ? { checkedInAt: row.checked_in_at } : {}),
+    ...(row.checked_out_at ? { checkedOutAt: row.checked_out_at } : {}),
+    status: normalizeStayStatus(row.status),
+  };
+}
+
+function normalizeStayStatus(value: string): StayStatus {
+  return value === 'checkedOut' ? 'checkedOut' : 'inHouse';
+}
+
 function operationRequestCreateErrorResponse(code: ApiErrorCode, message: string, field: string): OperationRequestCreateApiResponse {
   return {
     ok: false,
@@ -2225,7 +2318,7 @@ function findOccupiedStayForRoomDate(
   businessDate: string,
 ): PmsSandboxStayReadback | undefined {
   return stays.find((stay) => {
-    if (stay.roomId !== roomId || stay.status !== 'checkedIn') {
+    if (stay.roomId !== roomId || stay.status !== 'inHouse') {
       return false;
     }
     const reservation = reservationsById.get(stay.reservationId);
@@ -2410,6 +2503,16 @@ function toStableJsonValue(value: unknown): unknown {
 function operationRequestIdFromClientToken(clientToken: string): string {
   const digest = createHash('sha256').update(clientToken).digest('hex').slice(0, 12);
   return `opreq-${sanitizeSlug(clientToken).slice(0, 48)}-${digest}`;
+}
+
+function stayIdForCheckIn(reservationId: string, roomId: string, idempotencyKey: string): string {
+  const digest = createHash('sha256').update(`${reservationId}:${roomId}:${idempotencyKey}`).digest('hex').slice(0, 12);
+  return `stay-${sanitizeSlug(reservationId).slice(0, 32)}-${sanitizeSlug(roomId).slice(0, 24)}-${digest}`;
+}
+
+function stayIdForReservationRoom(reservationId: string, roomId: string): string {
+  const digest = createHash('sha256').update(`${reservationId}:${roomId}`).digest('hex').slice(0, 12);
+  return `stay-${sanitizeSlug(reservationId).slice(0, 32)}-${sanitizeSlug(roomId).slice(0, 24)}-${digest}`;
 }
 
 function nonEmptyString(value: string | undefined, fallback: string): string {

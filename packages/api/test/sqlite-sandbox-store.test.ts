@@ -3,12 +3,16 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  executeCheckInApiRequest,
   executeCheckOutApiRequest,
   executePmsExtendedCommandApiRequest,
+  pmsCheckInOperation,
   pmsCheckOutOperation,
   pmsMaintenanceDoneOperation,
   pmsReportMaintenanceOperation,
   pmsRestoreSellableOperation,
+  type CheckInConfirmApiRequest,
+  type CheckInDryRunApiRequest,
   type CheckOutConfirmApiRequest,
   type CheckOutDryRunApiRequest,
   type MaintenanceDoneApiRequest,
@@ -76,6 +80,32 @@ const confirmRequest: CheckOutConfirmApiRequest = {
   mode: 'confirm',
   idempotencyKey: 'sqlite-confirm-room-1001',
   requestFingerprint: 'sha256:sqlite-confirm-room-1001',
+};
+
+const checkInDryRunRequest: CheckInDryRunApiRequest = {
+  operation: pmsCheckInOperation,
+  mode: 'dryRun',
+  roomId: 'room-A2',
+  reservationId: 'res-A2-checkin',
+  reservationCode: 'R-A2-CHECKIN',
+  actor: {
+    type: 'human',
+    id: 'frontdesk-1',
+    displayName: 'Front Desk',
+  },
+  source: 'api',
+  reason: 'Guest arrived with verified reservation.',
+  idempotencyKey: 'sqlite-checkin-dry-run-room-A2',
+  correlationId: 'corr-sqlite-checkin-room-A2',
+  requestedAt: '2026-04-28T15:00:00.000Z',
+  requestFingerprint: 'sha256:sqlite-checkin-dry-run-room-A2',
+};
+
+const checkInConfirmRequest: CheckInConfirmApiRequest = {
+  ...checkInDryRunRequest,
+  mode: 'confirm',
+  idempotencyKey: 'sqlite-checkin-confirm-room-A2',
+  requestFingerprint: 'sha256:sqlite-checkin-confirm-room-A2',
 };
 
 const tmpRoots: string[] = [];
@@ -158,7 +188,7 @@ describe('SQLite local sandbox store', () => {
         stay: {
           stayId: 'stay-A2-1',
           checkedInAt: '2026-04-28T15:00:00.000Z',
-          status: 'checkedIn',
+          status: 'inHouse',
         },
       },
     ]);
@@ -190,8 +220,9 @@ describe('SQLite local sandbox store', () => {
       {
         stayId: 'stay-A2-1',
         reservationId: 'res-A2-1',
+        reservationCode: 'R-A2-1',
         roomId: 'room-A2',
-        status: 'checkedIn',
+        status: 'inHouse',
       },
     ]);
     expect(store.todayArrivals('2026-04-28', now).reservations).toHaveLength(1);
@@ -238,7 +269,7 @@ describe('SQLite local sandbox store', () => {
         departureDate: '2026-04-30',
         status: 'checkedIn',
         allocation: { allocationId: 'alloc-A3-occupied', status: 'allocated' },
-        stay: { stayId: 'stay-A3-occupied', checkedInAt: '2026-04-28T15:00:00.000Z', status: 'checkedIn' },
+        stay: { stayId: 'stay-A3-occupied', checkedInAt: '2026-04-28T15:00:00.000Z', status: 'inHouse' },
       },
     ]);
 
@@ -295,6 +326,140 @@ describe('SQLite local sandbox store', () => {
       requestFingerprint: dryRunRequest.requestFingerprint,
       ok: true,
     });
+    store.close();
+  });
+
+  it('creates, replays, and closes PMS-owned stays only after successful check-in and checkout confirms', () => {
+    const store = createSqliteLocalSandboxStore({
+      dbPath: tempPath('stay-lifecycle.sqlite'),
+      seedRooms: [vacantCleanRoom],
+      resetOnStart: true,
+      now: () => now,
+    });
+    store.importReservations([
+      {
+        reservationId: 'res-A2-checkin',
+        reservationCode: 'R-A2-CHECKIN',
+        propertyId: 'property-small-hotel',
+        roomId: 'room-A2',
+        roomNumber: 'A2',
+        roomTypeId: 'room-type-garden-villa',
+        roomType: '花园别墅',
+        guestDisplayName: 'Guest Checkin',
+        arrivalDate: '2026-04-28',
+        departureDate: '2026-04-29',
+        status: 'booked',
+        allocation: { allocationId: 'alloc-A2-checkin', status: 'allocated' },
+      },
+    ]);
+    expect(store.readback('room-A2').stays).toEqual([]);
+
+    const dryRun = store.runInTransaction(() =>
+      executeCheckInApiRequest(checkInDryRunRequest, store.ports, {
+        idempotency: store.apiIdempotency,
+        stayLifecycle: {
+          afterCheckInConfirm: ({ request, result }) => store.recordCheckInStay(request, result),
+        },
+      }),
+    );
+    expect(dryRun).toMatchObject({ ok: true, operation: 'pms_check_in', mode: 'dryRun' });
+    expect(store.readback('room-A2').stays).toEqual([]);
+
+    const checkIn = store.runInTransaction(() =>
+      executeCheckInApiRequest(checkInConfirmRequest, store.ports, {
+        idempotency: store.apiIdempotency,
+        stayLifecycle: {
+          afterCheckInConfirm: ({ request, result }) => store.recordCheckInStay(request, result),
+        },
+      }),
+    );
+    const checkInReplay = store.runInTransaction(() =>
+      executeCheckInApiRequest(checkInConfirmRequest, store.ports, {
+        idempotency: store.apiIdempotency,
+        stayLifecycle: {
+          afterCheckInConfirm: ({ request, result }) => store.recordCheckInStay(request, result),
+        },
+      }),
+    );
+    expect(checkInReplay).toEqual(checkIn);
+    expect(store.readback('room-A2').stays).toMatchObject([
+      {
+        reservationId: 'res-A2-checkin',
+        reservationCode: 'R-A2-CHECKIN',
+        roomId: 'room-A2',
+        roomNumber: 'A2',
+        checkedInAt: '2026-04-28T15:00:00.000Z',
+        status: 'inHouse',
+      },
+    ]);
+    expect(store.getReservation('R-A2-CHECKIN', now)).toMatchObject({ status: 'checkedIn', roomId: 'room-A2' });
+
+    const failedCheckout = store.runInTransaction(() =>
+      executeCheckOutApiRequest(
+        {
+          ...confirmRequest,
+          roomId: 'room-A2',
+          reservationId: 'res-A2-checkin',
+          reservationCode: 'R-A2-CHECKIN',
+          reason: ' ',
+          idempotencyKey: 'sqlite-checkout-invalid-room-A2',
+          correlationId: 'corr-sqlite-checkout-invalid-room-A2',
+          requestFingerprint: 'sha256:sqlite-checkout-invalid-room-A2',
+        },
+        store.ports,
+        {
+          idempotency: store.apiIdempotency,
+          stayLifecycle: {
+            afterCheckOutConfirm: ({ request, result }) => store.recordCheckOutStay(request, result),
+          },
+        },
+      ),
+    );
+    expect(failedCheckout).toMatchObject({ ok: false, mode: 'confirm' });
+    const stayAfterFailedCheckout = store.readback('room-A2').stays[0];
+    expect(stayAfterFailedCheckout).toMatchObject({ status: 'inHouse' });
+    expect(stayAfterFailedCheckout?.checkedOutAt).toBeUndefined();
+
+    const checkoutRequest: CheckOutConfirmApiRequest = {
+      ...confirmRequest,
+      roomId: 'room-A2',
+      reservationId: 'res-A2-checkin',
+      reservationCode: 'R-A2-CHECKIN',
+      reason: 'Guest departed and returned room cards.',
+      idempotencyKey: 'sqlite-checkout-confirm-room-A2',
+      correlationId: 'corr-sqlite-checkout-room-A2',
+      requestedAt: '2026-04-29T10:00:00.000Z',
+      requestFingerprint: 'sha256:sqlite-checkout-confirm-room-A2',
+    };
+    const checkout = store.runInTransaction(() =>
+      executeCheckOutApiRequest(checkoutRequest, store.ports, {
+        idempotency: store.apiIdempotency,
+        stayLifecycle: {
+          afterCheckOutConfirm: ({ request, result }) => store.recordCheckOutStay(request, result),
+        },
+      }),
+    );
+    const checkoutReplay = store.runInTransaction(() =>
+      executeCheckOutApiRequest(checkoutRequest, store.ports, {
+        idempotency: store.apiIdempotency,
+        stayLifecycle: {
+          afterCheckOutConfirm: ({ request, result }) => store.recordCheckOutStay(request, result),
+        },
+      }),
+    );
+    expect(checkoutReplay).toEqual(checkout);
+    expect(store.readback('room-A2').stays).toMatchObject([
+      {
+        reservationId: 'res-A2-checkin',
+        reservationCode: 'R-A2-CHECKIN',
+        roomId: 'room-A2',
+        roomNumber: 'A2',
+        checkedInAt: '2026-04-28T15:00:00.000Z',
+        checkedOutAt: '2026-04-29T10:00:00.000Z',
+        status: 'checkedOut',
+      },
+    ]);
+    expect(store.getReservation('R-A2-CHECKIN', now)).toMatchObject({ status: 'checkedOut', roomId: 'room-A2' });
     store.close();
   });
 

@@ -14,9 +14,13 @@ import type {
   OperationRequest,
   ReservationReadModel,
   RoomReservationContextReadModel,
+  StayReadModel,
+  StayStatus,
   TodayReservationsReadModel,
 } from '@pms-platform/contracts';
 import {
+  type CoreCheckInConfirmResult,
+  type CoreCheckOutConfirmResult,
   type CorePorts,
   type RoomAggregate,
 } from '@pms-platform/core';
@@ -47,7 +51,9 @@ import {
   pmsTodayDeparturesOperation,
   type ApiIdempotencyRepository,
   type CheckInApiRequest,
+  type CheckInConfirmApiRequest,
   type CheckOutApiRequest,
+  type CheckOutConfirmApiRequest,
   type OperationRequestCreateApiRequest,
   type OperationRequestCreateApiResponse,
   type OperationRequestGetApiRequest,
@@ -93,15 +99,7 @@ export interface PmsSandboxReservationAllocationReadback {
   readonly status: string;
 }
 
-export interface PmsSandboxStayReadback {
-  readonly stayId: string;
-  readonly reservationId: string;
-  readonly roomId?: string;
-  readonly roomNumber?: string;
-  readonly checkedInAt?: string;
-  readonly checkedOutAt?: string;
-  readonly status: string;
-}
+export interface PmsSandboxStayReadback extends Omit<StayReadModel, 'projectionFreshness'> {}
 
 export interface PmsSandboxReservationImportRecord {
   readonly reservationId: string;
@@ -131,7 +129,7 @@ export interface PmsSandboxReservationImportRecord {
     readonly roomNumber?: string;
     readonly checkedInAt?: string;
     readonly checkedOutAt?: string;
-    readonly status?: string;
+    readonly status?: StayStatus;
   };
 }
 
@@ -199,6 +197,8 @@ export interface PmsLocalSandboxStore {
   createOperationRequest(request: OperationRequestCreateApiRequest): OperationRequestCreateApiResponse;
   getOperationRequest(request: OperationRequestGetApiRequest): OperationRequestGetApiResponse;
   updateOperationRequest(request: OperationRequestUpdateApiRequest): OperationRequestUpdateApiResponse;
+  recordCheckInStay?(request: CheckInConfirmApiRequest, result: CoreCheckInConfirmResult): PmsSandboxStayReadback | undefined;
+  recordCheckOutStay?(request: CheckOutConfirmApiRequest, result: CoreCheckOutConfirmResult): PmsSandboxStayReadback | undefined;
   runInTransaction?<TValue>(operation: () => TValue): TValue;
   close?(): void;
 }
@@ -288,6 +288,9 @@ export function createPmsLocalHttpHandler(options: PmsLocalHttpHandlerOptions) {
         const result = executeWithStoreTransaction(options.store, () =>
           executeCheckInApiRequest(body as CheckInApiRequest, options.store.ports, {
             idempotency: options.store.apiIdempotency,
+            stayLifecycle: {
+              afterCheckInConfirm: ({ request, result }) => options.store.recordCheckInStay?.(request, result),
+            },
           }),
         );
         writeJson(response, result.ok ? 200 : 400, result);
@@ -299,6 +302,9 @@ export function createPmsLocalHttpHandler(options: PmsLocalHttpHandlerOptions) {
         const result = executeWithStoreTransaction(options.store, () =>
           executeCheckOutApiRequest(body as CheckOutApiRequest, options.store.ports, {
             idempotency: options.store.apiIdempotency,
+            stayLifecycle: {
+              afterCheckOutConfirm: ({ request, result }) => options.store.recordCheckOutStay?.(request, result),
+            },
           }),
         );
         writeJson(response, result.ok ? 200 : 400, result);

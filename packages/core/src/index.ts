@@ -118,6 +118,8 @@ export interface CoreCheckInConfirmResult {
   readonly commandType: 'CHECK_IN';
   readonly roomId: string;
   readonly roomNumber: string;
+  readonly reservationId?: string;
+  readonly reservationCode?: string;
   readonly propertyId?: string;
   readonly roomTypeId?: string;
   readonly roomType?: string;
@@ -142,6 +144,8 @@ export interface CoreCheckOutConfirmResult {
   readonly commandType: 'CHECK_OUT';
   readonly roomId: string;
   readonly roomNumber: string;
+  readonly reservationId?: string;
+  readonly reservationCode?: string;
   readonly propertyId?: string;
   readonly roomTypeId?: string;
   readonly roomType?: string;
@@ -915,6 +919,8 @@ function dryRunCheckIn(command: CheckInCommand, room: RoomAggregate): CheckInRes
       commandType: 'CHECK_IN',
       roomId: room.roomId,
       roomNumber: room.roomNumber,
+      ...(command.reservationId ? { reservationId: command.reservationId } : {}),
+      ...(command.reservationCode ? { reservationCode: command.reservationCode } : {}),
       propertyId: room.propertyId,
       roomTypeId: room.roomTypeId,
       roomType: room.roomType,
@@ -967,6 +973,8 @@ function confirmCheckIn(command: CheckInCommand, room: RoomAggregate, ports: Cor
     commandType: 'CHECK_IN',
     roomId: room.roomId,
     roomNumber: room.roomNumber,
+    ...(command.reservationId ? { reservationId: command.reservationId } : {}),
+    ...(command.reservationCode ? { reservationCode: command.reservationCode } : {}),
     propertyId: room.propertyId,
     roomTypeId: room.roomTypeId,
     roomType: room.roomType,
@@ -1015,6 +1023,8 @@ function dryRunCheckOut(command: CheckOutCommand, room: RoomAggregate): CheckOut
       commandType: 'CHECK_OUT',
       roomId: room.roomId,
       roomNumber: room.roomNumber,
+      ...(command.reservationId ? { reservationId: command.reservationId } : {}),
+      ...(command.reservationCode ? { reservationCode: command.reservationCode } : {}),
       propertyId: room.propertyId,
       roomTypeId: room.roomTypeId,
       roomType: room.roomType,
@@ -1083,6 +1093,8 @@ function confirmCheckOut(command: CheckOutCommand, room: RoomAggregate, ports: C
     commandType: 'CHECK_OUT',
     roomId: room.roomId,
     roomNumber: room.roomNumber,
+    ...(command.reservationId ? { reservationId: command.reservationId } : {}),
+    ...(command.reservationCode ? { reservationCode: command.reservationCode } : {}),
     propertyId: room.propertyId,
     roomTypeId: room.roomTypeId,
     roomType: room.roomType,

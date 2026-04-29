@@ -16,6 +16,7 @@ export type PmsBaseTableLogicalName =
   | 'HousekeepingTasks'
   | 'MaintenanceTickets'
   | 'Reservations'
+  | 'Stays'
   | 'OperationLogs'
   | 'InventoryCalendar'
   | 'ProjectionStatus';
@@ -132,6 +133,7 @@ export interface PmsBaseProjectionRegistryTemplate {
     readonly housekeepingTasks: PmsBaseProjectionBindingTemplate;
     readonly maintenanceTickets: PmsBaseProjectionBindingTemplate;
     readonly reservations: PmsBaseProjectionBindingTemplate;
+    readonly stays: PmsBaseProjectionBindingTemplate;
     readonly inventoryCalendar: PmsBaseProjectionBindingTemplate;
     readonly operationLogs: PmsBaseProjectionBindingTemplate;
     readonly projectionStatus: PmsBaseProjectionBindingTemplate;
@@ -220,6 +222,7 @@ const requiredTables: readonly PmsBaseTableLogicalName[] = [
   'HousekeepingTasks',
   'MaintenanceTickets',
   'Reservations',
+  'Stays',
   'OperationLogs',
   'InventoryCalendar',
   'ProjectionStatus',
@@ -235,6 +238,17 @@ const requiredOperationRequestFields = [
   '请求时间',
   '请求JSON',
   '结果JSON',
+  '版本',
+] as const;
+
+const requiredStayFields = [
+  '后端ID',
+  '预订号',
+  '房号',
+  '关联房间',
+  '入住状态',
+  '入住时间',
+  '离店时间',
   '版本',
 ] as const;
 
@@ -259,6 +273,7 @@ const requiredCanonicalIdFields: readonly {
   { tableLogicalName: 'HousekeepingTasks', displayName: '后端ID' },
   { tableLogicalName: 'MaintenanceTickets', displayName: '后端ID' },
   { tableLogicalName: 'Reservations', displayName: '后端ID' },
+  { tableLogicalName: 'Stays', displayName: '后端ID' },
   { tableLogicalName: 'OperationLogs', displayName: '后端ID' },
   { tableLogicalName: 'InventoryCalendar', displayName: '后端ID' },
   { tableLogicalName: 'ProjectionStatus', displayName: '后端ID' },
@@ -272,6 +287,7 @@ const requiredLinkedRecordFields: readonly {
   { tableLogicalName: 'HousekeepingTasks', displayName: '关联房间', targetTableLogicalName: 'RoomLedger' },
   { tableLogicalName: 'MaintenanceTickets', displayName: '关联房间', targetTableLogicalName: 'RoomLedger' },
   { tableLogicalName: 'Reservations', displayName: '关联房间', targetTableLogicalName: 'RoomLedger' },
+  { tableLogicalName: 'Stays', displayName: '关联房间', targetTableLogicalName: 'RoomLedger' },
   { tableLogicalName: 'OperationLogs', displayName: '关联房间', targetTableLogicalName: 'RoomLedger' },
   { tableLogicalName: 'OperationLogs', displayName: '关联操作请求', targetTableLogicalName: 'OperationRequests' },
   { tableLogicalName: 'InventoryCalendar', displayName: '关联房间', targetTableLogicalName: 'RoomLedger' },
@@ -371,6 +387,7 @@ export function createSmallHotelPmsBaseProvisioningSpec(profile: HotelProfile = 
       housekeepingTasksTable(),
       maintenanceTicketsTable(),
       reservationsTable(),
+      staysTable(),
       operationLogsTable(),
       inventoryCalendarTable(),
       projectionStatusTable(),
@@ -503,6 +520,21 @@ export function createSmallHotelPmsBaseProvisioningSpec(profile: HotelProfile = 
             },
             requiredFields: ['reservationCode', 'guestLabel', 'arrivalDate', 'departureDate', 'status', 'schemaVersion'],
             updateAllowedFields: ['backendId', 'roomNumber', 'relatedRoom', 'guestLabel', 'arrivalDate', 'departureDate', 'status', 'schemaVersion'],
+          },
+          stays: {
+            tableLogicalName: 'Stays',
+            fieldMap: {
+              backendId: '后端ID',
+              reservationCode: '预订号',
+              roomNumber: '房号',
+              relatedRoom: '关联房间',
+              status: '入住状态',
+              checkedInAt: '入住时间',
+              checkedOutAt: '离店时间',
+              schemaVersion: '版本',
+            },
+            requiredFields: ['backendId', 'reservationCode', 'roomNumber', 'status', 'checkedInAt', 'schemaVersion'],
+            updateAllowedFields: ['reservationCode', 'roomNumber', 'relatedRoom', 'status', 'checkedInAt', 'checkedOutAt', 'schemaVersion'],
           },
           inventoryCalendar: {
             tableLogicalName: 'InventoryCalendar',
@@ -713,6 +745,18 @@ export function validatePmsBaseProvisioningSpec(spec: PmsBaseProvisioningSpec): 
     }
     if (!operationRequests.upsertPolicy) {
       errors.push('operation_requests_upsert_policy_required');
+    }
+  }
+
+  const stays = tablesByName.get('Stays');
+  if (stays) {
+    for (const field of requiredStayFields) {
+      if (!stays.fields.some((candidate) => candidate.displayName === field)) {
+        errors.push(`stay_field_missing:${field}`);
+      }
+    }
+    if (!stays.upsertPolicy) {
+      errors.push('stays_upsert_policy_required');
     }
   }
 
@@ -1100,6 +1144,34 @@ function reservationsTable(): PmsBaseTableSpec {
       { logicalName: 'today-departures', displayName: '今日离店', kind: 'grid' },
     ],
     seedRecords: [],
+  };
+}
+
+function staysTable(): PmsBaseTableSpec {
+  return {
+    logicalName: 'Stays',
+    displayName: '入住记录',
+    fields: [
+      hiddenCanonicalIdField(),
+      textField('reservationCode', '预订号'),
+      textField('roomNumber', '房号'),
+      linkedRecordField('relatedRoom', '关联房间', 'RoomLedger', '房号'),
+      selectField('status', '入住状态', ['inHouse', 'checkedOut']),
+      dateTimeField('checkedInAt', '入住时间'),
+      dateTimeField('checkedOutAt', '离店时间', false),
+      textField('schemaVersion', '版本'),
+    ],
+    views: [
+      { logicalName: 'current-stays', displayName: '当前在住', kind: 'grid', filterHint: '入住状态 = inHouse' },
+      { logicalName: 'stay-history', displayName: '入住历史', kind: 'grid' },
+    ],
+    seedRecords: [],
+    upsertPolicy: {
+      strategy: 'adapterUpsert',
+      uniqueField: '后端ID',
+      createOnMissing: true,
+      updateAllowedFields: ['预订号', '房号', '关联房间', '入住状态', '入住时间', '离店时间', '版本'],
+    },
   };
 }
 
