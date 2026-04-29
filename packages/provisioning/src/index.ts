@@ -17,8 +17,9 @@ export type PmsBaseTableLogicalName =
   | 'MaintenanceTickets'
   | 'Reservations'
   | 'OperationLogs'
-  | 'InventoryCalendar';
-export type PmsBaseFieldKind = 'text' | 'longText' | 'singleSelect' | 'dateTime' | 'number';
+  | 'InventoryCalendar'
+  | 'ProjectionStatus';
+export type PmsBaseFieldKind = 'text' | 'longText' | 'singleSelect' | 'dateTime' | 'number' | 'linkedRecord';
 export type PmsBaseWorkflow =
   | 'CHECK_IN'
   | 'CHECK_OUT'
@@ -60,12 +61,21 @@ export type HotelProfileCandidate = Partial<Omit<HotelProfile, 'rooms'>> & {
   readonly rooms?: readonly Partial<HotelRoomProfile>[];
 };
 
+export interface PmsBaseLinkedRecordSpec {
+  readonly targetTableLogicalName: PmsBaseTableLogicalName;
+  readonly targetDisplayFieldName: string;
+  readonly cardinality: 'single' | 'multiple';
+  readonly configMode: 'symbolic';
+}
+
 export interface PmsBaseFieldSpec {
   readonly logicalName: string;
   readonly displayName: string;
   readonly kind: PmsBaseFieldKind;
   readonly required: boolean;
+  readonly hidden?: boolean;
   readonly options?: readonly string[];
+  readonly linkedRecord?: PmsBaseLinkedRecordSpec;
 }
 
 export interface PmsBaseViewSpec {
@@ -122,7 +132,9 @@ export interface PmsBaseProjectionRegistryTemplate {
     readonly housekeepingTasks: PmsBaseProjectionBindingTemplate;
     readonly maintenanceTickets: PmsBaseProjectionBindingTemplate;
     readonly reservations: PmsBaseProjectionBindingTemplate;
+    readonly inventoryCalendar: PmsBaseProjectionBindingTemplate;
     readonly operationLogs: PmsBaseProjectionBindingTemplate;
+    readonly projectionStatus: PmsBaseProjectionBindingTemplate;
   };
 }
 
@@ -210,6 +222,7 @@ const requiredTables: readonly PmsBaseTableLogicalName[] = [
   'Reservations',
   'OperationLogs',
   'InventoryCalendar',
+  'ProjectionStatus',
 ];
 
 const requiredOperationRequestFields = [
@@ -224,6 +237,45 @@ const requiredOperationRequestFields = [
   '结果JSON',
   '版本',
 ] as const;
+
+const requiredProjectionStatusFields = [
+  '后端ID',
+  '投影名称',
+  '聚合键',
+  '状态',
+  '尝试次数',
+  '最近投影时间',
+  '错误摘要',
+  '更新时间',
+  '版本',
+] as const;
+
+const requiredCanonicalIdFields: readonly {
+  readonly tableLogicalName: PmsBaseTableLogicalName;
+  readonly displayName: '后端ID';
+}[] = [
+  { tableLogicalName: 'RoomLedger', displayName: '后端ID' },
+  { tableLogicalName: 'OperationRequests', displayName: '后端ID' },
+  { tableLogicalName: 'HousekeepingTasks', displayName: '后端ID' },
+  { tableLogicalName: 'MaintenanceTickets', displayName: '后端ID' },
+  { tableLogicalName: 'Reservations', displayName: '后端ID' },
+  { tableLogicalName: 'OperationLogs', displayName: '后端ID' },
+  { tableLogicalName: 'InventoryCalendar', displayName: '后端ID' },
+  { tableLogicalName: 'ProjectionStatus', displayName: '后端ID' },
+];
+
+const requiredLinkedRecordFields: readonly {
+  readonly tableLogicalName: PmsBaseTableLogicalName;
+  readonly displayName: string;
+  readonly targetTableLogicalName: PmsBaseTableLogicalName;
+}[] = [
+  { tableLogicalName: 'HousekeepingTasks', displayName: '关联房间', targetTableLogicalName: 'RoomLedger' },
+  { tableLogicalName: 'MaintenanceTickets', displayName: '关联房间', targetTableLogicalName: 'RoomLedger' },
+  { tableLogicalName: 'Reservations', displayName: '关联房间', targetTableLogicalName: 'RoomLedger' },
+  { tableLogicalName: 'OperationLogs', displayName: '关联房间', targetTableLogicalName: 'RoomLedger' },
+  { tableLogicalName: 'OperationLogs', displayName: '关联操作请求', targetTableLogicalName: 'OperationRequests' },
+  { tableLogicalName: 'InventoryCalendar', displayName: '关联房间', targetTableLogicalName: 'RoomLedger' },
+];
 
 export const smallHotelProfileFixture: HotelProfile = {
   propertyKey: 'small-hotel-pms-base-cn',
@@ -321,6 +373,7 @@ export function createSmallHotelPmsBaseProvisioningSpec(profile: HotelProfile = 
       reservationsTable(),
       operationLogsTable(),
       inventoryCalendarTable(),
+      projectionStatusTable(),
     ],
     forms: [
       {
@@ -340,6 +393,7 @@ export function createSmallHotelPmsBaseProvisioningSpec(profile: HotelProfile = 
           roomLedger: {
             tableLogicalName: 'RoomLedger',
             fieldMap: {
+              backendId: '后端ID',
               roomNumber: '房号',
               roomType: '房型',
               occupancyStatus: '入住状态',
@@ -365,6 +419,7 @@ export function createSmallHotelPmsBaseProvisioningSpec(profile: HotelProfile = 
               'lastUpdatedAt',
             ],
             updateAllowedFields: [
+              'backendId',
               'roomType',
               'occupancyStatus',
               'cleaningStatus',
@@ -381,6 +436,7 @@ export function createSmallHotelPmsBaseProvisioningSpec(profile: HotelProfile = 
           operationRequests: {
             tableLogicalName: 'OperationRequests',
             fieldMap: {
+              backendId: '后端ID',
               clientToken: '请求令牌',
               action: '操作类型',
               status: '操作状态',
@@ -393,13 +449,15 @@ export function createSmallHotelPmsBaseProvisioningSpec(profile: HotelProfile = 
               schemaVersion: '版本',
             },
             requiredFields: ['clientToken', 'action', 'status', 'roomNumber', 'operator', 'reason', 'requestedAt', 'schemaVersion'],
-            updateAllowedFields: ['status', 'resultJSON', 'schemaVersion'],
+            updateAllowedFields: ['backendId', 'status', 'resultJSON', 'schemaVersion'],
           },
           housekeepingTasks: {
             tableLogicalName: 'HousekeepingTasks',
             fieldMap: {
+              backendId: '后端ID',
               taskId: '任务ID',
               roomNumber: '房号',
+              relatedRoom: '关联房间',
               kind: '任务类型',
               status: '任务状态',
               reason: '原因',
@@ -409,13 +467,15 @@ export function createSmallHotelPmsBaseProvisioningSpec(profile: HotelProfile = 
               schemaVersion: '版本',
             },
             requiredFields: ['taskId', 'roomNumber', 'kind', 'status', 'reason', 'correlationId', 'createdAt', 'schemaVersion'],
-            updateAllowedFields: ['status', 'reason', 'completedAt', 'schemaVersion'],
+            updateAllowedFields: ['backendId', 'relatedRoom', 'status', 'reason', 'completedAt', 'schemaVersion'],
           },
           maintenanceTickets: {
             tableLogicalName: 'MaintenanceTickets',
             fieldMap: {
+              backendId: '后端ID',
               ticketId: '工单ID',
               roomNumber: '房号',
+              relatedRoom: '关联房间',
               status: '工单状态',
               severity: '严重级别',
               stopSellRequested: '是否停售',
@@ -426,13 +486,15 @@ export function createSmallHotelPmsBaseProvisioningSpec(profile: HotelProfile = 
               schemaVersion: '版本',
             },
             requiredFields: ['ticketId', 'roomNumber', 'status', 'severity', 'stopSellRequested', 'reason', 'correlationId', 'createdAt', 'schemaVersion'],
-            updateAllowedFields: ['status', 'resolvedAt', 'schemaVersion'],
+            updateAllowedFields: ['backendId', 'relatedRoom', 'status', 'resolvedAt', 'schemaVersion'],
           },
           reservations: {
             tableLogicalName: 'Reservations',
             fieldMap: {
+              backendId: '后端ID',
               reservationCode: '预订号',
               roomNumber: '房号',
+              relatedRoom: '关联房间',
               guestLabel: '客人',
               arrivalDate: '到店日期',
               departureDate: '离店日期',
@@ -440,14 +502,72 @@ export function createSmallHotelPmsBaseProvisioningSpec(profile: HotelProfile = 
               schemaVersion: '版本',
             },
             requiredFields: ['reservationCode', 'guestLabel', 'arrivalDate', 'departureDate', 'status', 'schemaVersion'],
-            updateAllowedFields: ['roomNumber', 'guestLabel', 'arrivalDate', 'departureDate', 'status', 'schemaVersion'],
+            updateAllowedFields: ['backendId', 'roomNumber', 'relatedRoom', 'guestLabel', 'arrivalDate', 'departureDate', 'status', 'schemaVersion'],
+          },
+          inventoryCalendar: {
+            tableLogicalName: 'InventoryCalendar',
+            fieldMap: {
+              backendId: '后端ID',
+              intervalKey: '库存区间键',
+              propertyId: '门店ID',
+              roomId: '房间ID',
+              roomNumber: '房号',
+              relatedRoom: '关联房间',
+              roomTypeId: '房型ID',
+              roomType: '房型',
+              startDate: '开始日期',
+              endDate: '结束日期',
+              calendarKind: '日历状态',
+              sellableStatus: '可售状态',
+              title: '标题',
+              sourceRefsJSON: '来源JSON',
+              projectionStatus: '投影状态',
+              prunedAt: '剪枝时间',
+              updatedAt: '更新时间',
+              schemaVersion: '版本',
+            },
+            requiredFields: [
+              'intervalKey',
+              'propertyId',
+              'roomId',
+              'roomNumber',
+              'startDate',
+              'endDate',
+              'calendarKind',
+              'sellableStatus',
+              'title',
+              'sourceRefsJSON',
+              'projectionStatus',
+              'updatedAt',
+              'schemaVersion',
+            ],
+            updateAllowedFields: [
+              'backendId',
+              'roomNumber',
+              'relatedRoom',
+              'roomTypeId',
+              'roomType',
+              'startDate',
+              'endDate',
+              'calendarKind',
+              'sellableStatus',
+              'title',
+              'sourceRefsJSON',
+              'projectionStatus',
+              'prunedAt',
+              'updatedAt',
+              'schemaVersion',
+            ],
           },
           operationLogs: {
             tableLogicalName: 'OperationLogs',
             fieldMap: {
+              backendId: '后端ID',
               auditId: '审计ID',
               commandType: '操作类型',
               roomNumber: '房号',
+              relatedRoom: '关联房间',
+              relatedOperationRequest: '关联操作请求',
               actor: '操作人',
               source: '来源',
               reason: '原因',
@@ -473,6 +593,22 @@ export function createSmallHotelPmsBaseProvisioningSpec(profile: HotelProfile = 
             ],
             updateAllowedFields: [],
           },
+          projectionStatus: {
+            tableLogicalName: 'ProjectionStatus',
+            fieldMap: {
+              backendId: '后端ID',
+              projectionName: '投影名称',
+              aggregateKey: '聚合键',
+              status: '状态',
+              attemptCount: '尝试次数',
+              lastProjectedAt: '最近投影时间',
+              lastErrorSummary: '错误摘要',
+              updatedAt: '更新时间',
+              schemaVersion: '版本',
+            },
+            requiredFields: ['backendId', 'projectionName', 'aggregateKey', 'status', 'attemptCount', 'updatedAt', 'schemaVersion'],
+            updateAllowedFields: ['projectionName', 'aggregateKey', 'status', 'attemptCount', 'lastProjectedAt', 'lastErrorSummary', 'updatedAt', 'schemaVersion'],
+          },
         },
       },
     },
@@ -481,6 +617,9 @@ export function createSmallHotelPmsBaseProvisioningSpec(profile: HotelProfile = 
       'required_fields',
       'proof_rooms_seeded',
       'operation_request_upsert_policy',
+      'hidden_canonical_id_fields',
+      'symbolic_linked_record_fields',
+      'projection_status_schema',
       'no_tracked_target_values',
     ],
   };
@@ -518,6 +657,50 @@ export function validatePmsBaseProvisioningSpec(spec: PmsBaseProvisioningSpec): 
         errors.push(`duplicate_field_display_name:${table.logicalName}:${field.displayName}`);
       }
       displayNames.add(field.displayName);
+
+      if (field.kind === 'linkedRecord') {
+        if (!field.linkedRecord) {
+          errors.push(`linked_record_config_missing:${table.logicalName}:${field.displayName}`);
+        } else {
+          if (!tablesByName.has(field.linkedRecord.targetTableLogicalName)) {
+            errors.push(`linked_record_target_table_missing:${table.logicalName}:${field.displayName}:${field.linkedRecord.targetTableLogicalName}`);
+          }
+          if (field.linkedRecord.configMode !== 'symbolic') {
+            errors.push(`linked_record_config_not_symbolic:${table.logicalName}:${field.displayName}`);
+          }
+        }
+      }
+    }
+  }
+
+  for (const requiredField of requiredCanonicalIdFields) {
+    const field = tablesByName.get(requiredField.tableLogicalName)?.fields.find((candidate) => candidate.displayName === requiredField.displayName);
+    if (!field) {
+      errors.push(`canonical_id_field_missing:${requiredField.tableLogicalName}:${requiredField.displayName}`);
+      continue;
+    }
+    if (field.kind !== 'text') {
+      errors.push(`canonical_id_field_kind_invalid:${requiredField.tableLogicalName}:${requiredField.displayName}`);
+    }
+    if (field.hidden !== true) {
+      errors.push(`canonical_id_field_not_hidden:${requiredField.tableLogicalName}:${requiredField.displayName}`);
+    }
+  }
+
+  for (const requiredField of requiredLinkedRecordFields) {
+    const field = tablesByName.get(requiredField.tableLogicalName)?.fields.find((candidate) => candidate.displayName === requiredField.displayName);
+    if (!field) {
+      errors.push(`linked_record_field_missing:${requiredField.tableLogicalName}:${requiredField.displayName}`);
+      continue;
+    }
+    if (field.kind !== 'linkedRecord') {
+      errors.push(`linked_record_field_kind_invalid:${requiredField.tableLogicalName}:${requiredField.displayName}`);
+    }
+    if (field.required) {
+      errors.push(`linked_record_field_must_be_optional:${requiredField.tableLogicalName}:${requiredField.displayName}`);
+    }
+    if (field.linkedRecord?.targetTableLogicalName !== requiredField.targetTableLogicalName) {
+      errors.push(`linked_record_target_mismatch:${requiredField.tableLogicalName}:${requiredField.displayName}:${requiredField.targetTableLogicalName}`);
     }
   }
 
@@ -530,6 +713,18 @@ export function validatePmsBaseProvisioningSpec(spec: PmsBaseProvisioningSpec): 
     }
     if (!operationRequests.upsertPolicy) {
       errors.push('operation_requests_upsert_policy_required');
+    }
+  }
+
+  const projectionStatus = tablesByName.get('ProjectionStatus');
+  if (projectionStatus) {
+    for (const field of requiredProjectionStatusFields) {
+      if (!projectionStatus.fields.some((candidate) => candidate.displayName === field)) {
+        errors.push(`projection_status_field_missing:${field}`);
+      }
+    }
+    if (!projectionStatus.upsertPolicy) {
+      errors.push('projection_status_upsert_policy_required');
     }
   }
 
@@ -745,6 +940,7 @@ function roomLedgerTable(profile: HotelProfile): PmsBaseTableSpec {
     logicalName: 'RoomLedger',
     displayName: '房态台账',
     fields: [
+      hiddenCanonicalIdField(),
       textField('roomNumber', '房号'),
       textField('roomType', '房型'),
       textField('zone', '区域', false),
@@ -768,6 +964,7 @@ function roomLedgerTable(profile: HotelProfile): PmsBaseTableSpec {
     seedRecords: profile.rooms.map((room) => ({
       logicalKey: `room:${room.roomNumber}`,
       fields: {
+        后端ID: `room:${room.roomNumber}`,
         房号: room.roomNumber,
         房型: room.roomType,
         区域: room.zone,
@@ -792,6 +989,7 @@ function operationRequestsTable(profile: HotelProfile): PmsBaseTableSpec {
     logicalName: 'OperationRequests',
     displayName: 'PMS操作请求',
     fields: [
+      hiddenCanonicalIdField(),
       textField('clientToken', '请求令牌'),
       selectField('action', '操作类型', ['CHECK_IN', 'CHECK_OUT', 'HOUSEKEEPING_DONE', 'HOUSEKEEPING_INSPECTION', 'HOUSEKEEPING_REWORK', 'REPORT_MAINTENANCE', 'MAINTENANCE_DONE', 'RESTORE_SELLABLE']),
       selectField('status', '操作状态', ['待处理', '待确认', '处理中', '已完成', '失败', '需人工复核', '已过期', '重复忽略']),
@@ -811,6 +1009,7 @@ function operationRequestsTable(profile: HotelProfile): PmsBaseTableSpec {
       profile.enabledWorkflows.map((workflow) => ({
         logicalKey: `operation:${workflow}:${roomNumber}`,
         fields: {
+          后端ID: `operation-request:sandbox-${workflow.toLowerCase().replaceAll('_', '-')}-${roomNumber}`,
           请求令牌: `sandbox-${workflow.toLowerCase().replaceAll('_', '-')}-${roomNumber}`,
           操作类型: workflow,
           操作状态: '待处理',
@@ -838,8 +1037,10 @@ function housekeepingTasksTable(): PmsBaseTableSpec {
     logicalName: 'HousekeepingTasks',
     displayName: '保洁任务',
     fields: [
+      hiddenCanonicalIdField(),
       textField('taskId', '任务ID'),
       textField('roomNumber', '房号'),
+      linkedRecordField('relatedRoom', '关联房间', 'RoomLedger', '房号'),
       selectField('kind', '任务类型', ['checkout-cleaning', 'room-cleaning', 'rework-cleaning']),
       selectField('status', '任务状态', ['待处理', '处理中', '待查', '返工', '已完成', '已取消']),
       textField('reason', '原因'),
@@ -858,8 +1059,10 @@ function maintenanceTicketsTable(): PmsBaseTableSpec {
     logicalName: 'MaintenanceTickets',
     displayName: '维修工单',
     fields: [
+      hiddenCanonicalIdField(),
       textField('ticketId', '工单ID'),
       textField('roomNumber', '房号'),
+      linkedRecordField('relatedRoom', '关联房间', 'RoomLedger', '房号'),
       selectField('status', '工单状态', ['待处理', '处理中', '已完成']),
       selectField('severity', '严重级别', ['Low', 'Medium', 'High', 'StopSell']),
       selectField('stopSellRequested', '是否停售', ['是', '否']),
@@ -882,8 +1085,10 @@ function reservationsTable(): PmsBaseTableSpec {
     logicalName: 'Reservations',
     displayName: '预订',
     fields: [
+      hiddenCanonicalIdField(),
       textField('reservationCode', '预订号'),
       textField('roomNumber', '房号', false),
+      linkedRecordField('relatedRoom', '关联房间', 'RoomLedger', '房号'),
       textField('guestLabel', '客人'),
       dateTimeField('arrivalDate', '到店日期'),
       dateTimeField('departureDate', '离店日期'),
@@ -903,23 +1108,29 @@ function inventoryCalendarTable(): PmsBaseTableSpec {
     logicalName: 'InventoryCalendar',
     displayName: '库存日历',
     fields: [
-      textField('calendarTitle', '日历标题'),
+      hiddenCanonicalIdField(),
+      textField('intervalKey', '库存区间键'),
+      textField('propertyId', '门店ID'),
+      textField('roomId', '房间ID'),
       textField('roomNumber', '房号'),
-      textField('roomType', '房型'),
-      textField('zone', '区域', false),
-      dateTimeField('businessDate', '营业日'),
+      linkedRecordField('relatedRoom', '关联房间', 'RoomLedger', '房号'),
+      textField('roomTypeId', '房型ID', false),
+      textField('roomType', '房型', false),
       dateTimeField('startDate', '开始日期'),
       dateTimeField('endDate', '结束日期'),
-      selectField('calendarKind', '日历类型', ['库存基线', '预订占用', '维修停售', '保留停售', '业主停售', '保洁周转']),
-      selectField('sellableStatus', '可售状态', ['可售', '停售维修', '停售保留', '停售业主']),
-      textField('source', '来源'),
-      textField('sortKey', '房号排序'),
-      textField('reason', '原因', false),
+      selectField('calendarKind', '日历状态', ['available', 'reserved', 'occupied', 'blocked']),
+      selectField('sellableStatus', '可售状态', ['sellable', 'outOfOrder', 'outOfService']),
+      textField('title', '标题'),
+      longTextField('sourceRefsJSON', '来源JSON'),
+      textField('projectionStatus', '投影状态'),
+      dateTimeField('prunedAt', '剪枝时间', false),
+      dateTimeField('updatedAt', '更新时间'),
       textField('schemaVersion', '版本'),
     ],
     views: [
       { logicalName: 'inventory-calendar', displayName: '库存日历', kind: 'gantt' },
       { logicalName: 'inventory-detail', displayName: '库存明细', kind: 'grid' },
+      { logicalName: 'inventory-month-overview', displayName: '月历概览', kind: 'calendar' },
     ],
     seedRecords: [],
   };
@@ -930,9 +1141,12 @@ function operationLogsTable(): PmsBaseTableSpec {
     logicalName: 'OperationLogs',
     displayName: '操作日志',
     fields: [
+      hiddenCanonicalIdField(),
       textField('auditId', '审计ID'),
       selectField('commandType', '操作类型', ['CHECK_IN', 'CHECK_OUT', 'HOUSEKEEPING_DONE', 'HOUSEKEEPING_INSPECTION', 'HOUSEKEEPING_REWORK', 'REPORT_MAINTENANCE', 'MAINTENANCE_DONE', 'RESTORE_SELLABLE']),
       textField('roomNumber', '房号'),
+      linkedRecordField('relatedRoom', '关联房间', 'RoomLedger', '房号'),
+      linkedRecordField('relatedOperationRequest', '关联操作请求', 'OperationRequests', '请求令牌'),
       textField('actor', '操作人'),
       textField('source', '来源'),
       textField('reason', '原因'),
@@ -948,8 +1162,61 @@ function operationLogsTable(): PmsBaseTableSpec {
   };
 }
 
+function projectionStatusTable(): PmsBaseTableSpec {
+  return {
+    logicalName: 'ProjectionStatus',
+    displayName: '投影状态',
+    fields: [
+      hiddenCanonicalIdField(),
+      textField('projectionName', '投影名称'),
+      textField('aggregateKey', '聚合键'),
+      selectField('status', '状态', ['pending', 'retry_pending', 'failed', 'delivered', 'fresh', 'stale', 'pruned']),
+      { logicalName: 'attemptCount', displayName: '尝试次数', kind: 'number', required: true },
+      dateTimeField('lastProjectedAt', '最近投影时间', false),
+      longTextField('lastErrorSummary', '错误摘要', false),
+      dateTimeField('updatedAt', '更新时间'),
+      textField('schemaVersion', '版本'),
+    ],
+    views: [
+      { logicalName: 'projection-status-overview', displayName: '投影状态', kind: 'grid' },
+      { logicalName: 'projection-status-needs-attention', displayName: '异常投影', kind: 'grid', filterHint: 'status in failed/retry_pending/stale' },
+    ],
+    seedRecords: [],
+    upsertPolicy: {
+      strategy: 'adapterUpsert',
+      uniqueField: '后端ID',
+      createOnMissing: true,
+      updateAllowedFields: ['投影名称', '聚合键', '状态', '尝试次数', '最近投影时间', '错误摘要', '更新时间', '版本'],
+    },
+  };
+}
+
 function textField(logicalName: string, displayName: string, required = true): PmsBaseFieldSpec {
   return { logicalName, displayName, kind: 'text', required };
+}
+
+function hiddenCanonicalIdField(): PmsBaseFieldSpec {
+  return { logicalName: 'backendId', displayName: '后端ID', kind: 'text', required: false, hidden: true };
+}
+
+function linkedRecordField(
+  logicalName: string,
+  displayName: string,
+  targetTableLogicalName: PmsBaseTableLogicalName,
+  targetDisplayFieldName: string,
+): PmsBaseFieldSpec {
+  return {
+    logicalName,
+    displayName,
+    kind: 'linkedRecord',
+    required: false,
+    linkedRecord: {
+      targetTableLogicalName,
+      targetDisplayFieldName,
+      cardinality: 'single',
+      configMode: 'symbolic',
+    },
+  };
 }
 
 function longTextField(logicalName: string, displayName: string, required = true): PmsBaseFieldSpec {
@@ -996,7 +1263,18 @@ function toLarkFieldJson(field: PmsBaseFieldSpec): Record<string, unknown> {
   return {
     name: field.displayName,
     type: toLarkFieldType(field.kind),
+    ...(field.hidden ? { hidden: true } : {}),
     ...(field.options ? { options: field.options.map((option) => ({ name: option })) } : {}),
+    ...(field.linkedRecord
+      ? {
+          relation: {
+            targetTableLogicalName: field.linkedRecord.targetTableLogicalName,
+            targetDisplayFieldName: field.linkedRecord.targetDisplayFieldName,
+            cardinality: field.linkedRecord.cardinality,
+            configMode: field.linkedRecord.configMode,
+          },
+        }
+      : {}),
   };
 }
 
@@ -1004,6 +1282,7 @@ function toLarkFieldType(kind: PmsBaseFieldKind): string {
   if (kind === 'singleSelect') return 'select';
   if (kind === 'dateTime') return 'datetime';
   if (kind === 'longText') return 'text';
+  if (kind === 'linkedRecord') return 'link';
   return kind;
 }
 
@@ -1053,7 +1332,8 @@ function findTrackedTargetValues(value: unknown, path = ''): string[] {
 
 function looksLikeTrackedTargetValue(value: string): boolean {
   return /\b(?:app_token|base_token|table_id|field_id|view_id|form_id|record_id)\b/i.test(value)
-    || /\b(?:bascn|tbl|fld|vew|frm)[a-zA-Z0-9_/-]{6,}\b/.test(value);
+    || /\b(?:bascn|tbl|fld|vew|frm)[a-zA-Z0-9_/-]{6,}\b/.test(value)
+    || /\b(?:rec_[a-zA-Z0-9_/-]{3,}|rec[a-zA-Z0-9]{12,})\b/.test(value);
 }
 
 function uniqueStrings(values: readonly string[]): string[] {

@@ -1,24 +1,29 @@
+import { createHash } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import type {
-  AuditEntry,
-  DomainEvent,
-  HousekeepingTask,
-  InventoryAvailabilityStatus,
-  InventoryBlock,
-  InventoryCalendarKind,
-  InventoryDayRoom,
-  InventoryHorizonRequest,
-  InventoryIntervalProjection,
-  InventoryReadModel,
-  InventorySellableStatus,
-  InventorySourceRef,
-  InventorySummaryDayType,
-  MaintenanceTicket,
-  ReservationReadModel,
-  RoomReservationContextReadModel,
-  TodayReservationsReadModel,
+import {
+  isOperationRequestSource,
+  isOperationRequestStatus,
+  isSupportedOperationRequestAction,
+  type AuditEntry,
+  type DomainEvent,
+  type HousekeepingTask,
+  type InventoryAvailabilityStatus,
+  type InventoryBlock,
+  type InventoryCalendarKind,
+  type InventoryDayRoom,
+  type InventoryHorizonRequest,
+  type InventoryIntervalProjection,
+  type InventoryReadModel,
+  type InventorySellableStatus,
+  type InventorySourceRef,
+  type InventorySummaryDayType,
+  type MaintenanceTicket,
+  type OperationRequest,
+  type ReservationReadModel,
+  type RoomReservationContextReadModel,
+  type TodayReservationsReadModel,
 } from '@pms-platform/contracts';
 import {
   type CoreCheckInConfirmResult,
@@ -36,12 +41,22 @@ import {
   pmsHousekeepingInspectionOperation,
   pmsHousekeepingReworkOperation,
   pmsMaintenanceDoneOperation,
+  pmsOperationRequestCreateOperation,
+  pmsOperationRequestGetOperation,
+  pmsOperationRequestUpdateOperation,
   pmsReportMaintenanceOperation,
   pmsRestoreSellableOperation,
+  type ApiErrorCode,
   type ApiIdempotencyRecord,
   type ApiIdempotencyRepository,
   type CheckInApiRequest,
   type CheckOutApiRequest,
+  type OperationRequestCreateApiRequest,
+  type OperationRequestCreateApiResponse,
+  type OperationRequestGetApiRequest,
+  type OperationRequestGetApiResponse,
+  type OperationRequestUpdateApiRequest,
+  type OperationRequestUpdateApiResponse,
 } from './index.js';
 import {
   type PmsSandboxPropertyReadback,
@@ -109,6 +124,7 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
     const stays = roomId ? this.listStaysByRoomIds(roomIds) : this.listStays();
     const housekeepingTasks = roomId ? this.listHousekeepingTasksByRoomIds(roomIds) : this.listHousekeepingTasks();
     const maintenanceTickets = roomId ? this.listMaintenanceTicketsByRoomIds(roomIds) : this.listMaintenanceTickets();
+    const operationRequests = roomId ? this.listOperationRequestsByRoomIds(roomIds) : this.listOperationRequests();
     const audits = roomId ? this.listAuditsByRoomIds(roomIds) : this.listAudits();
     const domainEvents = roomId ? this.listDomainEventsByRoomIds(roomIds) : this.listDomainEvents();
 
@@ -129,6 +145,7 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
       inventoryDayRooms: cloneValue(horizon.dayRooms),
       inventoryIntervalProjection: cloneValue(horizon.intervals),
       inventorySummaryDayType: cloneValue(horizon.summaries),
+      operationRequests: cloneValue(operationRequests),
       housekeepingTasks: cloneValue(housekeepingTasks),
       maintenanceTickets: cloneValue(maintenanceTickets),
       audits: cloneValue(audits),
@@ -181,6 +198,22 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
 
   inventorySummary(options: Partial<InventoryHorizonRequest> = {}): InventoryReadModel {
     return this.rebuildInventory(options);
+  }
+
+  createOperationRequest(request: OperationRequestCreateApiRequest): OperationRequestCreateApiResponse {
+    return this.runInTransaction(() => this.createOperationRequestRecord(request));
+  }
+
+  getOperationRequest(request: OperationRequestGetApiRequest): OperationRequestGetApiResponse {
+    return {
+      ok: true,
+      operation: pmsOperationRequestGetOperation,
+      request: cloneValue(this.findOperationRequest(request)),
+    };
+  }
+
+  updateOperationRequest(request: OperationRequestUpdateApiRequest): OperationRequestUpdateApiResponse {
+    return this.runInTransaction(() => this.updateOperationRequestRecord(request));
   }
 
   runInTransaction<TValue>(operation: () => TValue): TValue {
@@ -427,6 +460,23 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
         updated_at TEXT NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS operation_requests (
+        operation_request_id TEXT PRIMARY KEY,
+        property_id TEXT NOT NULL,
+        client_token TEXT NOT NULL UNIQUE,
+        request_fingerprint TEXT NOT NULL,
+        source TEXT NOT NULL,
+        action TEXT NOT NULL,
+        status TEXT NOT NULL,
+        room_id TEXT,
+        room_number TEXT,
+        reservation_id TEXT,
+        payload_json TEXT NOT NULL,
+        result_json TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
       CREATE INDEX IF NOT EXISTS idx_rooms_room_number ON rooms(room_number);
       CREATE INDEX IF NOT EXISTS idx_room_types_property_id ON room_types(property_id);
       CREATE INDEX IF NOT EXISTS idx_housekeeping_tasks_room_id ON housekeeping_tasks(room_id);
@@ -446,6 +496,9 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
       CREATE INDEX IF NOT EXISTS idx_audits_idempotency_key ON audits(idempotency_key);
       CREATE INDEX IF NOT EXISTS idx_domain_events_room_id ON domain_events(room_id);
       CREATE INDEX IF NOT EXISTS idx_domain_events_event_type ON domain_events(event_type);
+      CREATE INDEX IF NOT EXISTS idx_operation_requests_client_token ON operation_requests(client_token);
+      CREATE INDEX IF NOT EXISTS idx_operation_requests_room_id ON operation_requests(room_id);
+      CREATE INDEX IF NOT EXISTS idx_operation_requests_status ON operation_requests(status);
       CREATE INDEX IF NOT EXISTS idx_domain_events_correlation_id ON domain_events(correlation_id);
       CREATE INDEX IF NOT EXISTS idx_domain_events_idempotency_key ON domain_events(idempotency_key);
 
@@ -494,6 +547,7 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
             (SELECT COUNT(*) FROM maintenance_tickets) +
             (SELECT COUNT(*) FROM audits) +
             (SELECT COUNT(*) FROM domain_events) +
+            (SELECT COUNT(*) FROM operation_requests) +
             (SELECT COUNT(*) FROM core_idempotency) +
             (SELECT COUNT(*) FROM api_idempotency) AS total
         `,
@@ -506,6 +560,7 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
     this.db.exec(`
       DELETE FROM api_idempotency;
       DELETE FROM core_idempotency;
+      DELETE FROM operation_requests;
       DELETE FROM domain_events;
       DELETE FROM audits;
       DELETE FROM inventory_summary_day_type;
@@ -575,6 +630,112 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
       save: (record) => this.saveApiIdempotency(record),
       list: () => cloneValue(this.listApiIdempotencyRecords()),
     };
+  }
+
+  private createOperationRequestRecord(request: OperationRequestCreateApiRequest): OperationRequestCreateApiResponse {
+    const payloadJson = stableJsonStringify(request.payload ?? {});
+    const existing = this.getOperationRequestByClientToken(request.clientToken);
+
+    if (!isSupportedOperationRequestAction(request.action)) {
+      return operationRequestCreateErrorResponse(
+        'OPERATION_REQUEST_UNSUPPORTED_ACTION',
+        `Unsupported operation request action: ${request.action}`,
+        'action',
+      );
+    }
+
+    if (!isOperationRequestSource(request.source)) {
+      return operationRequestCreateErrorResponse(
+        'OPERATION_REQUEST_UNSUPPORTED_SOURCE',
+        `Unsupported operation request source: ${request.source}`,
+        'source',
+      );
+    }
+
+    if (existing && (existing.requestFingerprint !== request.requestFingerprint || existing.payloadJson !== payloadJson)) {
+      return operationRequestCreateErrorResponse(
+        'OPERATION_REQUEST_TOKEN_REUSED_WITH_DIFFERENT_FINGERPRINT',
+        'The operation request client token was reused with a different request fingerprint or payload.',
+        'requestFingerprint',
+      );
+    }
+
+    if (existing) {
+      return {
+        ok: true,
+        operation: pmsOperationRequestCreateOperation,
+        idempotencyStatus: 'replayed',
+        request: cloneValue(existing),
+      };
+    }
+
+    const createdAt = nonEmptyString(request.requestedAt, this.now());
+    const operationRequest: OperationRequest = {
+      operationRequestId: operationRequestIdFromClientToken(request.clientToken),
+      propertyId: nonEmptyString(request.propertyId, 'property-unknown'),
+      clientToken: request.clientToken,
+      requestFingerprint: request.requestFingerprint,
+      source: request.source,
+      action: request.action,
+      status: 'queued',
+      roomId: optionalString(request.roomId),
+      roomNumber: optionalString(request.roomNumber),
+      reservationId: optionalString(request.reservationId),
+      payloadJson,
+      createdAt,
+      updatedAt: createdAt,
+    };
+    this.saveOperationRequest(operationRequest);
+
+    return {
+      ok: true,
+      operation: pmsOperationRequestCreateOperation,
+      idempotencyStatus: 'created',
+      request: cloneValue(operationRequest),
+    };
+  }
+
+  private updateOperationRequestRecord(request: OperationRequestUpdateApiRequest): OperationRequestUpdateApiResponse {
+    const existing = this.findOperationRequest(request);
+    if (!existing) {
+      return operationRequestUpdateErrorResponse(
+        'OPERATION_REQUEST_NOT_FOUND',
+        'Operation request was not found.',
+        request.operationRequestId ? 'operationRequestId' : 'clientToken',
+      );
+    }
+
+    if (request.status !== undefined && !isOperationRequestStatus(request.status)) {
+      return operationRequestUpdateErrorResponse(
+        'OPERATION_REQUEST_INVALID_STATUS',
+        `Unsupported operation request status: ${request.status}`,
+        'status',
+      );
+    }
+
+    const updated: OperationRequest = {
+      ...existing,
+      status: request.status ?? existing.status,
+      resultJson: request.result === undefined ? existing.resultJson : request.result === null ? undefined : stableJsonStringify(request.result),
+      updatedAt: nonEmptyString(request.updatedAt, this.now()),
+    };
+    this.saveOperationRequest(updated);
+
+    return {
+      ok: true,
+      operation: pmsOperationRequestUpdateOperation,
+      request: cloneValue(updated),
+    };
+  }
+
+  private findOperationRequest(request: OperationRequestGetApiRequest | OperationRequestUpdateApiRequest): OperationRequest | undefined {
+    if (request.operationRequestId) {
+      return this.getOperationRequestById(request.operationRequestId);
+    }
+    if (request.clientToken) {
+      return this.getOperationRequestByClientToken(request.clientToken);
+    }
+    return undefined;
   }
 
   private getRoom(roomId: string): RoomAggregate | undefined {
@@ -1539,6 +1700,72 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
     this.inventoryDirty = true;
   }
 
+  private getOperationRequestById(operationRequestId: string): OperationRequest | undefined {
+    const row = this.db.prepare('SELECT * FROM operation_requests WHERE operation_request_id = ?').get(operationRequestId) as OperationRequestRow | undefined;
+    return row ? operationRequestFromRow(row) : undefined;
+  }
+
+  private getOperationRequestByClientToken(clientToken: string): OperationRequest | undefined {
+    const row = this.db.prepare('SELECT * FROM operation_requests WHERE client_token = ?').get(clientToken) as OperationRequestRow | undefined;
+    return row ? operationRequestFromRow(row) : undefined;
+  }
+
+  private listOperationRequests(): OperationRequest[] {
+    const rows = this.db
+      .prepare('SELECT * FROM operation_requests ORDER BY created_at, operation_request_id')
+      .all() as unknown as OperationRequestRow[];
+    return rows.map(operationRequestFromRow);
+  }
+
+  private listOperationRequestsByRoomIds(roomIds: ReadonlySet<string>): OperationRequest[] {
+    if (roomIds.size === 0) {
+      return [];
+    }
+    return this.listOperationRequests().filter((request) => request.roomId ? roomIds.has(request.roomId) : false);
+  }
+
+  private saveOperationRequest(request: OperationRequest): void {
+    this.db
+      .prepare(
+        `
+          INSERT INTO operation_requests (
+            operation_request_id, property_id, client_token, request_fingerprint, source, action, status,
+            room_id, room_number, reservation_id, payload_json, result_json, created_at, updated_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(operation_request_id) DO UPDATE SET
+            property_id = excluded.property_id,
+            client_token = excluded.client_token,
+            request_fingerprint = excluded.request_fingerprint,
+            source = excluded.source,
+            action = excluded.action,
+            status = excluded.status,
+            room_id = excluded.room_id,
+            room_number = excluded.room_number,
+            reservation_id = excluded.reservation_id,
+            payload_json = excluded.payload_json,
+            result_json = excluded.result_json,
+            updated_at = excluded.updated_at
+        `,
+      )
+      .run(
+        request.operationRequestId,
+        request.propertyId,
+        request.clientToken,
+        request.requestFingerprint,
+        request.source,
+        request.action,
+        request.status,
+        request.roomId ?? null,
+        request.roomNumber ?? null,
+        request.reservationId ?? null,
+        request.payloadJson,
+        request.resultJson ?? null,
+        request.createdAt,
+        request.updatedAt,
+      );
+  }
+
   private appendAudit(entry: AuditEntry): void {
     this.db
       .prepare(
@@ -1678,6 +1905,23 @@ interface ApiIdempotencyRow {
   readonly idempotency_key: string;
   readonly request_fingerprint: string;
   readonly response_json: string;
+}
+
+interface OperationRequestRow {
+  readonly operation_request_id: string;
+  readonly property_id: string;
+  readonly client_token: string;
+  readonly request_fingerprint: string;
+  readonly source: OperationRequest['source'];
+  readonly action: OperationRequest['action'];
+  readonly status: OperationRequest['status'];
+  readonly room_id?: string | null;
+  readonly room_number?: string | null;
+  readonly reservation_id?: string | null;
+  readonly payload_json: string;
+  readonly result_json?: string | null;
+  readonly created_at: string;
+  readonly updated_at: string;
 }
 
 interface ReservationRow {
@@ -1838,6 +2082,41 @@ function apiIdempotencyFromRow(row: ApiIdempotencyRow): ApiIdempotencyRecord {
     idempotencyKey: row.idempotency_key,
     requestFingerprint: row.request_fingerprint,
     response: parseJson<ApiIdempotencyRecord['response']>(row.response_json),
+  };
+}
+
+function operationRequestFromRow(row: OperationRequestRow): OperationRequest {
+  return {
+    operationRequestId: row.operation_request_id,
+    propertyId: row.property_id,
+    clientToken: row.client_token,
+    requestFingerprint: row.request_fingerprint,
+    source: row.source,
+    action: row.action,
+    status: row.status,
+    ...(row.room_id ? { roomId: row.room_id } : {}),
+    ...(row.room_number ? { roomNumber: row.room_number } : {}),
+    ...(row.reservation_id ? { reservationId: row.reservation_id } : {}),
+    payloadJson: row.payload_json,
+    ...(row.result_json ? { resultJson: row.result_json } : {}),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function operationRequestCreateErrorResponse(code: ApiErrorCode, message: string, field: string): OperationRequestCreateApiResponse {
+  return {
+    ok: false,
+    operation: pmsOperationRequestCreateOperation,
+    errors: [{ code, message, field }],
+  };
+}
+
+function operationRequestUpdateErrorResponse(code: ApiErrorCode, message: string, field: string): OperationRequestUpdateApiResponse {
+  return {
+    ok: false,
+    operation: pmsOperationRequestUpdateOperation,
+    errors: [{ code, message, field }],
   };
 }
 
@@ -2107,6 +2386,38 @@ function normalizeBusinessDate(value: string): string {
 
 function parseJson<TValue>(raw: string): TValue {
   return JSON.parse(raw) as TValue;
+}
+
+function stableJsonStringify(value: unknown): string {
+  return JSON.stringify(toStableJsonValue(value));
+}
+
+function toStableJsonValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(toStableJsonValue);
+  }
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(([, entryValue]) => entryValue !== undefined)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, entryValue]) => [key, toStableJsonValue(entryValue)]),
+    );
+  }
+  return value ?? null;
+}
+
+function operationRequestIdFromClientToken(clientToken: string): string {
+  const digest = createHash('sha256').update(clientToken).digest('hex').slice(0, 12);
+  return `opreq-${sanitizeSlug(clientToken).slice(0, 48)}-${digest}`;
+}
+
+function nonEmptyString(value: string | undefined, fallback: string): string {
+  return value && value.trim() ? value : fallback;
+}
+
+function optionalString(value: string | undefined): string | undefined {
+  return value && value.trim() ? value : undefined;
 }
 
 function sameBusinessDate(value: string, businessDate: string): boolean {

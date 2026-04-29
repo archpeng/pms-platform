@@ -11,6 +11,9 @@ import type {
   HousekeepingReworkCommand,
   InventoryHorizonRequest,
   InventoryReadModel,
+  OperationRequest,
+  OperationRequestSource,
+  OperationRequestStatus,
   MaintenanceDoneCommand,
   ReservationReadModel,
   ReportMaintenanceCommand,
@@ -58,6 +61,9 @@ export const pmsTodayDeparturesOperation = 'pms_today_departures';
 export const pmsRoomReservationContextOperation = 'pms_room_reservation_context';
 export const pmsInventoryIntervalsOperation = 'pms_inventory_intervals';
 export const pmsInventorySummaryOperation = 'pms_inventory_summary';
+export const pmsOperationRequestCreateOperation = 'pms_operation_request_create';
+export const pmsOperationRequestGetOperation = 'pms_operation_request_get';
+export const pmsOperationRequestUpdateOperation = 'pms_operation_request_update';
 
 export type PmsCommandOperation =
   | typeof pmsCheckInOperation
@@ -79,7 +85,17 @@ export type PmsReadModelOperation =
   | typeof pmsInventorySummaryOperation;
 export type PmsApiMode = 'dryRun' | 'confirm';
 export type CheckOutApiMode = PmsApiMode;
-export type ApiBoundaryErrorCode = 'IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_FINGERPRINT';
+export type PmsOperationRequestOperation =
+  | typeof pmsOperationRequestCreateOperation
+  | typeof pmsOperationRequestGetOperation
+  | typeof pmsOperationRequestUpdateOperation;
+export type ApiBoundaryErrorCode =
+  | 'IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_FINGERPRINT'
+  | 'OPERATION_REQUEST_TOKEN_REUSED_WITH_DIFFERENT_FINGERPRINT'
+  | 'OPERATION_REQUEST_UNSUPPORTED_ACTION'
+  | 'OPERATION_REQUEST_UNSUPPORTED_SOURCE'
+  | 'OPERATION_REQUEST_NOT_FOUND'
+  | 'OPERATION_REQUEST_INVALID_STATUS';
 export type ApiErrorCode = DomainError['code'] | ApiBoundaryErrorCode;
 
 export interface ApiError {
@@ -357,6 +373,63 @@ export type PmsReadModelApiResponse =
   | RoomReservationContextApiResponse
   | InventoryIntervalsApiResponse
   | InventorySummaryApiResponse;
+
+export interface OperationRequestCreateApiRequest {
+  readonly operation?: typeof pmsOperationRequestCreateOperation;
+  readonly propertyId: string;
+  readonly clientToken: string;
+  readonly requestFingerprint: string;
+  readonly source: OperationRequestSource;
+  readonly action: string;
+  readonly roomId?: string;
+  readonly roomNumber?: string;
+  readonly reservationId?: string;
+  readonly payload?: Record<string, unknown>;
+  readonly requestedAt: string;
+}
+
+export interface OperationRequestGetApiRequest {
+  readonly operation?: typeof pmsOperationRequestGetOperation;
+  readonly operationRequestId?: string;
+  readonly clientToken?: string;
+}
+
+export interface OperationRequestUpdateApiRequest {
+  readonly operation?: typeof pmsOperationRequestUpdateOperation;
+  readonly operationRequestId?: string;
+  readonly clientToken?: string;
+  readonly status?: OperationRequestStatus;
+  readonly result?: Record<string, unknown> | null;
+  readonly updatedAt: string;
+}
+
+export interface OperationRequestApiErrorResponse {
+  readonly ok: false;
+  readonly operation: PmsOperationRequestOperation;
+  readonly errors: readonly ApiError[];
+}
+
+export interface OperationRequestCreateApiSuccessResponse {
+  readonly ok: true;
+  readonly operation: typeof pmsOperationRequestCreateOperation;
+  readonly idempotencyStatus: 'created' | 'replayed';
+  readonly request: OperationRequest;
+}
+
+export interface OperationRequestGetApiResponse {
+  readonly ok: true;
+  readonly operation: typeof pmsOperationRequestGetOperation;
+  readonly request?: OperationRequest;
+}
+
+export interface OperationRequestUpdateApiSuccessResponse {
+  readonly ok: true;
+  readonly operation: typeof pmsOperationRequestUpdateOperation;
+  readonly request: OperationRequest;
+}
+
+export type OperationRequestCreateApiResponse = OperationRequestCreateApiSuccessResponse | OperationRequestApiErrorResponse;
+export type OperationRequestUpdateApiResponse = OperationRequestUpdateApiSuccessResponse | OperationRequestApiErrorResponse;
 
 export interface ApiIdempotencyRecord {
   readonly idempotencyKey: string;
@@ -696,6 +769,9 @@ export function describeApiContractBoundary() {
       pmsRoomReservationContextOperation,
       pmsInventoryIntervalsOperation,
       pmsInventorySummaryOperation,
+      pmsOperationRequestCreateOperation,
+      pmsOperationRequestGetOperation,
+      pmsOperationRequestUpdateOperation,
     ] as const,
     importsCoreResult: true,
     exposesLocalHandler: true,

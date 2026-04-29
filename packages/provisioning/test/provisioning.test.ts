@@ -30,6 +30,7 @@ describe('PMS Base provisioning contract and generator', () => {
       'Reservations',
       'OperationLogs',
       'InventoryCalendar',
+      'ProjectionStatus',
     ]);
     expect(spec.tables.map((table) => table.displayName)).toEqual([
       '房态台账',
@@ -39,10 +40,12 @@ describe('PMS Base provisioning contract and generator', () => {
       '预订',
       '操作日志',
       '库存日历',
+      '投影状态',
     ]);
 
     const operationRequests = requiredTable(spec, 'OperationRequests');
     expect(operationRequests.fields.map((field) => field.displayName)).toEqual([
+      '后端ID',
       '请求令牌',
       '操作类型',
       '操作状态',
@@ -102,30 +105,165 @@ describe('PMS Base provisioning contract and generator', () => {
 
     const inventoryCalendar = requiredTable(spec, 'InventoryCalendar');
     expect(inventoryCalendar.fields.map((field) => field.displayName)).toEqual([
-      '日历标题',
+      '后端ID',
+      '库存区间键',
+      '门店ID',
+      '房间ID',
       '房号',
+      '关联房间',
+      '房型ID',
       '房型',
-      '区域',
-      '营业日',
       '开始日期',
       '结束日期',
-      '日历类型',
+      '日历状态',
       '可售状态',
-      '来源',
-      '房号排序',
-      '原因',
+      '标题',
+      '来源JSON',
+      '投影状态',
+      '剪枝时间',
+      '更新时间',
       '版本',
     ]);
     expect(inventoryCalendar.views.map((view) => [view.displayName, view.kind])).toEqual([
       ['库存日历', 'gantt'],
       ['库存明细', 'grid'],
+      ['月历概览', 'calendar'],
     ]);
     expect(spec.adapterRegistryBindings.pmsBaseProjection.bindings.roomLedger.tableLogicalName).toBe('RoomLedger');
     expect(spec.adapterRegistryBindings.pmsBaseProjection.bindings.roomLedger.fieldMap.roomNumber).toBe('房号');
     expect(spec.adapterRegistryBindings.pmsBaseProjection.bindings.roomLedger.fieldMap.occupancyStatus).toBe('入住状态');
     expect(spec.adapterRegistryBindings.pmsBaseProjection.bindings.operationRequests.tableLogicalName).toBe('OperationRequests');
+    expect(spec.adapterRegistryBindings.pmsBaseProjection.bindings.inventoryCalendar.tableLogicalName).toBe('InventoryCalendar');
+    expect(spec.adapterRegistryBindings.pmsBaseProjection.bindings.inventoryCalendar.fieldMap.intervalKey).toBe('库存区间键');
     expect(spec.adapterRegistryBindings.pmsBaseProjection.bindings.operationLogs.tableLogicalName).toBe('OperationLogs');
+
+    const projectionStatus = requiredTable(spec, 'ProjectionStatus');
+    expect(projectionStatus.fields.map((field) => field.displayName)).toEqual([
+      '后端ID',
+      '投影名称',
+      '聚合键',
+      '状态',
+      '尝试次数',
+      '最近投影时间',
+      '错误摘要',
+      '更新时间',
+      '版本',
+    ]);
+    expect(projectionStatus.fields.find((field) => field.displayName === '后端ID')).toMatchObject({ kind: 'text', hidden: true, required: false });
+    expect(projectionStatus.fields.find((field) => field.displayName === '尝试次数')).toMatchObject({ kind: 'number', required: true });
+    expect(projectionStatus.upsertPolicy).toEqual({
+      strategy: 'adapterUpsert',
+      uniqueField: '后端ID',
+      createOnMissing: true,
+      updateAllowedFields: ['投影名称', '聚合键', '状态', '尝试次数', '最近投影时间', '错误摘要', '更新时间', '版本'],
+    });
+    expect(spec.adapterRegistryBindings.pmsBaseProjection.bindings.projectionStatus).toMatchObject({
+      tableLogicalName: 'ProjectionStatus',
+      fieldMap: {
+        backendId: '后端ID',
+        projectionName: '投影名称',
+        aggregateKey: '聚合键',
+        status: '状态',
+        attemptCount: '尝试次数',
+        lastProjectedAt: '最近投影时间',
+        lastErrorSummary: '错误摘要',
+        updatedAt: '更新时间',
+        schemaVersion: '版本',
+      },
+      requiredFields: ['backendId', 'projectionName', 'aggregateKey', 'status', 'attemptCount', 'updatedAt', 'schemaVersion'],
+    });
     expect(validatePmsBaseProvisioningSpec(spec)).toEqual([]);
+  });
+
+  it('models D4A hidden canonical IDs and symbolic linked-record fields without real targets', () => {
+    const spec = createSmallHotelPmsBaseProvisioningSpec(smallHotelProfileFixture);
+    const canonicalTables: PmsBaseProvisioningSpec['tables'][number]['logicalName'][] = [
+      'RoomLedger',
+      'OperationRequests',
+      'HousekeepingTasks',
+      'MaintenanceTickets',
+      'Reservations',
+      'OperationLogs',
+      'InventoryCalendar',
+      'ProjectionStatus',
+    ];
+
+    for (const tableName of canonicalTables) {
+      const backendId = requiredTable(spec, tableName).fields.find((field) => field.displayName === '后端ID');
+      expect(backendId).toMatchObject({ logicalName: 'backendId', kind: 'text', hidden: true, required: false });
+    }
+
+    expect(requiredTable(spec, 'HousekeepingTasks').fields.find((field) => field.displayName === '关联房间')).toMatchObject({
+      logicalName: 'relatedRoom',
+      kind: 'linkedRecord',
+      required: false,
+      linkedRecord: {
+        targetTableLogicalName: 'RoomLedger',
+        targetDisplayFieldName: '房号',
+        cardinality: 'single',
+        configMode: 'symbolic',
+      },
+    });
+    expect(requiredTable(spec, 'OperationLogs').fields.find((field) => field.displayName === '关联操作请求')).toMatchObject({
+      logicalName: 'relatedOperationRequest',
+      kind: 'linkedRecord',
+      required: false,
+      linkedRecord: {
+        targetTableLogicalName: 'OperationRequests',
+        targetDisplayFieldName: '请求令牌',
+        cardinality: 'single',
+        configMode: 'symbolic',
+      },
+    });
+
+    expect(requiredTable(spec, 'RoomLedger').fields.map((field) => field.displayName)).toContain('房号');
+    expect(requiredTable(spec, 'OperationRequests').fields.map((field) => field.displayName)).toContain('请求令牌');
+    expect(requiredTable(spec, 'HousekeepingTasks').fields.map((field) => field.displayName)).toContain('任务ID');
+    expect(requiredTable(spec, 'MaintenanceTickets').fields.map((field) => field.displayName)).toContain('工单ID');
+    expect(requiredTable(spec, 'Reservations').fields.map((field) => field.displayName)).toContain('预订号');
+    expect(requiredTable(spec, 'InventoryCalendar').fields.map((field) => field.displayName)).toContain('库存区间键');
+    expect(requiredTable(spec, 'OperationLogs').fields.map((field) => field.displayName)).toContain('审计ID');
+    expect(JSON.stringify(spec)).not.toMatch(/tbl[a-zA-Z0-9]|bascn|app_token|record_id|form_id/);
+  });
+
+  it('rejects D6B projection status schema drift and tracked target placeholders', () => {
+    const spec = createSmallHotelPmsBaseProvisioningSpec(smallHotelProfileFixture);
+    const invalid: PmsBaseProvisioningSpec = {
+      ...spec,
+      tables: spec.tables.map((table) =>
+        table.logicalName === 'ProjectionStatus'
+          ? {
+              ...table,
+              fields: table.fields
+                .filter((field) => field.displayName !== '错误摘要')
+                .map((field) => field.displayName === '后端ID' ? { ...field, hidden: false } : field),
+              upsertPolicy: undefined,
+            }
+          : table,
+      ),
+      adapterRegistryBindings: {
+        ...spec.adapterRegistryBindings,
+        pmsBaseProjection: {
+          ...spec.adapterRegistryBindings.pmsBaseProjection,
+          bindings: {
+            ...spec.adapterRegistryBindings.pmsBaseProjection.bindings,
+            projectionStatus: {
+              ...spec.adapterRegistryBindings.pmsBaseProjection.bindings.projectionStatus,
+              tableLogicalName: 'tbl123_real_status_table' as never,
+            },
+          },
+        },
+      },
+    };
+
+    expect(validatePmsBaseProvisioningSpec(invalid)).toEqual(
+      expect.arrayContaining([
+        'canonical_id_field_not_hidden:ProjectionStatus:后端ID',
+        'projection_status_field_missing:错误摘要',
+        'projection_status_upsert_policy_required',
+        'tracked_target_value_forbidden:adapterRegistryBindings.pmsBaseProjection.bindings.projectionStatus.tableLogicalName',
+      ]),
+    );
   });
 
   it('keeps natural-language/LLM parsing advisory and validates the normalized profile before generation', () => {
@@ -189,6 +327,78 @@ describe('PMS Base provisioning contract and generator', () => {
     );
   });
 
+  it('rejects D4A schema drift for canonical IDs and placeholder-only linked records', () => {
+    const spec = createSmallHotelPmsBaseProvisioningSpec(smallHotelProfileFixture);
+    const invalid: PmsBaseProvisioningSpec = {
+      ...spec,
+      tables: spec.tables.map((table) => {
+        if (table.logicalName === 'OperationRequests') {
+          return {
+            ...table,
+            fields: table.fields.filter((field) => field.displayName !== '后端ID'),
+          };
+        }
+        if (table.logicalName === 'HousekeepingTasks') {
+          return {
+            ...table,
+            fields: table.fields.map((field) =>
+              field.displayName === '关联房间'
+                ? { ...field, kind: 'text', linkedRecord: undefined }
+                : field,
+            ),
+          };
+        }
+        if (table.logicalName === 'Reservations') {
+          return {
+            ...table,
+            fields: table.fields.filter((field) => field.displayName !== '关联房间'),
+          };
+        }
+        if (table.logicalName === 'OperationLogs') {
+          return {
+            ...table,
+            fields: table.fields.map((field) =>
+              field.displayName === '关联操作请求'
+                ? { ...field, required: true }
+                : field,
+            ),
+          };
+        }
+        if (table.logicalName === 'InventoryCalendar') {
+          return {
+            ...table,
+            fields: table.fields.map((field) =>
+              field.displayName === '关联房间'
+                ? {
+                    ...field,
+                    linkedRecord: {
+                      targetTableLogicalName: 'tbl123_real_target' as never,
+                      targetDisplayFieldName: 'rec_room_1',
+                      cardinality: 'single',
+                      configMode: 'symbolic',
+                    },
+                  }
+                : field,
+            ),
+          };
+        }
+        return table;
+      }),
+    };
+
+    expect(validatePmsBaseProvisioningSpec(invalid)).toEqual(
+      expect.arrayContaining([
+        'canonical_id_field_missing:OperationRequests:后端ID',
+        'linked_record_field_kind_invalid:HousekeepingTasks:关联房间',
+        'linked_record_field_missing:Reservations:关联房间',
+        'linked_record_field_must_be_optional:OperationLogs:关联操作请求',
+        'linked_record_target_mismatch:InventoryCalendar:关联房间:RoomLedger',
+        'tracked_target_value_forbidden:tables[6].fields[5].linkedRecord.targetTableLogicalName',
+        'tracked_target_value_forbidden:tables[6].fields[5].linkedRecord.targetDisplayFieldName',
+      ]),
+    );
+  });
+
   it('plans local lark-cli commands without mutating by default and gates apply mode explicitly', async () => {
     const spec = createSmallHotelPmsBaseProvisioningSpec(smallHotelProfileFixture);
     const plan = buildLarkCliProvisioningPlan(spec, {
@@ -205,7 +415,7 @@ describe('PMS Base provisioning contract and generator', () => {
     expect(plan.operations.map((operation) => operation.kind)).toContain('record-batch-create');
     expect(plan.operations.map((operation) => operation.kind)).toContain('form-create');
     expect(plan.operations.every((operation) => operation.command.includes('--dry-run'))).toBe(true);
-    expect(JSON.stringify(plan)).not.toMatch(/tbl[a-zA-Z0-9]|bascn|app_token|record_id|form_id/);
+    expect(JSON.stringify(plan)).not.toMatch(/tbl[a-zA-Z0-9]|bascn|rec_[a-zA-Z0-9_/-]{3,}|rec[a-zA-Z0-9]{12,}|app_token|record_id|form_id/);
 
     await expect(executeLarkCliProvisioningPlan(plan)).resolves.toMatchObject({
       mode: 'dryRun',
@@ -283,6 +493,22 @@ describe('PMS Base provisioning contract and generator', () => {
       name: '最后原因',
       type: 'text',
     });
+    expect(fieldJson('RoomLedger.backendId')).toMatchObject({
+      name: '后端ID',
+      type: 'text',
+      hidden: true,
+    });
+    expect(fieldJson('HousekeepingTasks.relatedRoom')).toEqual({
+      name: '关联房间',
+      type: 'link',
+      relation: {
+        targetTableLogicalName: 'RoomLedger',
+        targetDisplayFieldName: '房号',
+        cardinality: 'single',
+        configMode: 'symbolic',
+      },
+    });
+    expect(JSON.stringify(fieldJson('HousekeepingTasks.relatedRoom'))).not.toMatch(/tbl[a-zA-Z0-9]|bascn|rec_[a-zA-Z0-9_/-]{3,}|rec[a-zA-Z0-9]{12,}|app_token|record_id|form_id/);
   });
 
   it('uses a lark-cli supported dashboard theme', () => {

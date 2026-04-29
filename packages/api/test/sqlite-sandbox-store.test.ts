@@ -12,6 +12,7 @@ import {
   type CheckOutConfirmApiRequest,
   type CheckOutDryRunApiRequest,
   type MaintenanceDoneApiRequest,
+  type OperationRequestCreateApiRequest,
   type ReportMaintenanceApiRequest,
   type RestoreSellableApiRequest,
 } from '../src/index.js';
@@ -478,6 +479,116 @@ describe('SQLite local sandbox store', () => {
     restarted.close();
   });
 
+  it('persists operation_requests idempotently without mutating PMS state', () => {
+    const dbPath = tempPath('operation-requests.sqlite');
+    const store = createSqliteLocalSandboxStore({
+      dbPath,
+      seedRooms: [dueOutRoom],
+      resetOnStart: true,
+      now: () => now,
+    });
+    const request: OperationRequestCreateApiRequest = {
+      propertyId: 'property-small-hotel',
+      clientToken: 'form-checkout-room-1001',
+      requestFingerprint: 'sha256:form-checkout-room-1001',
+      source: 'external_form',
+      action: 'CHECK_OUT',
+      roomId: 'room-1001',
+      roomNumber: '1001',
+      reservationId: 'reservation-1001',
+      payload: { roomNumber: '1001', action: 'CHECK_OUT' },
+      requestedAt: now,
+    };
+
+    const beforeInventory = store.inventoryIntervals({ roomId: 'room-1001', startDate: '2026-04-28', horizonDays: 1 });
+    const created = store.createOperationRequest(request);
+    const duplicate = store.createOperationRequest(request);
+    const mismatch = store.createOperationRequest({
+      ...request,
+      requestFingerprint: 'sha256:form-checkout-room-1001-different',
+      payload: { roomNumber: '1001', action: 'CHECK_OUT', note: 'different payload' },
+    });
+    const unsupported = store.createOperationRequest({
+      ...request,
+      clientToken: 'form-delete-room-1001',
+      requestFingerprint: 'sha256:form-delete-room-1001',
+      action: 'DELETE_ROOM',
+    });
+
+    expect(created).toMatchObject({
+      ok: true,
+      operation: 'pms_operation_request_create',
+      idempotencyStatus: 'created',
+      request: {
+        propertyId: 'property-small-hotel',
+        clientToken: 'form-checkout-room-1001',
+        action: 'CHECK_OUT',
+        status: 'queued',
+        roomId: 'room-1001',
+        roomNumber: '1001',
+      },
+    });
+    expect(duplicate).toEqual({ ...created, idempotencyStatus: 'replayed' });
+    expect(mismatch).toEqual({
+      ok: false,
+      operation: 'pms_operation_request_create',
+      errors: [
+        {
+          code: 'OPERATION_REQUEST_TOKEN_REUSED_WITH_DIFFERENT_FINGERPRINT',
+          message: 'The operation request client token was reused with a different request fingerprint or payload.',
+          field: 'requestFingerprint',
+        },
+      ],
+    });
+    expect(unsupported).toMatchObject({
+      ok: false,
+      errors: [{ code: 'OPERATION_REQUEST_UNSUPPORTED_ACTION', field: 'action' }],
+    });
+
+    const updated = store.updateOperationRequest({
+      clientToken: 'form-checkout-room-1001',
+      status: 'awaitingConfirmation',
+      result: { dryRun: 'ready' },
+      updatedAt: '2026-04-28T00:01:00.000Z',
+    });
+    expect(updated).toMatchObject({
+      ok: true,
+      operation: 'pms_operation_request_update',
+      request: {
+        clientToken: 'form-checkout-room-1001',
+        status: 'awaitingConfirmation',
+        resultJson: '{"dryRun":"ready"}',
+      },
+    });
+    expect(store.getOperationRequest({ clientToken: 'form-checkout-room-1001' }).request).toMatchObject({
+      status: 'awaitingConfirmation',
+      resultJson: '{"dryRun":"ready"}',
+    });
+
+    const readback = store.readback('room-1001');
+    expect(readback.operationRequests).toHaveLength(1);
+    expect(readback.rooms).toEqual([dueOutRoom]);
+    expect(readback.housekeepingTasks).toEqual([]);
+    expect(readback.maintenanceTickets).toEqual([]);
+    expect(readback.audits).toEqual([]);
+    expect(readback.domainEvents).toEqual([]);
+    expect(store.inventoryIntervals({ roomId: 'room-1001', startDate: '2026-04-28', horizonDays: 1 })).toEqual(beforeInventory);
+    store.close();
+
+    const restarted = createSqliteLocalSandboxStore({
+      dbPath,
+      seedRooms: [],
+      resetOnStart: false,
+      now: () => now,
+    });
+    expect(restarted.getOperationRequest({ clientToken: 'form-checkout-room-1001' }).request).toMatchObject({
+      clientToken: 'form-checkout-room-1001',
+      status: 'awaitingConfirmation',
+    });
+    expect(restarted.readback('room-1001').rooms).toEqual([dueOutRoom]);
+    restarted.close();
+  });
+
   it('resets SQLite state back to explicit seed rooms', () => {
     const store = createSqliteLocalSandboxStore({
       dbPath: tempPath('reset.sqlite'),
@@ -490,6 +601,7 @@ describe('SQLite local sandbox store', () => {
 
     const reset = store.reset([dueOutRoom]);
     expect(reset.rooms).toEqual([dueOutRoom]);
+    expect(reset.operationRequests).toEqual([]);
     expect(reset.housekeepingTasks).toEqual([]);
     expect(reset.audits).toEqual([]);
     expect(reset.domainEvents).toEqual([]);

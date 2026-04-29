@@ -22,7 +22,10 @@ import {
   type InventoryIntervalProjection,
   type InventoryReadModel,
   type InventorySummaryDayType,
+  isOperationRequestStatus,
+  isSupportedOperationRequestAction,
   type MaintenanceDoneCommand,
+  type OperationRequest,
   type PmsCommandDryRunPlan,
   type ReportMaintenanceCommand,
   type RestoreSellableCommand,
@@ -279,6 +282,31 @@ describe('PMS command contracts', () => {
     expect(readModel.intervals[0].calendarKind).toBe('blocked');
     expect(readModel.summaries[0].blockedRooms).toBe(1);
     expect(readModel.blocks[0].sourceType).toBe('maintenance_ticket');
+  });
+
+  it('defines PMS-owned operation request intake contracts', () => {
+    const operationRequest: OperationRequest = {
+      operationRequestId: 'opreq-form-checkout-room-1001',
+      propertyId: 'property-small-hotel',
+      clientToken: 'form-checkout-room-1001',
+      requestFingerprint: 'sha256:form-checkout-room-1001',
+      source: 'external_form',
+      action: 'CHECK_OUT',
+      status: 'queued',
+      roomId: 'room-1001',
+      roomNumber: '1001',
+      reservationId: 'reservation-1001',
+      payloadJson: '{"roomNumber":"1001"}',
+      createdAt: validMeta.requestedAt,
+      updatedAt: validMeta.requestedAt,
+    };
+
+    expect(operationRequest.action).toBe('CHECK_OUT');
+    expect(operationRequest.status).toBe('queued');
+    expect(isSupportedOperationRequestAction('RESTORE_SELLABLE')).toBe(true);
+    expect(isSupportedOperationRequestAction('DELETE_ROOM')).toBe(false);
+    expect(isOperationRequestStatus('awaitingConfirmation')).toBe(true);
+    expect(isOperationRequestStatus('mutatedFromForm')).toBe(false);
   });
 
   it('defines housekeeping and maintenance as executable PMS-owned command contracts', () => {

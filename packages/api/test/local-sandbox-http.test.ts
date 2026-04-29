@@ -66,7 +66,13 @@ describe('PMS local durable checkout sandbox HTTP boundary', () => {
     const { url } = await startServer();
 
     const health = await getJson(`${url}/health`);
-    expect(health.operations).toEqual(expect.arrayContaining(['pms_inventory_intervals', 'pms_inventory_summary']));
+    expect(health.operations).toEqual(expect.arrayContaining([
+      'pms_inventory_intervals',
+      'pms_inventory_summary',
+      'pms_operation_request_create',
+      'pms_operation_request_get',
+      'pms_operation_request_update',
+    ]));
     expect(health).toMatchObject({
       ok: true,
       service: 'pms-platform',
@@ -197,6 +203,56 @@ describe('PMS local durable checkout sandbox HTTP boundary', () => {
     expect(reset.audits).toEqual([]);
     expect(reset.domainEvents).toEqual([]);
     expect(reset.idempotencyRecords).toEqual([]);
+  });
+
+  it('creates, reads, and updates operation requests through HTTP without mutating PMS state', async () => {
+    const { url } = await startServer();
+
+    const before = await authedGet(`${url}/v1/sandbox/readback/room-1001`);
+    const createBody = {
+      propertyId: 'property-small-hotel',
+      clientToken: 'http-form-checkout-room-1001',
+      requestFingerprint: 'sha256:http-form-checkout-room-1001',
+      source: 'external_form',
+      action: 'CHECK_OUT',
+      roomId: 'room-1001',
+      roomNumber: '1001',
+      payload: { action: 'CHECK_OUT', roomNumber: '1001' },
+      requestedAt: '2026-04-26T00:00:00.000Z',
+    };
+
+    const created = await authedPost(`${url}/v1/pms/operation-requests/create`, createBody);
+    const duplicate = await authedPost(`${url}/v1/pms/operation-requests/create`, createBody);
+    const mismatch = await authedPost(`${url}/v1/pms/operation-requests/create`, {
+      ...createBody,
+      requestFingerprint: 'sha256:http-form-checkout-room-1001-different',
+    });
+    const updated = await authedPost(`${url}/v1/pms/operation-requests/update`, {
+      clientToken: 'http-form-checkout-room-1001',
+      status: 'awaitingConfirmation',
+      result: { dryRun: 'ready' },
+      updatedAt: '2026-04-26T00:01:00.000Z',
+    });
+    const fetched = await authedPost(`${url}/v1/pms/operation-requests/get`, {
+      clientToken: 'http-form-checkout-room-1001',
+    });
+    const after = await authedGet(`${url}/v1/sandbox/readback/room-1001`);
+
+    expect(created).toMatchObject({
+      ok: true,
+      operation: 'pms_operation_request_create',
+      idempotencyStatus: 'created',
+      request: { clientToken: 'http-form-checkout-room-1001', status: 'queued' },
+    });
+    expect(duplicate).toMatchObject({ ok: true, idempotencyStatus: 'replayed' });
+    expect(mismatch).toMatchObject({ ok: false, errors: [{ code: 'OPERATION_REQUEST_TOKEN_REUSED_WITH_DIFFERENT_FINGERPRINT' }] });
+    expect(updated).toMatchObject({ ok: true, request: { status: 'awaitingConfirmation', resultJson: '{"dryRun":"ready"}' } });
+    expect(fetched).toMatchObject({ ok: true, operation: 'pms_operation_request_get', request: { status: 'awaitingConfirmation' } });
+    expect(after.rooms).toEqual(before.rooms);
+    expect(after.housekeepingTasks).toEqual([]);
+    expect(after.maintenanceTickets).toEqual([]);
+    expect(after.audits).toEqual([]);
+    expect(after.domainEvents).toEqual([]);
   });
 
   it('imports reservations and exposes arrivals plus room reservation context through HTTP', async () => {

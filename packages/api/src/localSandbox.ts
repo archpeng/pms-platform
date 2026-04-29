@@ -11,6 +11,7 @@ import type {
   InventoryReadModel,
   InventorySummaryDayType,
   MaintenanceTicket,
+  OperationRequest,
   ReservationReadModel,
   RoomReservationContextReadModel,
   TodayReservationsReadModel,
@@ -35,6 +36,9 @@ import {
   pmsInventoryIntervalsOperation,
   pmsInventorySummaryOperation,
   pmsMaintenanceDoneOperation,
+  pmsOperationRequestCreateOperation,
+  pmsOperationRequestGetOperation,
+  pmsOperationRequestUpdateOperation,
   pmsReservationGetOperation,
   pmsReportMaintenanceOperation,
   pmsRoomReservationContextOperation,
@@ -44,6 +48,12 @@ import {
   type ApiIdempotencyRepository,
   type CheckInApiRequest,
   type CheckOutApiRequest,
+  type OperationRequestCreateApiRequest,
+  type OperationRequestCreateApiResponse,
+  type OperationRequestGetApiRequest,
+  type OperationRequestGetApiResponse,
+  type OperationRequestUpdateApiRequest,
+  type OperationRequestUpdateApiResponse,
   type PmsExtendedCommandApiRequest,
   type PmsReadModelApiRequest,
 } from './index.js';
@@ -156,6 +166,7 @@ export interface PmsSandboxReadback {
   readonly inventoryDayRooms: readonly InventoryDayRoom[];
   readonly inventoryIntervalProjection: readonly InventoryIntervalProjection[];
   readonly inventorySummaryDayType: readonly InventorySummaryDayType[];
+  readonly operationRequests: readonly OperationRequest[];
   readonly housekeepingTasks: readonly HousekeepingTask[];
   readonly maintenanceTickets: readonly MaintenanceTicket[];
   readonly audits: readonly AuditEntry[];
@@ -185,6 +196,9 @@ export interface PmsLocalSandboxStore {
   rebuildInventory(options?: Partial<InventoryHorizonRequest>): InventoryReadModel;
   inventoryIntervals(options?: Partial<InventoryHorizonRequest>): InventoryReadModel;
   inventorySummary(options?: Partial<InventoryHorizonRequest>): InventoryReadModel;
+  createOperationRequest(request: OperationRequestCreateApiRequest): OperationRequestCreateApiResponse;
+  getOperationRequest(request: OperationRequestGetApiRequest): OperationRequestGetApiResponse;
+  updateOperationRequest(request: OperationRequestUpdateApiRequest): OperationRequestUpdateApiResponse;
   runInTransaction?<TValue>(operation: () => TValue): TValue;
   close?(): void;
 }
@@ -241,6 +255,9 @@ export function createPmsLocalHttpHandler(options: PmsLocalHttpHandlerOptions) {
             pmsRoomReservationContextOperation,
             pmsInventoryIntervalsOperation,
             pmsInventorySummaryOperation,
+            pmsOperationRequestCreateOperation,
+            pmsOperationRequestGetOperation,
+            pmsOperationRequestUpdateOperation,
           ],
           storage: options.store.storage,
           auth: {
@@ -380,6 +397,26 @@ export function createPmsLocalHttpHandler(options: PmsLocalHttpHandlerOptions) {
           operation: pmsInventorySummaryOperation,
           readModel: options.store.inventorySummary(body),
         });
+        return;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/v1/pms/operation-requests/create') {
+        const body = await readJsonBody(request) as OperationRequestCreateApiRequest;
+        const result = options.store.createOperationRequest({ ...body, operation: pmsOperationRequestCreateOperation });
+        writeJson(response, result.ok ? 200 : 400, result);
+        return;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/v1/pms/operation-requests/get') {
+        const body = await readJsonBody(request) as OperationRequestGetApiRequest;
+        writeJson(response, 200, options.store.getOperationRequest({ ...body, operation: pmsOperationRequestGetOperation }));
+        return;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/v1/pms/operation-requests/update') {
+        const body = await readJsonBody(request) as OperationRequestUpdateApiRequest;
+        const result = options.store.updateOperationRequest({ ...body, operation: pmsOperationRequestUpdateOperation });
+        writeJson(response, result.ok ? 200 : 404, result);
         return;
       }
 

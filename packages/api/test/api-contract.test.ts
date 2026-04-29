@@ -26,6 +26,9 @@ import {
   pmsInventoryIntervalsOperation,
   pmsInventorySummaryOperation,
   pmsMaintenanceDoneOperation,
+  pmsOperationRequestCreateOperation,
+  pmsOperationRequestGetOperation,
+  pmsOperationRequestUpdateOperation,
   pmsReportMaintenanceOperation,
   pmsRestoreSellableOperation,
   requestFingerprintInput,
@@ -167,6 +170,9 @@ describe('API checkout contract skeleton', () => {
         'pms_room_reservation_context',
         'pms_inventory_intervals',
         'pms_inventory_summary',
+        'pms_operation_request_create',
+        'pms_operation_request_get',
+        'pms_operation_request_update',
       ],
       importsCoreResult: true,
       exposesLocalHandler: true,
@@ -201,9 +207,12 @@ describe('API checkout contract skeleton', () => {
     });
   });
 
-  it('defines inventory read-model operation names at the API boundary', () => {
+  it('defines inventory and operation-request operation names at the API boundary', () => {
     expect(pmsInventoryIntervalsOperation).toBe('pms_inventory_intervals');
     expect(pmsInventorySummaryOperation).toBe('pms_inventory_summary');
+    expect(pmsOperationRequestCreateOperation).toBe('pms_operation_request_create');
+    expect(pmsOperationRequestGetOperation).toBe('pms_operation_request_get');
+    expect(pmsOperationRequestUpdateOperation).toBe('pms_operation_request_update');
   });
 
   it('defines pms_get_room and pms_dashboard read-model responses at the API boundary', () => {

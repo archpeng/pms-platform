@@ -34,8 +34,57 @@ This package is PMS-owned. `adapter-feishu` may consume generated registry bindi
 | `Reservations` | `预订` | Arrival/departure read-model projection. |
 | `OperationLogs` | `操作日志` | PMS operation/audit projection. |
 | `InventoryCalendar` | `库存日历` | Sellability/inventory planning projection. |
+| `ProjectionStatus` | `投影状态` | Optional operator-visible projection freshness/failure read model. |
 
-The same spec owns Chinese field/display values such as `房号`, `房型`, `入住状态`, `清洁状态`, `可售状态`, `请求令牌`, `操作类型`, `操作状态`, `操作人`, `原因`, `请求时间`, `请求JSON`, `结果JSON`, and `版本`.
+The same spec owns Chinese field/display values such as `后端ID`, `房号`, `房型`, `入住状态`, `清洁状态`, `可售状态`, `请求令牌`, `操作类型`, `操作状态`, `操作人`, `原因`, `请求时间`, `请求JSON`, `结果JSON`, `关联房间`, `关联操作请求`, `投影名称`, `聚合键`, `状态`, `尝试次数`, `最近投影时间`, `错误摘要`, `投影状态`, and `版本`.
+
+## D4A relationship fields
+
+D4A keeps Feishu Base as an operator projection/read model. The hidden and linked fields below improve navigation, but backend IDs/business keys in `pms-platform` remain canonical PMS truth.
+
+Hidden canonical ID fields:
+
+| Table | Hidden field | PMS value rule |
+| --- | --- | --- |
+| `房态台账` | `后端ID` | PMS room backend ID or stable room business key. |
+| `PMS操作请求` | `后端ID` | PMS operation request ID; pre-D5 seed rows use request-token-derived stable keys. |
+| `保洁任务` | `后端ID` | PMS housekeeping task ID. |
+| `维修工单` | `后端ID` | PMS maintenance ticket ID. |
+| `预订` | `后端ID` | PMS reservation ID or reservation business key. |
+| `操作日志` | `后端ID` | PMS audit/log ID. |
+| `库存日历` | `后端ID` | PMS inventory interval projection ID. |
+| `投影状态` | `后端ID` | Projection delivery/freshness business key owned by `ai-pms` projection metadata. |
+
+Symbolic linked-record fields:
+
+| Table | Linked field | Symbolic target | Runtime role |
+| --- | --- | --- | --- |
+| `保洁任务` | `关联房间` | `RoomLedger` / `房态台账` by `房号` | Optional operator click-through. |
+| `维修工单` | `关联房间` | `RoomLedger` / `房态台账` by `房号` | Optional operator click-through. |
+| `预订` | `关联房间` | `RoomLedger` / `房态台账` by `房号` | Optional operator click-through. |
+| `操作日志` | `关联房间` | `RoomLedger` / `房态台账` by `房号` | Optional operator click-through. |
+| `操作日志` | `关联操作请求` | `OperationRequests` / `PMS操作请求` by `请求令牌` | Optional operator traceability. |
+| `库存日历` | `关联房间` | `RoomLedger` / `房态台账` by `房号` | Optional calendar-to-room navigation. |
+
+Tracked specs intentionally use symbolic logical table names instead of real Feishu table or record IDs. Local provisioning/runtime lanes may resolve those symbols to tenant-specific targets in ignored local config.
+
+`入住记录.关联房间` is deferred as residual `D4A-stays-linked-room-deferred`: adding a committed `Stays/入住记录` table now would require stay-lifecycle projection semantics beyond this provisioning-only D4A slice. The backend already owns stay/read-model semantics; a later slice should add the Base `入住记录` projection table and its `关联房间` field together.
+
+## D6B projection status table
+
+`ProjectionStatus` / `投影状态` is an optional operator-visible status projection. It is not a PMS command source and must not be read as canonical PMS business state.
+
+| Field | Purpose |
+| --- | --- |
+| `后端ID` | Hidden projection status business key, e.g. projection family plus aggregate key. |
+| `投影名称` | Display-safe projection family/table name. |
+| `聚合键` | Display-safe PMS/business aggregate key such as room number, request token, or inventory interval key. |
+| `状态` | Projection delivery/freshness status: `pending`, `retry_pending`, `failed`, `delivered`, `fresh`, `stale`, or `pruned`. |
+| `尝试次数` | Bounded projection attempt count. |
+| `最近投影时间` | Last successful projection timestamp when available. |
+| `错误摘要` | Redacted operator-safe error summary only; never raw app/table/record IDs, callback URLs, or tokens. |
+| `更新时间` | Status row update timestamp. |
+| `版本` | Projection schema version. |
 
 ## Registry handoff
 
