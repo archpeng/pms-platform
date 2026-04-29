@@ -39,7 +39,22 @@ describe('PMS local server storage selection', () => {
       driver: 'node:sqlite',
       experimental: true,
     });
-    expect(store.readback().rooms).toMatchObject([{ roomId: 'room-1001', roomNumber: '1001' }]);
+    expect(store.readback().rooms).toMatchObject([
+      { roomId: 'room-A1', roomNumber: 'A1', roomType: '花园别墅', occupancyStatus: 'vacant', cleaningStatus: 'clean', saleStatus: 'sellable' },
+      { roomId: 'room-A2', roomNumber: 'A2', roomType: '花园别墅', occupancyStatus: 'vacant', cleaningStatus: 'clean', saleStatus: 'sellable' },
+      { roomId: 'room-B1', roomNumber: 'B1', roomType: '花园别墅', occupancyStatus: 'vacant', cleaningStatus: 'clean', saleStatus: 'sellable' },
+      { roomId: 'room-B2', roomNumber: 'B2', roomType: '花园别墅', occupancyStatus: 'vacant', cleaningStatus: 'clean', saleStatus: 'sellable' },
+      { roomId: 'room-C1', roomNumber: 'C1', roomType: '花园别墅', occupancyStatus: 'vacant', cleaningStatus: 'clean', saleStatus: 'sellable' },
+      { roomId: 'room-C2', roomNumber: 'C2', roomType: '花园套房', occupancyStatus: 'vacant', cleaningStatus: 'clean', saleStatus: 'sellable' },
+      { roomId: 'room-D1', roomNumber: 'D1', roomType: '秘境洞穴', occupancyStatus: 'vacant', cleaningStatus: 'clean', saleStatus: 'sellable' },
+      { roomId: 'room-D2', roomNumber: 'D2', roomType: '秘境洞穴', occupancyStatus: 'vacant', cleaningStatus: 'clean', saleStatus: 'sellable' },
+      { roomId: 'room-D3', roomNumber: 'D3', roomType: '秘境洞穴', occupancyStatus: 'vacant', cleaningStatus: 'clean', saleStatus: 'sellable' },
+      { roomId: 'room-D4', roomNumber: 'D4', roomType: '秘境洞穴', occupancyStatus: 'vacant', cleaningStatus: 'clean', saleStatus: 'sellable' },
+      { roomId: 'room-D5', roomNumber: 'D5', roomType: '秘境洞穴', occupancyStatus: 'vacant', cleaningStatus: 'clean', saleStatus: 'sellable' },
+      { roomId: 'room-E1', roomNumber: 'E1', roomType: '花园套房', occupancyStatus: 'vacant', cleaningStatus: 'clean', saleStatus: 'sellable' },
+      { roomId: 'room-E2', roomNumber: 'E2', roomType: '花园别墅', occupancyStatus: 'vacant', cleaningStatus: 'clean', saleStatus: 'sellable' },
+    ]);
+    expect(store.readback().roomTypes.map((roomType) => roomType.displayName).sort()).toEqual(['秘境洞穴', '花园别墅', '花园套房'].sort());
   });
 
   it('starts the HTTP boundary with sqlite storage path selected by env', async () => {

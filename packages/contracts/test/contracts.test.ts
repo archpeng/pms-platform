@@ -15,7 +15,12 @@ import {
   type DashboardReadModel,
   type DomainError,
   type DomainEvent,
+  type HousekeepingDoneCommand,
   type HousekeepingTaskCreatedEvent,
+  type MaintenanceDoneCommand,
+  type PmsCommandDryRunPlan,
+  type ReportMaintenanceCommand,
+  type RestoreSellableCommand,
   type RoomCheckedInEvent,
   type RoomCheckedOutEvent,
   type RoomReadModel,
@@ -195,9 +200,69 @@ describe('PMS command contracts', () => {
     expect(projection.operationLog.commandType).toBe('CHECK_OUT');
   });
 
-  it('keeps housekeeping and maintenance as explicit PMS-owned deferred command stubs', () => {
-    expect(deferredPmsCommandStubs.map((stub) => stub.commandType)).toEqual(['HOUSEKEEPING_DONE', 'REPORT_MAINTENANCE']);
-    expect(deferredPmsCommandStubs.every((stub) => stub.owner === 'pms-platform' && stub.mutationStatus === 'deferred')).toBe(true);
+  it('defines housekeeping and maintenance as executable PMS-owned command contracts', () => {
+    const housekeepingDone: HousekeepingDoneCommand = {
+      type: 'HOUSEKEEPING_DONE',
+      roomId: 'room-A1',
+      inspectionRequired: true,
+      meta: validMeta,
+    };
+    const reportMaintenance: ReportMaintenanceCommand = {
+      type: 'REPORT_MAINTENANCE',
+      roomId: 'room-A2',
+      severity: 'StopSell',
+      stopSellRequested: true,
+      note: '空调故障',
+      meta: validMeta,
+    };
+    const maintenanceDone: MaintenanceDoneCommand = {
+      type: 'MAINTENANCE_DONE',
+      roomId: 'room-A2',
+      ticketId: 'ticket-1',
+      meta: validMeta,
+    };
+    const restoreSellable: RestoreSellableCommand = {
+      type: 'RESTORE_SELLABLE',
+      roomId: 'room-A2',
+      meta: validMeta,
+    };
+    const dryRunPlan: PmsCommandDryRunPlan = {
+      commandType: 'HOUSEKEEPING_DONE',
+      roomId: 'room-A1',
+      roomNumber: 'A1',
+      currentStatus: { occupancy: 'vacant', cleaning: 'dirty', sale: 'sellable' },
+      nextStatus: { occupancy: 'vacant', cleaning: 'inspection', sale: 'sellable' },
+      housekeepingTask: {
+        roomId: 'room-A1',
+        kind: 'room-cleaning',
+        status: 'inspection',
+        reason: validMeta.reason,
+        correlationId: validMeta.correlationId,
+      },
+      events: ['HousekeepingCompleted'],
+      reason: validMeta.reason,
+      correlationId: validMeta.correlationId,
+      idempotencyKey: validMeta.idempotencyKey,
+      requestedAt: validMeta.requestedAt,
+      actor: validMeta.actor,
+    };
+
+    expect(deferredPmsCommandStubs).toEqual([]);
+    expect([
+      housekeepingDone.type,
+      reportMaintenance.type,
+      maintenanceDone.type,
+      restoreSellable.type,
+      dryRunPlan.commandType,
+    ]).toEqual([
+      'HOUSEKEEPING_DONE',
+      'REPORT_MAINTENANCE',
+      'MAINTENANCE_DONE',
+      'RESTORE_SELLABLE',
+      'HOUSEKEEPING_DONE',
+    ]);
+    expect(reportMaintenance.severity).toBe('StopSell');
+    expect(dryRunPlan.nextStatus.cleaning).toBe('inspection');
   });
 
   it('defines stable domain event payload shapes', () => {

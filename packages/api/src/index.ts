@@ -6,30 +6,71 @@ import type {
   CommandMeta,
   DashboardReadModel,
   DomainError,
+  HousekeepingDoneCommand,
+  HousekeepingInspectionCommand,
+  HousekeepingReworkCommand,
+  MaintenanceDoneCommand,
+  ReservationReadModel,
+  ReportMaintenanceCommand,
+  RoomReservationContextReadModel,
+  RestoreSellableCommand,
   RoomReadModel,
+  TodayReservationsReadModel,
 } from '@pms-platform/contracts';
 import {
   checkIn,
   checkOut,
   getDashboardReadModel,
   getRoomReadModel,
+  housekeepingDone,
+  housekeepingInspection,
+  housekeepingRework,
+  maintenanceDone,
+  reportMaintenance,
+  restoreSellable,
   type CheckInResult,
   type CheckOutResult,
   type CoreCheckInConfirmResult,
   type CoreCheckInDryRunPlan,
   type CoreCheckOutConfirmResult,
   type CoreCheckOutDryRunPlan,
+  type CorePmsCommandConfirmResult,
   type CorePorts,
+  type PmsCommandResult,
 } from '@pms-platform/core';
 
 export const apiPackageName = '@pms-platform/api';
 export const pmsCheckInOperation = 'pms_check_in';
 export const pmsCheckOutOperation = 'pms_check_out';
+export const pmsHousekeepingDoneOperation = 'pms_housekeeping_done';
+export const pmsHousekeepingInspectionOperation = 'pms_housekeeping_inspection';
+export const pmsHousekeepingReworkOperation = 'pms_housekeeping_rework';
+export const pmsReportMaintenanceOperation = 'pms_report_maintenance';
+export const pmsMaintenanceDoneOperation = 'pms_maintenance_done';
+export const pmsRestoreSellableOperation = 'pms_restore_sellable';
 export const pmsGetRoomOperation = 'pms_get_room';
 export const pmsDashboardOperation = 'pms_dashboard';
+export const pmsReservationGetOperation = 'pms_reservation_get';
+export const pmsTodayArrivalsOperation = 'pms_today_arrivals';
+export const pmsTodayDeparturesOperation = 'pms_today_departures';
+export const pmsRoomReservationContextOperation = 'pms_room_reservation_context';
 
-export type PmsCommandOperation = typeof pmsCheckInOperation | typeof pmsCheckOutOperation;
-export type PmsReadModelOperation = typeof pmsGetRoomOperation | typeof pmsDashboardOperation;
+export type PmsCommandOperation =
+  | typeof pmsCheckInOperation
+  | typeof pmsCheckOutOperation
+  | typeof pmsHousekeepingDoneOperation
+  | typeof pmsHousekeepingInspectionOperation
+  | typeof pmsHousekeepingReworkOperation
+  | typeof pmsReportMaintenanceOperation
+  | typeof pmsMaintenanceDoneOperation
+  | typeof pmsRestoreSellableOperation;
+export type PmsReadModelOperation =
+  | typeof pmsGetRoomOperation
+  | typeof pmsDashboardOperation
+  | typeof pmsReservationGetOperation
+  | typeof pmsTodayArrivalsOperation
+  | typeof pmsTodayDeparturesOperation
+  | typeof pmsRoomReservationContextOperation;
 export type PmsApiMode = 'dryRun' | 'confirm';
 export type CheckOutApiMode = PmsApiMode;
 export type ApiBoundaryErrorCode = 'IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_FINGERPRINT';
@@ -50,6 +91,7 @@ export interface RequestFingerprintInput {
   readonly reason: CommandMeta['reason'];
   readonly correlationId: CommandMeta['correlationId'];
   readonly requestedAt: CommandMeta['requestedAt'];
+  readonly parameters?: Record<string, unknown>;
 }
 
 export interface RequestFingerprintEnvelope {
@@ -99,6 +141,58 @@ export interface CheckOutConfirmApiRequest extends PmsCommandApiRequestBase {
 
 export type CheckOutApiRequest = CheckOutDryRunApiRequest | CheckOutConfirmApiRequest;
 
+interface PmsExtendedCommandApiRequestBase extends PmsCommandApiRequestBase {
+  readonly source: Extract<CommandMeta['source'], 'api' | 'mcp' | 'test'>;
+}
+
+export interface HousekeepingDoneApiRequest extends PmsExtendedCommandApiRequestBase {
+  readonly operation: typeof pmsHousekeepingDoneOperation;
+  readonly mode: PmsApiMode;
+  readonly inspectionRequired?: boolean;
+}
+
+export interface HousekeepingInspectionApiRequest extends PmsExtendedCommandApiRequestBase {
+  readonly operation: typeof pmsHousekeepingInspectionOperation;
+  readonly mode: PmsApiMode;
+  readonly result: 'pass' | 'fail';
+  readonly taskId?: string;
+}
+
+export interface HousekeepingReworkApiRequest extends PmsExtendedCommandApiRequestBase {
+  readonly operation: typeof pmsHousekeepingReworkOperation;
+  readonly mode: PmsApiMode;
+  readonly inspectionRequired?: boolean;
+  readonly taskId?: string;
+}
+
+export interface ReportMaintenanceApiRequest extends PmsExtendedCommandApiRequestBase {
+  readonly operation: typeof pmsReportMaintenanceOperation;
+  readonly mode: PmsApiMode;
+  readonly severity?: ReportMaintenanceCommand['severity'];
+  readonly stopSellRequested?: boolean;
+  readonly note?: string;
+}
+
+export interface MaintenanceDoneApiRequest extends PmsExtendedCommandApiRequestBase {
+  readonly operation: typeof pmsMaintenanceDoneOperation;
+  readonly mode: PmsApiMode;
+  readonly ticketId?: string;
+  readonly note?: string;
+}
+
+export interface RestoreSellableApiRequest extends PmsExtendedCommandApiRequestBase {
+  readonly operation: typeof pmsRestoreSellableOperation;
+  readonly mode: PmsApiMode;
+}
+
+export type PmsExtendedCommandApiRequest =
+  | HousekeepingDoneApiRequest
+  | HousekeepingInspectionApiRequest
+  | HousekeepingReworkApiRequest
+  | ReportMaintenanceApiRequest
+  | MaintenanceDoneApiRequest
+  | RestoreSellableApiRequest;
+
 export interface StableErrorPassthrough {
   readonly ok: false;
   readonly mode: CommandExecutionMode | 'unsupported';
@@ -141,6 +235,27 @@ export interface CheckOutConfirmApiResponse {
 
 export type CheckOutApiResponse = CheckOutDryRunApiResponse | CheckOutConfirmApiResponse | StableErrorPassthrough;
 
+export interface PmsExtendedCommandDryRunApiResponse {
+  readonly ok: true;
+  readonly operation: PmsExtendedCommandApiRequest['operation'];
+  readonly mode: 'dryRun';
+  readonly request: RequestFingerprintEnvelope;
+  readonly plan: import('@pms-platform/contracts').PmsCommandDryRunPlan;
+}
+
+export interface PmsExtendedCommandConfirmApiResponse {
+  readonly ok: true;
+  readonly operation: PmsExtendedCommandApiRequest['operation'];
+  readonly mode: 'confirm';
+  readonly request: RequestFingerprintEnvelope;
+  readonly result: CorePmsCommandConfirmResult;
+}
+
+export type PmsExtendedCommandApiResponse =
+  | PmsExtendedCommandDryRunApiResponse
+  | PmsExtendedCommandConfirmApiResponse
+  | StableErrorPassthrough;
+
 export interface GetRoomApiRequest {
   readonly operation: typeof pmsGetRoomOperation;
   readonly roomId: string;
@@ -164,13 +279,59 @@ export interface DashboardApiResponse {
   readonly readModel: DashboardReadModel;
 }
 
-export type PmsReadModelApiRequest = GetRoomApiRequest | DashboardApiRequest;
-export type PmsReadModelApiResponse = GetRoomApiResponse | DashboardApiResponse;
+export interface ReservationGetApiRequest {
+  readonly operation: typeof pmsReservationGetOperation;
+  readonly reservationCode: string;
+  readonly requestedAt: string;
+}
+
+export interface ReservationGetApiResponse {
+  readonly ok: true;
+  readonly operation: typeof pmsReservationGetOperation;
+  readonly readModel?: ReservationReadModel;
+}
+
+export interface TodayReservationsApiRequest {
+  readonly operation: typeof pmsTodayArrivalsOperation | typeof pmsTodayDeparturesOperation;
+  readonly businessDate: string;
+  readonly requestedAt: string;
+}
+
+export interface TodayReservationsApiResponse {
+  readonly ok: true;
+  readonly operation: typeof pmsTodayArrivalsOperation | typeof pmsTodayDeparturesOperation;
+  readonly readModel: TodayReservationsReadModel;
+}
+
+export interface RoomReservationContextApiRequest {
+  readonly operation: typeof pmsRoomReservationContextOperation;
+  readonly roomId: string;
+  readonly requestedAt: string;
+}
+
+export interface RoomReservationContextApiResponse {
+  readonly ok: true;
+  readonly operation: typeof pmsRoomReservationContextOperation;
+  readonly readModel: RoomReservationContextReadModel;
+}
+
+export type PmsReadModelApiRequest =
+  | GetRoomApiRequest
+  | DashboardApiRequest
+  | ReservationGetApiRequest
+  | TodayReservationsApiRequest
+  | RoomReservationContextApiRequest;
+export type PmsReadModelApiResponse =
+  | GetRoomApiResponse
+  | DashboardApiResponse
+  | ReservationGetApiResponse
+  | TodayReservationsApiResponse
+  | RoomReservationContextApiResponse;
 
 export interface ApiIdempotencyRecord {
   readonly idempotencyKey: string;
   readonly requestFingerprint: string;
-  readonly response: CheckInApiResponse | CheckOutApiResponse;
+  readonly response: CheckInApiResponse | CheckOutApiResponse | PmsExtendedCommandApiResponse;
 }
 
 export interface ApiIdempotencyRepository {
@@ -235,6 +396,31 @@ export function executeCheckOutApiRequest(
   return response;
 }
 
+export function executePmsExtendedCommandApiRequest(
+  request: PmsExtendedCommandApiRequest,
+  ports: CorePorts,
+  options: ExecuteCheckOutApiOptions = {},
+): PmsExtendedCommandApiResponse {
+  const idempotency = options.idempotency;
+  const existing = idempotency?.get(request.idempotencyKey);
+
+  if (existing && existing.requestFingerprint !== request.requestFingerprint) {
+    return incompatibleFingerprintResponse(request);
+  }
+
+  if (existing) {
+    return existing.response as PmsExtendedCommandApiResponse;
+  }
+
+  const response = toPmsExtendedCommandApiResponse(request, executeCoreExtendedCommand(request, ports));
+  idempotency?.save({
+    idempotencyKey: request.idempotencyKey,
+    requestFingerprint: request.requestFingerprint,
+    response,
+  });
+  return response;
+}
+
 export function toCheckInCommand(request: CheckInApiRequest): CheckInCommand {
   return {
     type: 'CHECK_IN',
@@ -266,6 +452,47 @@ export function toCheckOutCommand(request: CheckOutApiRequest): CheckOutCommand 
       mode: request.mode,
     },
   };
+}
+
+export function toPmsExtendedCommand(request: PmsExtendedCommandApiRequest):
+  | HousekeepingDoneCommand
+  | HousekeepingInspectionCommand
+  | HousekeepingReworkCommand
+  | ReportMaintenanceCommand
+  | MaintenanceDoneCommand
+  | RestoreSellableCommand {
+  const meta = {
+    actor: { ...request.actor },
+    source: request.source,
+    reason: request.reason,
+    idempotencyKey: request.idempotencyKey,
+    correlationId: request.correlationId,
+    requestedAt: request.requestedAt,
+    mode: request.mode,
+  };
+  if (request.operation === pmsHousekeepingDoneOperation) {
+    return { type: 'HOUSEKEEPING_DONE', roomId: request.roomId, inspectionRequired: request.inspectionRequired, meta };
+  }
+  if (request.operation === pmsHousekeepingInspectionOperation) {
+    return { type: 'HOUSEKEEPING_INSPECTION', roomId: request.roomId, result: request.result, taskId: request.taskId, meta };
+  }
+  if (request.operation === pmsHousekeepingReworkOperation) {
+    return { type: 'HOUSEKEEPING_REWORK', roomId: request.roomId, inspectionRequired: request.inspectionRequired, taskId: request.taskId, meta };
+  }
+  if (request.operation === pmsReportMaintenanceOperation) {
+    return {
+      type: 'REPORT_MAINTENANCE',
+      roomId: request.roomId,
+      severity: request.severity,
+      stopSellRequested: request.stopSellRequested,
+      note: request.note,
+      meta,
+    };
+  }
+  if (request.operation === pmsMaintenanceDoneOperation) {
+    return { type: 'MAINTENANCE_DONE', roomId: request.roomId, ticketId: request.ticketId, note: request.note, meta };
+  }
+  return { type: 'RESTORE_SELLABLE', roomId: request.roomId, meta };
 }
 
 export function toCheckInApiResponse(request: CheckInApiRequest, result: CheckInResult): CheckInApiResponse {
@@ -328,7 +555,40 @@ export function toCheckOutApiResponse(request: CheckOutApiRequest, result: Check
   };
 }
 
-export function requestFingerprintInput(request: CheckInApiRequest | CheckOutApiRequest): RequestFingerprintInput {
+export function toPmsExtendedCommandApiResponse(
+  request: PmsExtendedCommandApiRequest,
+  result: PmsCommandResult,
+): PmsExtendedCommandApiResponse {
+  if (!result.ok) {
+    return {
+      ok: false,
+      mode: result.mode,
+      errors: result.errors,
+    };
+  }
+
+  const requestEnvelope = requestFingerprintEnvelope(request);
+
+  if (result.mode === 'dryRun') {
+    return {
+      ok: true,
+      operation: request.operation,
+      mode: 'dryRun',
+      request: requestEnvelope,
+      plan: result.plan,
+    };
+  }
+
+  return {
+    ok: true,
+    operation: request.operation,
+    mode: 'confirm',
+    request: requestEnvelope,
+    result: result.result,
+  };
+}
+
+export function requestFingerprintInput(request: CheckInApiRequest | CheckOutApiRequest | PmsExtendedCommandApiRequest): RequestFingerprintInput {
   return {
     operation: request.operation,
     mode: request.mode,
@@ -338,10 +598,11 @@ export function requestFingerprintInput(request: CheckInApiRequest | CheckOutApi
     reason: request.reason,
     correlationId: request.correlationId,
     requestedAt: request.requestedAt,
+    ...extendedFingerprintParameters(request),
   };
 }
 
-export function requestFingerprintEnvelope(request: CheckInApiRequest | CheckOutApiRequest): RequestFingerprintEnvelope {
+export function requestFingerprintEnvelope(request: CheckInApiRequest | CheckOutApiRequest | PmsExtendedCommandApiRequest): RequestFingerprintEnvelope {
   return {
     idempotencyKey: request.idempotencyKey,
     requestFingerprint: request.requestFingerprint,
@@ -388,14 +649,55 @@ export function describeApiContractBoundary() {
   return {
     packageName: apiPackageName,
     operation: pmsCheckOutOperation,
-    operations: [pmsCheckInOperation, pmsCheckOutOperation, pmsGetRoomOperation, pmsDashboardOperation] as const,
+    operations: [
+      pmsCheckInOperation,
+      pmsCheckOutOperation,
+      pmsHousekeepingDoneOperation,
+      pmsHousekeepingInspectionOperation,
+      pmsHousekeepingReworkOperation,
+      pmsReportMaintenanceOperation,
+      pmsMaintenanceDoneOperation,
+      pmsRestoreSellableOperation,
+      pmsGetRoomOperation,
+      pmsDashboardOperation,
+      pmsReservationGetOperation,
+      pmsTodayArrivalsOperation,
+      pmsTodayDeparturesOperation,
+      pmsRoomReservationContextOperation,
+    ] as const,
     importsCoreResult: true,
     exposesLocalHandler: true,
     supportedModes: ['dryRun', 'confirm'] as const,
   };
 }
 
-function incompatibleFingerprintResponse(request: CheckInApiRequest | CheckOutApiRequest): StableErrorPassthrough {
+function executeCoreExtendedCommand(request: PmsExtendedCommandApiRequest, ports: CorePorts): PmsCommandResult {
+  const command = toPmsExtendedCommand(request);
+  if (command.type === 'HOUSEKEEPING_DONE') return housekeepingDone(command, ports);
+  if (command.type === 'HOUSEKEEPING_INSPECTION') return housekeepingInspection(command, ports);
+  if (command.type === 'HOUSEKEEPING_REWORK') return housekeepingRework(command, ports);
+  if (command.type === 'REPORT_MAINTENANCE') return reportMaintenance(command, ports);
+  if (command.type === 'MAINTENANCE_DONE') return maintenanceDone(command, ports);
+  return restoreSellable(command, ports);
+}
+
+function extendedFingerprintParameters(
+  request: CheckInApiRequest | CheckOutApiRequest | PmsExtendedCommandApiRequest,
+): { readonly parameters?: Record<string, unknown> } {
+  if (request.operation === pmsCheckInOperation || request.operation === pmsCheckOutOperation) {
+    return {};
+  }
+  const record = request as unknown as Record<string, unknown>;
+  const parameters: Record<string, unknown> = {};
+  for (const key of ['inspectionRequired', 'result', 'taskId', 'severity', 'stopSellRequested', 'note', 'ticketId'] as const) {
+    if (record[key] !== undefined) {
+      parameters[key] = record[key];
+    }
+  }
+  return Object.keys(parameters).length > 0 ? { parameters } : {};
+}
+
+function incompatibleFingerprintResponse(request: CheckInApiRequest | CheckOutApiRequest | PmsExtendedCommandApiRequest): StableErrorPassthrough {
   return {
     ok: false,
     mode: request.mode,

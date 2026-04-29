@@ -15,43 +15,114 @@ import {
 } from '../src/index.js';
 
 describe('PMS Base provisioning contract and generator', () => {
-  it('generates a deterministic PMS-owned spec with N5 proof rooms and OperationRequest schema', () => {
+  it('generates a deterministic Chinese PMS-owned spec with fixed small-hotel rooms and OperationRequest schema', () => {
     const spec = createSmallHotelPmsBaseProvisioningSpec(smallHotelProfileFixture);
 
     expect(spec.schemaVersion).toBe(pmsBaseProvisioningSchemaVersion);
-    expect(spec.base.displayName).toBe('Sandbox PMS Base - N5 Proof');
+    expect(spec.base.displayName).toBe('酒店房态管理');
     expect(spec.base.timeZone).toBe('Asia/Shanghai');
-    expect(spec.proof.proofRoomNumbers).toEqual(['0308', '1001']);
+    expect(spec.proof.proofRoomNumbers).toEqual(['A1', 'A2']);
     expect(spec.tables.map((table) => table.logicalName)).toEqual([
       'RoomLedger',
       'OperationRequests',
       'HousekeepingTasks',
+      'MaintenanceTickets',
+      'Reservations',
       'OperationLogs',
+      'InventoryCalendar',
+    ]);
+    expect(spec.tables.map((table) => table.displayName)).toEqual([
+      '房态台账',
+      'PMS操作请求',
+      '保洁任务',
+      '维修工单',
+      '预订',
+      '操作日志',
+      '库存日历',
     ]);
 
     const operationRequests = requiredTable(spec, 'OperationRequests');
     expect(operationRequests.fields.map((field) => field.displayName)).toEqual([
-      'ClientToken',
-      'Action',
-      'Status',
-      'RoomNumber',
-      'Operator',
-      'Reason',
-      'RequestedAt',
-      'PayloadJSON',
-      'ResultJSON',
-      'SchemaVersion',
+      '请求令牌',
+      '操作类型',
+      '操作状态',
+      '房号',
+      '操作人',
+      '原因',
+      '请求时间',
+      '请求JSON',
+      '结果JSON',
+      '版本',
     ]);
     expect(operationRequests.upsertPolicy).toEqual({
       strategy: 'adapterUpsert',
-      uniqueField: 'ClientToken',
+      uniqueField: '请求令牌',
       createOnMissing: true,
-      updateAllowedFields: ['Status', 'ResultJSON', 'SchemaVersion'],
+      updateAllowedFields: ['操作状态', '结果JSON', '版本'],
     });
 
     const roomLedger = requiredTable(spec, 'RoomLedger');
-    expect(roomLedger.seedRecords.map((record) => record.fields.RoomNumber)).toEqual(['0308', '1001']);
+    expect(roomLedger.fields.map((field) => field.displayName)).not.toContain('Floor');
+    expect(roomLedger.fields.map((field) => field.displayName)).not.toContain('楼层');
+    expect(roomLedger.seedRecords.map((record) => record.fields['房号'])).toEqual([
+      'A1',
+      'A2',
+      'B1',
+      'B2',
+      'C1',
+      'C2',
+      'D1',
+      'D2',
+      'D3',
+      'D4',
+      'D5',
+      'E1',
+      'E2',
+    ]);
+    expect(Object.fromEntries(roomLedger.seedRecords.map((record) => [record.fields['房号'], record.fields['房型']]))).toEqual({
+      A1: '花园别墅',
+      A2: '花园别墅',
+      B1: '花园别墅',
+      B2: '花园别墅',
+      C1: '花园别墅',
+      C2: '花园套房',
+      D1: '秘境洞穴',
+      D2: '秘境洞穴',
+      D3: '秘境洞穴',
+      D4: '秘境洞穴',
+      D5: '秘境洞穴',
+      E1: '花园套房',
+      E2: '花园别墅',
+    });
+    expect(roomLedger.seedRecords.every((record) =>
+      record.fields['入住状态'] === '空房' &&
+      record.fields['清洁状态'] === '干净' &&
+      record.fields['可售状态'] === '可售',
+    )).toBe(true);
+
+    const inventoryCalendar = requiredTable(spec, 'InventoryCalendar');
+    expect(inventoryCalendar.fields.map((field) => field.displayName)).toEqual([
+      '日历标题',
+      '房号',
+      '房型',
+      '区域',
+      '营业日',
+      '开始日期',
+      '结束日期',
+      '日历类型',
+      '可售状态',
+      '来源',
+      '房号排序',
+      '原因',
+      '版本',
+    ]);
+    expect(inventoryCalendar.views.map((view) => [view.displayName, view.kind])).toEqual([
+      ['库存日历', 'gantt'],
+      ['库存明细', 'grid'],
+    ]);
     expect(spec.adapterRegistryBindings.pmsBaseProjection.bindings.roomLedger.tableLogicalName).toBe('RoomLedger');
+    expect(spec.adapterRegistryBindings.pmsBaseProjection.bindings.roomLedger.fieldMap.roomNumber).toBe('房号');
+    expect(spec.adapterRegistryBindings.pmsBaseProjection.bindings.roomLedger.fieldMap.occupancyStatus).toBe('入住状态');
     expect(spec.adapterRegistryBindings.pmsBaseProjection.bindings.operationRequests.tableLogicalName).toBe('OperationRequests');
     expect(spec.adapterRegistryBindings.pmsBaseProjection.bindings.operationLogs.tableLogicalName).toBe('OperationLogs');
     expect(validatePmsBaseProvisioningSpec(spec)).toEqual([]);
@@ -86,7 +157,7 @@ describe('PMS Base provisioning contract and generator', () => {
                 ...table.fields,
                 {
                   logicalName: 'duplicateStatus',
-                  displayName: 'Status',
+                  displayName: '操作状态',
                   kind: 'singleSelect',
                   required: true,
                 },
@@ -110,7 +181,8 @@ describe('PMS Base provisioning contract and generator', () => {
     expect(validatePmsBaseProvisioningSpec(invalid)).toEqual(
       expect.arrayContaining([
         'proof_room_pair_required',
-        'duplicate_field_display_name:OperationRequests:Status',
+        'duplicate_field_display_name:OperationRequests:操作状态',
+        'proof_room_seed_missing:0308',
         'operation_requests_upsert_policy_required',
         'tracked_target_value_forbidden:adapterRegistryBindings.pmsBaseProjection.targetPolicy.exampleTargetHint',
       ]),
@@ -199,16 +271,16 @@ describe('PMS Base provisioning contract and generator', () => {
     };
 
     expect(fieldJson('RoomLedger.occupancyStatus')).toEqual({
-      name: 'OccupancyStatus',
+      name: '入住状态',
       type: 'select',
-      options: [{ name: 'Vacant' }, { name: 'InHouse' }, { name: 'DueOut' }],
+      options: [{ name: '空房' }, { name: '在住' }, { name: '预离' }],
     });
     expect(fieldJson('RoomLedger.lastUpdatedAt')).toMatchObject({
-      name: 'LastUpdatedAt',
+      name: '更新时间',
       type: 'datetime',
     });
     expect(fieldJson('RoomLedger.lastReason')).toMatchObject({
-      name: 'LastReason',
+      name: '最后原因',
       type: 'text',
     });
   });

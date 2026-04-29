@@ -3,22 +3,43 @@ import { spawn } from 'node:child_process';
 export const pmsBaseProvisioningSchemaVersion = 'pms-base-provisioning-v1';
 export const pmsBaseProjectionSchemaVersion = 'pms-dashboard-mvp-v1';
 
-export type PmsBaseTableLogicalName = 'RoomLedger' | 'OperationRequests' | 'HousekeepingTasks' | 'OperationLogs';
+function smallHotelRoomType(roomNumber: string): string {
+  if (roomNumber.startsWith('A') || roomNumber.startsWith('B') || roomNumber === 'C1' || roomNumber === 'E2') return '花园别墅';
+  if (roomNumber.startsWith('D')) return '秘境洞穴';
+  if (roomNumber === 'C2' || roomNumber === 'E1') return '花园套房';
+  return '花园别墅';
+}
+
+export type PmsBaseTableLogicalName =
+  | 'RoomLedger'
+  | 'OperationRequests'
+  | 'HousekeepingTasks'
+  | 'MaintenanceTickets'
+  | 'Reservations'
+  | 'OperationLogs'
+  | 'InventoryCalendar';
 export type PmsBaseFieldKind = 'text' | 'longText' | 'singleSelect' | 'dateTime' | 'number';
-export type PmsBaseWorkflow = 'CHECK_IN' | 'CHECK_OUT';
+export type PmsBaseWorkflow =
+  | 'CHECK_IN'
+  | 'CHECK_OUT'
+  | 'HOUSEKEEPING_DONE'
+  | 'HOUSEKEEPING_INSPECTION'
+  | 'HOUSEKEEPING_REWORK'
+  | 'REPORT_MAINTENANCE'
+  | 'MAINTENANCE_DONE'
+  | 'RESTORE_SELLABLE';
 export type OperationRequestStrategy = 'adapterUpsert' | 'seedRows' | 'managedForm';
 export type LarkCliProvisioningMode = 'dryRun' | 'apply';
 
 export interface HotelRoomStatusProfile {
-  readonly occupancyStatus: 'Vacant' | 'InHouse' | 'DueOut';
-  readonly cleaningStatus: 'Clean' | 'Dirty' | 'Cleaning' | 'Inspection';
-  readonly sellableStatus: 'Sellable' | 'StopSell';
+  readonly occupancyStatus: '空房' | '在住' | '预离';
+  readonly cleaningStatus: '干净' | '脏房' | '清洁中' | '待查' | '返工';
+  readonly sellableStatus: '可售' | '停售维修' | '停售保留' | '停售业主';
 }
 
 export interface HotelRoomProfile {
   readonly roomNumber: string;
   readonly roomType: string;
-  readonly floor: string;
   readonly zone: string;
   readonly initialStatus: HotelRoomStatusProfile;
 }
@@ -50,7 +71,7 @@ export interface PmsBaseFieldSpec {
 export interface PmsBaseViewSpec {
   readonly logicalName: string;
   readonly displayName: string;
-  readonly kind: 'grid' | 'kanban' | 'form';
+  readonly kind: 'grid' | 'kanban' | 'form' | 'gantt' | 'calendar' | 'gallery';
   readonly filterHint?: string;
 }
 
@@ -98,6 +119,9 @@ export interface PmsBaseProjectionRegistryTemplate {
   readonly bindings: {
     readonly roomLedger: PmsBaseProjectionBindingTemplate;
     readonly operationRequests: PmsBaseProjectionBindingTemplate;
+    readonly housekeepingTasks: PmsBaseProjectionBindingTemplate;
+    readonly maintenanceTickets: PmsBaseProjectionBindingTemplate;
+    readonly reservations: PmsBaseProjectionBindingTemplate;
     readonly operationLogs: PmsBaseProjectionBindingTemplate;
   };
 }
@@ -182,55 +206,53 @@ const requiredTables: readonly PmsBaseTableLogicalName[] = [
   'RoomLedger',
   'OperationRequests',
   'HousekeepingTasks',
+  'MaintenanceTickets',
+  'Reservations',
   'OperationLogs',
+  'InventoryCalendar',
 ];
 
 const requiredOperationRequestFields = [
-  'ClientToken',
-  'Action',
-  'Status',
-  'RoomNumber',
-  'Operator',
-  'Reason',
-  'RequestedAt',
-  'PayloadJSON',
-  'ResultJSON',
-  'SchemaVersion',
+  '请求令牌',
+  '操作类型',
+  '操作状态',
+  '房号',
+  '操作人',
+  '原因',
+  '请求时间',
+  '请求JSON',
+  '结果JSON',
+  '版本',
 ] as const;
 
 export const smallHotelProfileFixture: HotelProfile = {
-  propertyKey: 'sandbox-pms-base-n5',
-  propertyName: 'Sandbox PMS Base',
-  baseDisplayName: 'Sandbox PMS Base - N5 Proof',
+  propertyKey: 'small-hotel-pms-base-cn',
+  propertyName: '酒店房态管理',
+  baseDisplayName: '酒店房态管理',
   timeZone: 'Asia/Shanghai',
-  proofRoomNumbers: ['0308', '1001'],
-  enabledWorkflows: ['CHECK_IN', 'CHECK_OUT'],
-  operationRequestStrategy: 'adapterUpsert',
-  dashboardFeatures: ['frontDeskDashboard', 'roomLedger', 'operationRequests', 'housekeepingQueue', 'operationLogs'],
-  rooms: [
-    {
-      roomNumber: '0308',
-      roomType: 'standard',
-      floor: '03',
-      zone: 'east',
-      initialStatus: {
-        occupancyStatus: 'Vacant',
-        cleaningStatus: 'Clean',
-        sellableStatus: 'Sellable',
-      },
-    },
-    {
-      roomNumber: '1001',
-      roomType: 'deluxe',
-      floor: '10',
-      zone: 'west',
-      initialStatus: {
-        occupancyStatus: 'DueOut',
-        cleaningStatus: 'Clean',
-        sellableStatus: 'Sellable',
-      },
-    },
+  proofRoomNumbers: ['A1', 'A2'],
+  enabledWorkflows: [
+    'CHECK_IN',
+    'CHECK_OUT',
+    'HOUSEKEEPING_DONE',
+    'HOUSEKEEPING_INSPECTION',
+    'HOUSEKEEPING_REWORK',
+    'REPORT_MAINTENANCE',
+    'MAINTENANCE_DONE',
+    'RESTORE_SELLABLE',
   ],
+  operationRequestStrategy: 'adapterUpsert',
+  dashboardFeatures: ['frontDeskDashboard', 'roomLedger', 'operationRequests', 'housekeepingQueue', 'maintenanceQueue', 'operationLogs'],
+  rooms: ['A1', 'A2', 'B1', 'B2', 'C1', 'C2', 'D1', 'D2', 'D3', 'D4', 'D5', 'E1', 'E2'].map((roomNumber) => ({
+    roomNumber,
+    roomType: smallHotelRoomType(roomNumber),
+    zone: roomNumber.slice(0, 1),
+    initialStatus: {
+      occupancyStatus: '空房',
+      cleaningStatus: '干净',
+      sellableStatus: '可售',
+    },
+  })),
 };
 
 export function parseHotelProfileCandidateFromText(text: string): HotelProfileCandidate {
@@ -248,9 +270,8 @@ export function parseHotelProfileCandidateFromText(text: string): HotelProfileCa
     dashboardFeatures: smallHotelProfileFixture.dashboardFeatures,
     rooms: roomNumbers.slice(0, Math.max(2, roomNumbers.length)).map((roomNumber, index) => ({
       roomNumber,
-      roomType: index === 0 ? 'standard' : 'deluxe',
-      floor: roomNumber.slice(0, Math.max(1, roomNumber.length - 2)).padStart(2, '0'),
-      zone: index === 0 ? 'east' : 'west',
+      roomType: index === 0 ? '花园别墅' : '花园套房',
+      zone: roomNumber.slice(0, 1),
       initialStatus: index === 0
         ? smallHotelProfileFixture.rooms[0].initialStatus
         : smallHotelProfileFixture.rooms[1].initialStatus,
@@ -296,14 +317,17 @@ export function createSmallHotelPmsBaseProvisioningSpec(profile: HotelProfile = 
       roomLedgerTable(profile),
       operationRequestsTable(profile),
       housekeepingTasksTable(),
+      maintenanceTicketsTable(),
+      reservationsTable(),
       operationLogsTable(),
+      inventoryCalendarTable(),
     ],
     forms: [
       {
         logicalName: 'operation-request-intake',
-        displayName: 'PMS Operation Request Intake',
+        displayName: 'PMS操作请求表单',
         tableLogicalName: 'OperationRequests',
-        description: 'Managed sandbox intake form for PMS OperationRequest projection.',
+        description: '受控 PMS 操作请求入口；确认类操作仍必须来自卡片回调。',
       },
     ],
     adapterRegistryBindings: {
@@ -316,16 +340,18 @@ export function createSmallHotelPmsBaseProvisioningSpec(profile: HotelProfile = 
           roomLedger: {
             tableLogicalName: 'RoomLedger',
             fieldMap: {
-              roomNumber: 'RoomNumber',
-              roomType: 'RoomType',
-              occupancyStatus: 'OccupancyStatus',
-              cleaningStatus: 'CleaningStatus',
-              sellableStatus: 'SellableStatus',
-              roomCode: 'RoomCode',
-              currentReservationCode: 'CurrentReservationCode',
-              lastOperator: 'LastOperator',
-              lastReason: 'LastReason',
-              lastUpdatedAt: 'LastUpdatedAt',
+              roomNumber: '房号',
+              roomType: '房型',
+              occupancyStatus: '入住状态',
+              cleaningStatus: '清洁状态',
+              sellableStatus: '可售状态',
+              roomCode: '房态码',
+              currentReservationCode: '当前预订',
+              maintenanceNote: '维修备注',
+              housekeepingTaskStatus: '保洁任务状态',
+              lastOperator: '最后操作人',
+              lastReason: '最后原因',
+              lastUpdatedAt: '更新时间',
             },
             requiredFields: [
               'roomNumber',
@@ -339,11 +365,14 @@ export function createSmallHotelPmsBaseProvisioningSpec(profile: HotelProfile = 
               'lastUpdatedAt',
             ],
             updateAllowedFields: [
+              'roomType',
               'occupancyStatus',
               'cleaningStatus',
               'sellableStatus',
               'roomCode',
               'currentReservationCode',
+              'maintenanceNote',
+              'housekeepingTaskStatus',
               'lastOperator',
               'lastReason',
               'lastUpdatedAt',
@@ -352,35 +381,82 @@ export function createSmallHotelPmsBaseProvisioningSpec(profile: HotelProfile = 
           operationRequests: {
             tableLogicalName: 'OperationRequests',
             fieldMap: {
-              clientToken: 'ClientToken',
-              action: 'Action',
-              status: 'Status',
-              roomNumber: 'RoomNumber',
-              operator: 'Operator',
-              reason: 'Reason',
-              requestedAt: 'RequestedAt',
-              payloadJSON: 'PayloadJSON',
-              resultJSON: 'ResultJSON',
-              schemaVersion: 'SchemaVersion',
+              clientToken: '请求令牌',
+              action: '操作类型',
+              status: '操作状态',
+              roomNumber: '房号',
+              operator: '操作人',
+              reason: '原因',
+              requestedAt: '请求时间',
+              payloadJSON: '请求JSON',
+              resultJSON: '结果JSON',
+              schemaVersion: '版本',
             },
             requiredFields: ['clientToken', 'action', 'status', 'roomNumber', 'operator', 'reason', 'requestedAt', 'schemaVersion'],
             updateAllowedFields: ['status', 'resultJSON', 'schemaVersion'],
           },
+          housekeepingTasks: {
+            tableLogicalName: 'HousekeepingTasks',
+            fieldMap: {
+              taskId: '任务ID',
+              roomNumber: '房号',
+              kind: '任务类型',
+              status: '任务状态',
+              reason: '原因',
+              correlationId: '关联ID',
+              createdAt: '创建时间',
+              completedAt: '完成时间',
+              schemaVersion: '版本',
+            },
+            requiredFields: ['taskId', 'roomNumber', 'kind', 'status', 'reason', 'correlationId', 'createdAt', 'schemaVersion'],
+            updateAllowedFields: ['status', 'reason', 'completedAt', 'schemaVersion'],
+          },
+          maintenanceTickets: {
+            tableLogicalName: 'MaintenanceTickets',
+            fieldMap: {
+              ticketId: '工单ID',
+              roomNumber: '房号',
+              status: '工单状态',
+              severity: '严重级别',
+              stopSellRequested: '是否停售',
+              reason: '维修备注',
+              correlationId: '关联ID',
+              createdAt: '创建时间',
+              resolvedAt: '完成时间',
+              schemaVersion: '版本',
+            },
+            requiredFields: ['ticketId', 'roomNumber', 'status', 'severity', 'stopSellRequested', 'reason', 'correlationId', 'createdAt', 'schemaVersion'],
+            updateAllowedFields: ['status', 'resolvedAt', 'schemaVersion'],
+          },
+          reservations: {
+            tableLogicalName: 'Reservations',
+            fieldMap: {
+              reservationCode: '预订号',
+              roomNumber: '房号',
+              guestLabel: '客人',
+              arrivalDate: '到店日期',
+              departureDate: '离店日期',
+              status: '预订状态',
+              schemaVersion: '版本',
+            },
+            requiredFields: ['reservationCode', 'guestLabel', 'arrivalDate', 'departureDate', 'status', 'schemaVersion'],
+            updateAllowedFields: ['roomNumber', 'guestLabel', 'arrivalDate', 'departureDate', 'status', 'schemaVersion'],
+          },
           operationLogs: {
             tableLogicalName: 'OperationLogs',
             fieldMap: {
-              auditId: 'AuditId',
-              commandType: 'CommandType',
-              roomNumber: 'RoomNumber',
-              actor: 'Actor',
-              source: 'Source',
-              reason: 'Reason',
-              idempotencyKey: 'IdempotencyKey',
-              correlationId: 'CorrelationId',
-              occurredAt: 'OccurredAt',
-              domainEventTypes: 'DomainEventTypes',
-              payloadJSON: 'PayloadJSON',
-              schemaVersion: 'SchemaVersion',
+              auditId: '审计ID',
+              commandType: '操作类型',
+              roomNumber: '房号',
+              actor: '操作人',
+              source: '来源',
+              reason: '原因',
+              idempotencyKey: '幂等键',
+              correlationId: '关联ID',
+              occurredAt: '发生时间',
+              domainEventTypes: '领域事件',
+              payloadJSON: '载荷JSON',
+              schemaVersion: '版本',
             },
             requiredFields: [
               'auditId',
@@ -426,7 +502,7 @@ export function validatePmsBaseProvisioningSpec(spec: PmsBaseProvisioningSpec): 
 
   const seededRoomNumbers = new Set(
     tablesByName.get('RoomLedger')?.seedRecords
-      .map((record) => stringValue(record.fields.RoomNumber))
+      .map((record) => stringValue(record.fields['房号']))
       .filter(isNonEmptyString) ?? [],
   );
   for (const proofRoomNumber of spec.proof.proofRoomNumbers) {
@@ -611,7 +687,7 @@ export function buildLarkCliProvisioningPlan(
       ...identityFlags,
       ...baseTokenFlags,
       '--name',
-      `${spec.profile.propertyName} Dashboard`,
+      `${spec.profile.propertyName}看板`,
       '--theme-style',
       'default',
       ...dryRunFlag,
@@ -667,42 +743,45 @@ export async function executeLarkCliProvisioningPlan(
 function roomLedgerTable(profile: HotelProfile): PmsBaseTableSpec {
   return {
     logicalName: 'RoomLedger',
-    displayName: 'Room Ledger',
+    displayName: '房态台账',
     fields: [
-      textField('roomNumber', 'RoomNumber'),
-      textField('roomType', 'RoomType'),
-      textField('floor', 'Floor'),
-      textField('zone', 'Zone'),
-      selectField('occupancyStatus', 'OccupancyStatus', ['Vacant', 'InHouse', 'DueOut']),
-      selectField('cleaningStatus', 'CleaningStatus', ['Clean', 'Dirty', 'Cleaning', 'Inspection']),
-      selectField('sellableStatus', 'SellableStatus', ['Sellable', 'StopSell']),
-      textField('roomCode', 'RoomCode'),
-      textField('currentReservationCode', 'CurrentReservationCode', false),
-      textField('lastOperator', 'LastOperator'),
-      textField('lastReason', 'LastReason'),
-      dateTimeField('lastUpdatedAt', 'LastUpdatedAt'),
-      textField('schemaVersion', 'SchemaVersion'),
+      textField('roomNumber', '房号'),
+      textField('roomType', '房型'),
+      textField('zone', '区域', false),
+      selectField('occupancyStatus', '入住状态', ['空房', '在住', '预离']),
+      selectField('cleaningStatus', '清洁状态', ['干净', '脏房', '清洁中', '待查', '返工']),
+      selectField('sellableStatus', '可售状态', ['可售', '停售维修', '停售保留', '停售业主']),
+      textField('roomCode', '房态码'),
+      textField('currentReservationCode', '当前预订', false),
+      textField('maintenanceNote', '维修备注', false),
+      textField('housekeepingTaskStatus', '保洁任务状态', false),
+      textField('lastOperator', '最后操作人'),
+      textField('lastReason', '最后原因'),
+      dateTimeField('lastUpdatedAt', '更新时间'),
+      textField('schemaVersion', '版本'),
     ],
     views: [
-      { logicalName: 'frontdesk-all-rooms', displayName: 'Frontdesk All Rooms', kind: 'grid' },
-      { logicalName: 'cleaning-queue', displayName: 'Cleaning Queue', kind: 'grid', filterHint: 'CleaningStatus in Dirty,Cleaning,Inspection' },
+      { logicalName: 'frontdesk-all-rooms', displayName: '全部房态', kind: 'grid' },
+      { logicalName: 'cleaning-queue', displayName: '保洁队列', kind: 'grid', filterHint: '清洁状态 in 脏房,清洁中,待查,返工' },
+      { logicalName: 'maintenance-stop-sell', displayName: '停售维修', kind: 'grid', filterHint: '可售状态 = 停售维修' },
     ],
     seedRecords: profile.rooms.map((room) => ({
       logicalKey: `room:${room.roomNumber}`,
       fields: {
-        RoomNumber: room.roomNumber,
-        RoomType: room.roomType,
-        Floor: room.floor,
-        Zone: room.zone,
-        OccupancyStatus: room.initialStatus.occupancyStatus,
-        CleaningStatus: room.initialStatus.cleaningStatus,
-        SellableStatus: room.initialStatus.sellableStatus,
-        RoomCode: `${room.roomNumber}:${room.initialStatus.occupancyStatus}:${room.initialStatus.cleaningStatus}:${room.initialStatus.sellableStatus}`,
-        CurrentReservationCode: null,
-        LastOperator: 'provisioning-seed',
-        LastReason: 'sandbox seed room',
-        LastUpdatedAt: '2026-04-28T00:00:00.000Z',
-        SchemaVersion: pmsBaseProjectionSchemaVersion,
+        房号: room.roomNumber,
+        房型: room.roomType,
+        区域: room.zone,
+        入住状态: room.initialStatus.occupancyStatus,
+        清洁状态: room.initialStatus.cleaningStatus,
+        可售状态: room.initialStatus.sellableStatus,
+        房态码: `${room.roomNumber}:${room.initialStatus.occupancyStatus}:${room.initialStatus.cleaningStatus}:${room.initialStatus.sellableStatus}`,
+        当前预订: null,
+        维修备注: null,
+        保洁任务状态: null,
+        最后操作人: 'provisioning-seed',
+        最后原因: '初始种子房间',
+        更新时间: '2026-04-28T00:00:00.000Z',
+        版本: pmsBaseProjectionSchemaVersion,
       },
     })),
   };
@@ -711,45 +790,45 @@ function roomLedgerTable(profile: HotelProfile): PmsBaseTableSpec {
 function operationRequestsTable(profile: HotelProfile): PmsBaseTableSpec {
   return {
     logicalName: 'OperationRequests',
-    displayName: 'PMS Operation Requests',
+    displayName: 'PMS操作请求',
     fields: [
-      textField('clientToken', 'ClientToken'),
-      selectField('action', 'Action', ['CHECK_IN', 'CHECK_OUT']),
-      selectField('status', 'Status', ['Pending', 'DryRunReady', 'Confirmed', 'Done', 'Failed', 'Expired', 'Duplicate']),
-      textField('roomNumber', 'RoomNumber'),
-      textField('operator', 'Operator'),
-      textField('reason', 'Reason'),
-      dateTimeField('requestedAt', 'RequestedAt'),
-      longTextField('payloadJSON', 'PayloadJSON', false),
-      longTextField('resultJSON', 'ResultJSON', false),
-      textField('schemaVersion', 'SchemaVersion'),
+      textField('clientToken', '请求令牌'),
+      selectField('action', '操作类型', ['CHECK_IN', 'CHECK_OUT', 'HOUSEKEEPING_DONE', 'HOUSEKEEPING_INSPECTION', 'HOUSEKEEPING_REWORK', 'REPORT_MAINTENANCE', 'MAINTENANCE_DONE', 'RESTORE_SELLABLE']),
+      selectField('status', '操作状态', ['待处理', '待确认', '处理中', '已完成', '失败', '需人工复核', '已过期', '重复忽略']),
+      textField('roomNumber', '房号'),
+      textField('operator', '操作人'),
+      textField('reason', '原因'),
+      dateTimeField('requestedAt', '请求时间'),
+      longTextField('payloadJSON', '请求JSON', false),
+      longTextField('resultJSON', '结果JSON', false),
+      textField('schemaVersion', '版本'),
     ],
     views: [
-      { logicalName: 'pending-operations', displayName: 'Pending Operations', kind: 'grid', filterHint: 'Status in Pending,DryRunReady,Confirmed' },
-      { logicalName: 'failed-operations', displayName: 'Failed Operations', kind: 'grid', filterHint: 'Status = Failed' },
+      { logicalName: 'pending-operations', displayName: '待处理操作', kind: 'grid', filterHint: '操作状态 in 待处理,待确认,处理中,需人工复核' },
+      { logicalName: 'failed-operations', displayName: '失败操作', kind: 'grid', filterHint: '操作状态 = 失败' },
     ],
     seedRecords: profile.proofRoomNumbers.flatMap((roomNumber) =>
       profile.enabledWorkflows.map((workflow) => ({
         logicalKey: `operation:${workflow}:${roomNumber}`,
         fields: {
-          ClientToken: `sandbox-${workflow.toLowerCase().replace('_', '-')}-${roomNumber}`,
-          Action: workflow,
-          Status: 'Pending',
-          RoomNumber: roomNumber,
-          Operator: 'provisioning-seed',
-          Reason: `seed ${workflow} proof request`,
-          RequestedAt: '2026-04-28T00:00:00.000Z',
-          PayloadJSON: JSON.stringify({ workflow, roomNumber }),
-          ResultJSON: null,
-          SchemaVersion: pmsBaseProjectionSchemaVersion,
+          请求令牌: `sandbox-${workflow.toLowerCase().replaceAll('_', '-')}-${roomNumber}`,
+          操作类型: workflow,
+          操作状态: '待处理',
+          房号: roomNumber,
+          操作人: 'provisioning-seed',
+          原因: `seed ${workflow} proof request`,
+          请求时间: '2026-04-28T00:00:00.000Z',
+          请求JSON: JSON.stringify({ workflow, roomNumber }),
+          结果JSON: null,
+          版本: pmsBaseProjectionSchemaVersion,
         },
       })),
     ),
     upsertPolicy: {
       strategy: profile.operationRequestStrategy,
-      uniqueField: 'ClientToken',
+      uniqueField: '请求令牌',
       createOnMissing: profile.operationRequestStrategy === 'adapterUpsert',
-      updateAllowedFields: ['Status', 'ResultJSON', 'SchemaVersion'],
+      updateAllowedFields: ['操作状态', '结果JSON', '版本'],
     },
   };
 }
@@ -757,19 +836,91 @@ function operationRequestsTable(profile: HotelProfile): PmsBaseTableSpec {
 function housekeepingTasksTable(): PmsBaseTableSpec {
   return {
     logicalName: 'HousekeepingTasks',
-    displayName: 'Housekeeping Tasks',
+    displayName: '保洁任务',
     fields: [
-      textField('taskId', 'TaskId'),
-      textField('roomNumber', 'RoomNumber'),
-      selectField('kind', 'Kind', ['checkout-cleaning', 'maintenance-followup']),
-      selectField('status', 'Status', ['pending', 'inProgress', 'done', 'cancelled']),
-      textField('reason', 'Reason'),
-      textField('correlationId', 'CorrelationId'),
-      dateTimeField('createdAt', 'CreatedAt'),
-      dateTimeField('completedAt', 'CompletedAt', false),
-      textField('schemaVersion', 'SchemaVersion'),
+      textField('taskId', '任务ID'),
+      textField('roomNumber', '房号'),
+      selectField('kind', '任务类型', ['checkout-cleaning', 'room-cleaning', 'rework-cleaning']),
+      selectField('status', '任务状态', ['待处理', '处理中', '待查', '返工', '已完成', '已取消']),
+      textField('reason', '原因'),
+      textField('correlationId', '关联ID'),
+      dateTimeField('createdAt', '创建时间'),
+      dateTimeField('completedAt', '完成时间', false),
+      textField('schemaVersion', '版本'),
     ],
-    views: [{ logicalName: 'active-housekeeping', displayName: 'Active Housekeeping', kind: 'grid' }],
+    views: [{ logicalName: 'active-housekeeping', displayName: '当前保洁任务', kind: 'grid' }],
+    seedRecords: [],
+  };
+}
+
+function maintenanceTicketsTable(): PmsBaseTableSpec {
+  return {
+    logicalName: 'MaintenanceTickets',
+    displayName: '维修工单',
+    fields: [
+      textField('ticketId', '工单ID'),
+      textField('roomNumber', '房号'),
+      selectField('status', '工单状态', ['待处理', '处理中', '已完成']),
+      selectField('severity', '严重级别', ['Low', 'Medium', 'High', 'StopSell']),
+      selectField('stopSellRequested', '是否停售', ['是', '否']),
+      textField('reason', '维修备注'),
+      textField('correlationId', '关联ID'),
+      dateTimeField('createdAt', '创建时间'),
+      dateTimeField('resolvedAt', '完成时间', false),
+      textField('schemaVersion', '版本'),
+    ],
+    views: [
+      { logicalName: 'active-maintenance', displayName: '当前维修', kind: 'grid' },
+      { logicalName: 'maintenance-stop-sell', displayName: '维修停售', kind: 'grid', filterHint: '是否停售 = 是' },
+    ],
+    seedRecords: [],
+  };
+}
+
+function reservationsTable(): PmsBaseTableSpec {
+  return {
+    logicalName: 'Reservations',
+    displayName: '预订',
+    fields: [
+      textField('reservationCode', '预订号'),
+      textField('roomNumber', '房号', false),
+      textField('guestLabel', '客人'),
+      dateTimeField('arrivalDate', '到店日期'),
+      dateTimeField('departureDate', '离店日期'),
+      selectField('status', '预订状态', ['已预订', '已入住', '已离店', '已取消']),
+      textField('schemaVersion', '版本'),
+    ],
+    views: [
+      { logicalName: 'today-arrivals', displayName: '今日到店', kind: 'grid' },
+      { logicalName: 'today-departures', displayName: '今日离店', kind: 'grid' },
+    ],
+    seedRecords: [],
+  };
+}
+
+function inventoryCalendarTable(): PmsBaseTableSpec {
+  return {
+    logicalName: 'InventoryCalendar',
+    displayName: '库存日历',
+    fields: [
+      textField('calendarTitle', '日历标题'),
+      textField('roomNumber', '房号'),
+      textField('roomType', '房型'),
+      textField('zone', '区域', false),
+      dateTimeField('businessDate', '营业日'),
+      dateTimeField('startDate', '开始日期'),
+      dateTimeField('endDate', '结束日期'),
+      selectField('calendarKind', '日历类型', ['库存基线', '预订占用', '维修停售', '保留停售', '业主停售', '保洁周转']),
+      selectField('sellableStatus', '可售状态', ['可售', '停售维修', '停售保留', '停售业主']),
+      textField('source', '来源'),
+      textField('sortKey', '房号排序'),
+      textField('reason', '原因', false),
+      textField('schemaVersion', '版本'),
+    ],
+    views: [
+      { logicalName: 'inventory-calendar', displayName: '库存日历', kind: 'gantt' },
+      { logicalName: 'inventory-detail', displayName: '库存明细', kind: 'grid' },
+    ],
     seedRecords: [],
   };
 }
@@ -777,22 +928,22 @@ function housekeepingTasksTable(): PmsBaseTableSpec {
 function operationLogsTable(): PmsBaseTableSpec {
   return {
     logicalName: 'OperationLogs',
-    displayName: 'Operation Logs',
+    displayName: '操作日志',
     fields: [
-      textField('auditId', 'AuditId'),
-      selectField('commandType', 'CommandType', ['CHECK_IN', 'CHECK_OUT', 'HOUSEKEEPING_DONE', 'REPORT_MAINTENANCE']),
-      textField('roomNumber', 'RoomNumber'),
-      textField('actor', 'Actor'),
-      textField('source', 'Source'),
-      textField('reason', 'Reason'),
-      textField('idempotencyKey', 'IdempotencyKey'),
-      textField('correlationId', 'CorrelationId'),
-      dateTimeField('occurredAt', 'OccurredAt'),
-      longTextField('domainEventTypes', 'DomainEventTypes'),
-      longTextField('payloadJSON', 'PayloadJSON', false),
-      textField('schemaVersion', 'SchemaVersion'),
+      textField('auditId', '审计ID'),
+      selectField('commandType', '操作类型', ['CHECK_IN', 'CHECK_OUT', 'HOUSEKEEPING_DONE', 'HOUSEKEEPING_INSPECTION', 'HOUSEKEEPING_REWORK', 'REPORT_MAINTENANCE', 'MAINTENANCE_DONE', 'RESTORE_SELLABLE']),
+      textField('roomNumber', '房号'),
+      textField('actor', '操作人'),
+      textField('source', '来源'),
+      textField('reason', '原因'),
+      textField('idempotencyKey', '幂等键'),
+      textField('correlationId', '关联ID'),
+      dateTimeField('occurredAt', '发生时间'),
+      longTextField('domainEventTypes', '领域事件'),
+      longTextField('payloadJSON', '载荷JSON', false),
+      textField('schemaVersion', '版本'),
     ],
-    views: [{ logicalName: 'recent-operation-logs', displayName: 'Recent Operation Logs', kind: 'grid' }],
+    views: [{ logicalName: 'recent-operation-logs', displayName: '最近操作日志', kind: 'grid' }],
     seedRecords: [],
   };
 }
@@ -817,9 +968,8 @@ function normalizeRoomCandidate(room: Partial<HotelRoomProfile>, index: number):
   const roomNumber = normalizeRequiredString(room.roomNumber, smallHotelProfileFixture.rooms[index]?.roomNumber ?? `10${index + 1}`);
   return {
     roomNumber,
-    roomType: normalizeRequiredString(room.roomType, index === 0 ? 'standard' : 'deluxe'),
-    floor: normalizeRequiredString(room.floor, roomNumber.slice(0, Math.max(1, roomNumber.length - 2)).padStart(2, '0')),
-    zone: normalizeRequiredString(room.zone, index === 0 ? 'east' : 'west'),
+    roomType: normalizeRequiredString(room.roomType, smallHotelProfileFixture.rooms[index]?.roomType ?? (index === 0 ? '花园别墅' : '花园套房')),
+    zone: normalizeRequiredString(room.zone, roomNumber.slice(0, 1)),
     initialStatus: room.initialStatus ?? (index === 0 ? smallHotelProfileFixture.rooms[0].initialStatus : smallHotelProfileFixture.rooms[1].initialStatus),
   };
 }
@@ -832,6 +982,12 @@ function inferWorkflows(text: string): readonly PmsBaseWorkflow[] {
   }
   if (normalized.includes('check-out') || normalized.includes('check out')) {
     workflows.push('CHECK_OUT');
+  }
+  if (normalized.includes('housekeeping') || text.includes('保洁')) {
+    workflows.push('HOUSEKEEPING_DONE', 'HOUSEKEEPING_INSPECTION', 'HOUSEKEEPING_REWORK');
+  }
+  if (normalized.includes('maintenance') || text.includes('维修') || text.includes('报修')) {
+    workflows.push('REPORT_MAINTENANCE', 'MAINTENANCE_DONE', 'RESTORE_SELLABLE');
   }
   return workflows.length > 0 ? workflows : smallHotelProfileFixture.enabledWorkflows;
 }
@@ -905,7 +1061,17 @@ function uniqueStrings(values: readonly string[]): string[] {
 }
 
 function uniqueWorkflows(values: readonly PmsBaseWorkflow[]): PmsBaseWorkflow[] {
-  return [...new Set(values)].filter((value): value is PmsBaseWorkflow => value === 'CHECK_IN' || value === 'CHECK_OUT');
+  const allowed = new Set<PmsBaseWorkflow>([
+    'CHECK_IN',
+    'CHECK_OUT',
+    'HOUSEKEEPING_DONE',
+    'HOUSEKEEPING_INSPECTION',
+    'HOUSEKEEPING_REWORK',
+    'REPORT_MAINTENANCE',
+    'MAINTENANCE_DONE',
+    'RESTORE_SELLABLE',
+  ]);
+  return [...new Set(values)].filter((value): value is PmsBaseWorkflow => allowed.has(value));
 }
 
 function uniqueRooms(values: readonly HotelRoomProfile[]): HotelRoomProfile[] {

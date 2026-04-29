@@ -10,7 +10,15 @@ export type CommandSource = 'pms-core' | 'api' | 'mcp' | 'worker' | 'test';
 
 export type CommandExecutionMode = 'dryRun' | 'confirm';
 
-export type PmsCommandType = 'CHECK_IN' | 'CHECK_OUT' | 'HOUSEKEEPING_DONE' | 'REPORT_MAINTENANCE';
+export type PmsCommandType =
+  | 'CHECK_IN'
+  | 'CHECK_OUT'
+  | 'HOUSEKEEPING_DONE'
+  | 'HOUSEKEEPING_INSPECTION'
+  | 'HOUSEKEEPING_REWORK'
+  | 'REPORT_MAINTENANCE'
+  | 'MAINTENANCE_DONE'
+  | 'RESTORE_SELLABLE';
 
 export interface CommandMeta {
   readonly actor: Actor;
@@ -23,7 +31,7 @@ export interface CommandMeta {
 }
 
 export type OccupancyStatus = 'vacant' | 'occupied' | 'dueOut';
-export type CleaningStatus = 'clean' | 'dirty';
+export type CleaningStatus = 'clean' | 'dirty' | 'cleaning' | 'inspection' | 'rework';
 export type SaleStatus = 'sellable' | 'outOfOrder' | 'outOfService';
 
 export interface RoomStatus {
@@ -35,11 +43,16 @@ export interface RoomStatus {
 export interface RoomState {
   readonly roomId: string;
   readonly roomNumber: string;
+  readonly propertyId?: string;
+  readonly roomTypeId?: string;
+  readonly roomType?: string;
+  readonly zone?: string;
+  readonly sortKey?: string;
   readonly status: RoomStatus;
 }
 
-export type HousekeepingTaskKind = 'checkout-cleaning';
-export type HousekeepingTaskStatus = 'pending' | 'inProgress' | 'done' | 'cancelled';
+export type HousekeepingTaskKind = 'checkout-cleaning' | 'room-cleaning' | 'rework-cleaning';
+export type HousekeepingTaskStatus = 'pending' | 'inProgress' | 'inspection' | 'rework' | 'done' | 'cancelled';
 
 export interface HousekeepingTask {
   readonly taskId: string;
@@ -49,6 +62,22 @@ export interface HousekeepingTask {
   readonly reason: string;
   readonly correlationId: string;
   readonly createdAt: string;
+  readonly completedAt?: string;
+}
+
+export type MaintenanceSeverity = 'Low' | 'Medium' | 'High' | 'StopSell';
+export type MaintenanceTicketStatus = 'open' | 'inProgress' | 'resolved';
+
+export interface MaintenanceTicket {
+  readonly ticketId: string;
+  readonly roomId: string;
+  readonly status: MaintenanceTicketStatus;
+  readonly severity: MaintenanceSeverity;
+  readonly reason: string;
+  readonly stopSellRequested: boolean;
+  readonly correlationId: string;
+  readonly createdAt: string;
+  readonly resolvedAt?: string;
 }
 
 export interface AuditEntry {
@@ -73,7 +102,11 @@ export type DomainErrorCode =
   | 'INVALID_EXECUTION_MODE'
   | 'ROOM_NOT_FOUND'
   | 'ROOM_NOT_CHECKOUTABLE'
-  | 'ROOM_NOT_CHECKIN_ELIGIBLE';
+  | 'ROOM_NOT_CHECKIN_ELIGIBLE'
+  | 'ROOM_NOT_HOUSEKEEPING_ELIGIBLE'
+  | 'ROOM_NOT_MAINTENANCE_ELIGIBLE'
+  | 'MAINTENANCE_TICKET_NOT_FOUND'
+  | 'ROOM_ALREADY_SELLABLE';
 
 export interface DomainError {
   readonly code: DomainErrorCode;
@@ -113,7 +146,39 @@ export interface HousekeepingTaskCreatedEvent extends DomainEventBase {
   readonly task: HousekeepingTask;
 }
 
-export type DomainEvent = RoomCheckedInEvent | RoomCheckedOutEvent | HousekeepingTaskCreatedEvent;
+export interface HousekeepingCompletedEvent extends DomainEventBase {
+  readonly type: 'HousekeepingCompleted' | 'HousekeepingInspectionPassed' | 'HousekeepingInspectionFailed' | 'HousekeepingReworkCompleted';
+  readonly aggregateId: string;
+  readonly roomId: string;
+  readonly previousStatus: RoomStatus;
+  readonly nextStatus: RoomStatus;
+  readonly task?: HousekeepingTask;
+}
+
+export interface MaintenanceTicketEvent extends DomainEventBase {
+  readonly type: 'MaintenanceReported' | 'MaintenanceCompleted';
+  readonly aggregateId: string;
+  readonly roomId: string;
+  readonly previousStatus: RoomStatus;
+  readonly nextStatus: RoomStatus;
+  readonly ticket: MaintenanceTicket;
+}
+
+export interface RoomSellabilityRestoredEvent extends DomainEventBase {
+  readonly type: 'RoomSellabilityRestored';
+  readonly aggregateId: string;
+  readonly roomId: string;
+  readonly previousStatus: RoomStatus;
+  readonly nextStatus: RoomStatus;
+}
+
+export type DomainEvent =
+  | RoomCheckedInEvent
+  | RoomCheckedOutEvent
+  | HousekeepingTaskCreatedEvent
+  | HousekeepingCompletedEvent
+  | MaintenanceTicketEvent
+  | RoomSellabilityRestoredEvent;
 
 export interface CheckInCommand {
   readonly type: 'CHECK_IN';
@@ -128,9 +193,60 @@ export interface CheckOutCommand {
   readonly meta: CommandMeta;
 }
 
+export interface HousekeepingDoneCommand {
+  readonly type: 'HOUSEKEEPING_DONE';
+  readonly roomId: string;
+  readonly inspectionRequired?: boolean;
+  readonly meta: CommandMeta;
+}
+
+export interface HousekeepingInspectionCommand {
+  readonly type: 'HOUSEKEEPING_INSPECTION';
+  readonly roomId: string;
+  readonly result: 'pass' | 'fail';
+  readonly taskId?: string;
+  readonly meta: CommandMeta;
+}
+
+export interface HousekeepingReworkCommand {
+  readonly type: 'HOUSEKEEPING_REWORK';
+  readonly roomId: string;
+  readonly inspectionRequired?: boolean;
+  readonly taskId?: string;
+  readonly meta: CommandMeta;
+}
+
+export interface ReportMaintenanceCommand {
+  readonly type: 'REPORT_MAINTENANCE';
+  readonly roomId: string;
+  readonly severity?: MaintenanceSeverity;
+  readonly stopSellRequested?: boolean;
+  readonly note?: string;
+  readonly meta: CommandMeta;
+}
+
+export interface MaintenanceDoneCommand {
+  readonly type: 'MAINTENANCE_DONE';
+  readonly roomId: string;
+  readonly ticketId?: string;
+  readonly note?: string;
+  readonly meta: CommandMeta;
+}
+
+export interface RestoreSellableCommand {
+  readonly type: 'RESTORE_SELLABLE';
+  readonly roomId: string;
+  readonly meta: CommandMeta;
+}
+
 export interface CheckInDryRunPlan {
   readonly commandType: 'CHECK_IN';
   readonly roomId: string;
+  readonly propertyId?: string;
+  readonly roomTypeId?: string;
+  readonly roomType?: string;
+  readonly zone?: string;
+  readonly sortKey?: string;
   readonly currentStatus: RoomStatus;
   readonly nextStatus: RoomStatus;
   readonly overrideDirtyRoom: boolean;
@@ -141,12 +257,38 @@ export interface CheckInDryRunPlan {
 export interface CheckOutDryRunPlan {
   readonly commandType: 'CHECK_OUT';
   readonly roomId: string;
+  readonly propertyId?: string;
+  readonly roomTypeId?: string;
+  readonly roomType?: string;
+  readonly zone?: string;
+  readonly sortKey?: string;
   readonly currentStatus: RoomStatus;
   readonly nextStatus: RoomStatus;
   readonly housekeepingTask: Omit<HousekeepingTask, 'taskId' | 'createdAt' | 'status'> & {
     readonly status: 'pending';
   };
   readonly events: ReadonlyArray<'RoomCheckedOut' | 'HousekeepingTaskCreated'>;
+}
+
+export interface PmsCommandDryRunPlan {
+  readonly commandType: Exclude<PmsCommandType, 'CHECK_IN' | 'CHECK_OUT'>;
+  readonly roomId: string;
+  readonly roomNumber: string;
+  readonly propertyId?: string;
+  readonly roomTypeId?: string;
+  readonly roomType?: string;
+  readonly zone?: string;
+  readonly sortKey?: string;
+  readonly currentStatus: RoomStatus;
+  readonly nextStatus: RoomStatus;
+  readonly housekeepingTask?: Omit<HousekeepingTask, 'taskId' | 'createdAt'>;
+  readonly maintenanceTicket?: Omit<MaintenanceTicket, 'ticketId' | 'createdAt'>;
+  readonly events: readonly DomainEvent['type'][];
+  readonly reason: string;
+  readonly correlationId: string;
+  readonly idempotencyKey: string;
+  readonly requestedAt: string;
+  readonly actor: Actor;
 }
 
 export const checkoutableOccupancyStatuses: ReadonlyArray<OccupancyStatus> = ['occupied', 'dueOut'];
@@ -180,10 +322,46 @@ export interface ReservationSummary {
   readonly guestLabel: string;
 }
 
+export type ReservationStatus = 'booked' | 'checkedIn' | 'checkedOut' | 'cancelled';
+
+export interface ReservationReadModel {
+  readonly reservationId: string;
+  readonly reservationCode: string;
+  readonly propertyId: string;
+  readonly roomId?: string;
+  readonly roomNumber?: string;
+  readonly roomTypeId?: string;
+  readonly roomType?: string;
+  readonly guestDisplayName: string;
+  readonly arrivalDate: string;
+  readonly departureDate: string;
+  readonly status: ReservationStatus;
+  readonly projectionFreshness: ProjectionFreshness;
+}
+
+export interface TodayReservationsReadModel {
+  readonly schemaVersion: typeof pmsProjectionSchemaVersion;
+  readonly generatedAt: string;
+  readonly businessDate: string;
+  readonly summaryStatus: ReadModelStatus;
+  readonly reservations: readonly ReservationReadModel[];
+  readonly projectionFreshness: ProjectionFreshness;
+}
+
+export interface RoomReservationContextReadModel {
+  readonly schemaVersion: typeof pmsProjectionSchemaVersion;
+  readonly generatedAt: string;
+  readonly roomId: string;
+  readonly roomNumber?: string;
+  readonly roomType?: string;
+  readonly reservations: readonly ReservationReadModel[];
+  readonly projectionFreshness: ProjectionFreshness;
+}
+
 export interface MaintenanceTicketSummary {
   readonly ticketId: string;
   readonly roomId: string;
-  readonly status: 'open' | 'inProgress' | 'resolved';
+  readonly status: MaintenanceTicketStatus;
   readonly reason: string;
 }
 
@@ -223,6 +401,9 @@ export interface RoomLedgerProjection {
   readonly schemaVersion: typeof pmsProjectionSchemaVersion;
   readonly roomId: string;
   readonly roomNumber: string;
+  readonly roomType?: string;
+  readonly zone?: string;
+  readonly sortKey?: string;
   readonly status: RoomStatus;
   readonly roomCode: string;
   readonly lastActor: Actor;
@@ -238,6 +419,7 @@ export interface HousekeepingTaskProjection {
   readonly reason: string;
   readonly correlationId: string;
   readonly createdAt: string;
+  readonly completedAt?: string;
 }
 
 export interface OperationLogProjection {
@@ -253,14 +435,27 @@ export interface OperationLogProjection {
   readonly domainEventTypes: readonly DomainEvent['type'][];
 }
 
+export interface MaintenanceTicketProjection {
+  readonly ticketId: string;
+  readonly roomId: string;
+  readonly status: MaintenanceTicketStatus;
+  readonly severity: MaintenanceSeverity;
+  readonly reason: string;
+  readonly stopSellRequested: boolean;
+  readonly correlationId: string;
+  readonly createdAt: string;
+  readonly resolvedAt?: string;
+}
+
 export interface CommandProjection {
   readonly schemaVersion: typeof pmsProjectionSchemaVersion;
-  readonly commandType: Extract<PmsCommandType, 'CHECK_IN' | 'CHECK_OUT'>;
+  readonly commandType: PmsCommandType;
   readonly mode: Extract<CommandExecutionMode, 'confirm'>;
   readonly correlationId: string;
   readonly idempotencyKey: string;
   readonly roomLedger: RoomLedgerProjection;
   readonly housekeepingTask?: HousekeepingTaskProjection;
+  readonly maintenanceTicket?: MaintenanceTicketProjection;
   readonly operationLog: OperationLogProjection;
 }
 
@@ -272,22 +467,7 @@ export interface DeferredPmsCommandStub {
   readonly reason: string;
 }
 
-export const deferredPmsCommandStubs = [
-  {
-    commandType: 'HOUSEKEEPING_DONE',
-    status: 'contract-stub',
-    owner: 'pms-platform',
-    mutationStatus: 'deferred',
-    reason: 'Cleaning completion remains a named PMS-owned command contract; full workflow semantics are outside the dashboard MVP foundation slice.',
-  },
-  {
-    commandType: 'REPORT_MAINTENANCE',
-    status: 'contract-stub',
-    owner: 'pms-platform',
-    mutationStatus: 'deferred',
-    reason: 'Maintenance reporting remains a named PMS-owned command contract; stop-sell mutation requires a future typed command or approval path.',
-  },
-] as const satisfies readonly DeferredPmsCommandStub[];
+export const deferredPmsCommandStubs: readonly DeferredPmsCommandStub[] = [];
 
 export function validateCommandMeta(meta: CommandMeta | undefined): DomainError[] {
   if (!meta) {

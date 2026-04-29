@@ -1,6 +1,14 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import type { AuditEntry, DomainEvent, HousekeepingTask } from '@pms-platform/contracts';
+import type {
+  AuditEntry,
+  DomainEvent,
+  HousekeepingTask,
+  MaintenanceTicket,
+  ReservationReadModel,
+  RoomReservationContextReadModel,
+  TodayReservationsReadModel,
+} from '@pms-platform/contracts';
 import {
   type CorePorts,
   type RoomAggregate,
@@ -10,13 +18,25 @@ import {
   executeCheckOutApiRequest,
   executeDashboardApiRequest,
   executeGetRoomApiRequest,
+  executePmsExtendedCommandApiRequest,
   pmsCheckInOperation,
   pmsCheckOutOperation,
   pmsDashboardOperation,
   pmsGetRoomOperation,
+  pmsHousekeepingDoneOperation,
+  pmsHousekeepingInspectionOperation,
+  pmsHousekeepingReworkOperation,
+  pmsMaintenanceDoneOperation,
+  pmsReservationGetOperation,
+  pmsReportMaintenanceOperation,
+  pmsRoomReservationContextOperation,
+  pmsRestoreSellableOperation,
+  pmsTodayArrivalsOperation,
+  pmsTodayDeparturesOperation,
   type ApiIdempotencyRepository,
   type CheckInApiRequest,
   type CheckOutApiRequest,
+  type PmsExtendedCommandApiRequest,
   type PmsReadModelApiRequest,
 } from './index.js';
 
@@ -25,6 +45,82 @@ export const pmsSqliteDbPathEnvName = 'PMS_PLATFORM_SQLITE_DB_PATH';
 export const pmsSandboxStateVersion = 'pms-checkout-local-sandbox-state-v1';
 
 export type PmsLocalStorageKind = 'sqlite';
+
+export interface PmsSandboxPropertyReadback {
+  readonly propertyId: string;
+  readonly propertyCode: string;
+  readonly displayName: string;
+  readonly timezone: string;
+  readonly status: string;
+}
+
+export interface PmsSandboxRoomTypeReadback {
+  readonly roomTypeId: string;
+  readonly propertyId: string;
+  readonly roomTypeCode: string;
+  readonly displayName: string;
+  readonly sortKey: string;
+  readonly status: string;
+}
+
+export interface PmsSandboxReservationAllocationReadback {
+  readonly allocationId: string;
+  readonly reservationId: string;
+  readonly roomId?: string;
+  readonly roomNumber?: string;
+  readonly roomTypeId?: string;
+  readonly roomType?: string;
+  readonly startDate: string;
+  readonly endDate: string;
+  readonly status: string;
+}
+
+export interface PmsSandboxStayReadback {
+  readonly stayId: string;
+  readonly reservationId: string;
+  readonly roomId?: string;
+  readonly roomNumber?: string;
+  readonly checkedInAt?: string;
+  readonly checkedOutAt?: string;
+  readonly status: string;
+}
+
+export interface PmsSandboxReservationImportRecord {
+  readonly reservationId: string;
+  readonly reservationCode: string;
+  readonly propertyId: string;
+  readonly roomId?: string;
+  readonly roomNumber?: string;
+  readonly roomTypeId?: string;
+  readonly roomType?: string;
+  readonly guestDisplayName: string;
+  readonly arrivalDate: string;
+  readonly departureDate: string;
+  readonly status: ReservationReadModel['status'];
+  readonly allocation?: {
+    readonly allocationId?: string;
+    readonly roomId?: string;
+    readonly roomNumber?: string;
+    readonly roomTypeId?: string;
+    readonly roomType?: string;
+    readonly startDate?: string;
+    readonly endDate?: string;
+    readonly status?: string;
+  };
+  readonly stay?: {
+    readonly stayId?: string;
+    readonly roomId?: string;
+    readonly roomNumber?: string;
+    readonly checkedInAt?: string;
+    readonly checkedOutAt?: string;
+    readonly status?: string;
+  };
+}
+
+export interface PmsSandboxReservationImportResult {
+  readonly importedCount: number;
+  readonly reservations: readonly ReservationReadModel[];
+}
 
 export interface PmsLocalStorageMetadata {
   readonly kind: PmsLocalStorageKind;
@@ -42,16 +138,22 @@ export interface PmsSandboxReadback {
   readonly filter: {
     readonly roomId?: string;
   };
+  readonly properties: readonly PmsSandboxPropertyReadback[];
+  readonly roomTypes: readonly PmsSandboxRoomTypeReadback[];
   readonly rooms: readonly RoomAggregate[];
+  readonly reservations: readonly ReservationReadModel[];
+  readonly reservationAllocations: readonly PmsSandboxReservationAllocationReadback[];
+  readonly stays: readonly PmsSandboxStayReadback[];
   readonly housekeepingTasks: readonly HousekeepingTask[];
+  readonly maintenanceTickets: readonly MaintenanceTicket[];
   readonly audits: readonly AuditEntry[];
   readonly domainEvents: readonly DomainEvent[];
   readonly idempotencyRecords: readonly PmsSandboxIdempotencyReadback[];
 }
 
 export interface PmsSandboxIdempotencyReadback {
-  readonly operation: typeof pmsCheckInOperation | typeof pmsCheckOutOperation | 'unknown';
-  readonly mode: CheckInApiRequest['mode'] | CheckOutApiRequest['mode'] | 'unknown';
+  readonly operation: typeof pmsCheckInOperation | typeof pmsCheckOutOperation | PmsExtendedCommandApiRequest['operation'] | 'unknown';
+  readonly mode: CheckInApiRequest['mode'] | CheckOutApiRequest['mode'] | PmsExtendedCommandApiRequest['mode'] | 'unknown';
   readonly idempotencyKey: string;
   readonly requestFingerprint: string;
   readonly ok: boolean;
@@ -62,7 +164,12 @@ export interface PmsLocalSandboxStore {
   readonly apiIdempotency: ApiIdempotencyRepository;
   readonly storage: PmsLocalStorageMetadata;
   readback(roomId?: string): PmsSandboxReadback;
-  reset(seedRooms?: readonly RoomAggregate[]): PmsSandboxReadback;
+  reset(seedRooms?: readonly RoomAggregate[], seedReservations?: readonly PmsSandboxReservationImportRecord[]): PmsSandboxReadback;
+  importReservations(reservations: readonly PmsSandboxReservationImportRecord[]): PmsSandboxReservationImportResult;
+  getReservation(reservationCode: string, requestedAt: string): ReservationReadModel | undefined;
+  todayArrivals(businessDate: string, requestedAt: string): TodayReservationsReadModel;
+  todayDepartures(businessDate: string, requestedAt: string): TodayReservationsReadModel;
+  roomReservationContext(roomId: string, requestedAt: string): RoomReservationContextReadModel;
   runInTransaction?<TValue>(operation: () => TValue): TValue;
   close?(): void;
 }
@@ -102,7 +209,22 @@ export function createPmsLocalHttpHandler(options: PmsLocalHttpHandlerOptions) {
           service: 'pms-platform',
           boundary: 'pms-checkout-local-sandbox',
           operation: pmsCheckOutOperation,
-          operations: [pmsCheckInOperation, pmsCheckOutOperation, pmsGetRoomOperation, pmsDashboardOperation],
+          operations: [
+            pmsCheckInOperation,
+            pmsCheckOutOperation,
+            pmsHousekeepingDoneOperation,
+            pmsHousekeepingInspectionOperation,
+            pmsHousekeepingReworkOperation,
+            pmsReportMaintenanceOperation,
+            pmsMaintenanceDoneOperation,
+            pmsRestoreSellableOperation,
+            pmsGetRoomOperation,
+            pmsDashboardOperation,
+            pmsReservationGetOperation,
+            pmsTodayArrivalsOperation,
+            pmsTodayDeparturesOperation,
+            pmsRoomReservationContextOperation,
+          ],
           storage: options.store.storage,
           auth: {
             type: 'bearer-token',
@@ -149,6 +271,19 @@ export function createPmsLocalHttpHandler(options: PmsLocalHttpHandlerOptions) {
         return;
       }
 
+      const extendedCommandRoute = extendedCommandOperationForPath(url.pathname);
+      if (request.method === 'POST' && extendedCommandRoute) {
+        const body = await readJsonBody(request);
+        const commandRequest = { ...(body as Record<string, unknown>), operation: extendedCommandRoute } as PmsExtendedCommandApiRequest;
+        const result = executeWithStoreTransaction(options.store, () =>
+          executePmsExtendedCommandApiRequest(commandRequest, options.store.ports, {
+            idempotency: options.store.apiIdempotency,
+          }),
+        );
+        writeJson(response, result.ok ? 200 : 400, result);
+        return;
+      }
+
       if (request.method === 'POST' && url.pathname === '/v1/pms/room') {
         const body = await readJsonBody(request);
         const result = executeGetRoomApiRequest(body as PmsReadModelApiRequest & { operation: typeof pmsGetRoomOperation }, options.store.ports);
@@ -160,6 +295,65 @@ export function createPmsLocalHttpHandler(options: PmsLocalHttpHandlerOptions) {
         const body = await readJsonBody(request);
         const result = executeDashboardApiRequest(body as PmsReadModelApiRequest & { operation: typeof pmsDashboardOperation }, options.store.ports);
         writeJson(response, 200, result);
+        return;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/v1/pms/reservations/get') {
+        const body = await readJsonBody(request) as { reservationCode?: string; requestedAt?: string };
+        const requestedAt = typeof body.requestedAt === 'string' ? body.requestedAt : new Date().toISOString();
+        writeJson(response, 200, {
+          ok: true,
+          operation: pmsReservationGetOperation,
+          readModel: typeof body.reservationCode === 'string'
+            ? options.store.getReservation(body.reservationCode, requestedAt)
+            : undefined,
+        });
+        return;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/v1/pms/reservations/today-arrivals') {
+        const body = await readJsonBody(request) as { businessDate?: string; requestedAt?: string };
+        const requestedAt = typeof body.requestedAt === 'string' ? body.requestedAt : new Date().toISOString();
+        const businessDate = typeof body.businessDate === 'string' ? body.businessDate : requestedAt.slice(0, 10);
+        writeJson(response, 200, {
+          ok: true,
+          operation: pmsTodayArrivalsOperation,
+          readModel: options.store.todayArrivals(businessDate, requestedAt),
+        });
+        return;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/v1/pms/reservations/today-departures') {
+        const body = await readJsonBody(request) as { businessDate?: string; requestedAt?: string };
+        const requestedAt = typeof body.requestedAt === 'string' ? body.requestedAt : new Date().toISOString();
+        const businessDate = typeof body.businessDate === 'string' ? body.businessDate : requestedAt.slice(0, 10);
+        writeJson(response, 200, {
+          ok: true,
+          operation: pmsTodayDeparturesOperation,
+          readModel: options.store.todayDepartures(businessDate, requestedAt),
+        });
+        return;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/v1/pms/room/reservation-context') {
+        const body = await readJsonBody(request) as { roomId?: string; requestedAt?: string };
+        const requestedAt = typeof body.requestedAt === 'string' ? body.requestedAt : new Date().toISOString();
+        writeJson(response, 200, {
+          ok: true,
+          operation: pmsRoomReservationContextOperation,
+          readModel: options.store.roomReservationContext(String(body.roomId ?? ''), requestedAt),
+        });
+        return;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/v1/sandbox/reservations/import') {
+        const body = await readJsonBody(request, true) as { reservations?: readonly PmsSandboxReservationImportRecord[] };
+        const reservations = Array.isArray(body.reservations) ? body.reservations : [];
+        writeJson(response, 200, {
+          ok: true,
+          operation: 'sandbox_reservations_import',
+          result: options.store.importReservations(reservations),
+        });
         return;
       }
 
@@ -177,7 +371,10 @@ export function createPmsLocalHttpHandler(options: PmsLocalHttpHandlerOptions) {
         const rooms = Array.isArray((body as { rooms?: unknown }).rooms)
           ? ((body as { rooms: readonly RoomAggregate[] }).rooms)
           : undefined;
-        writeJson(response, 200, options.store.reset(rooms));
+        const reservations = Array.isArray((body as { reservations?: unknown }).reservations)
+          ? ((body as { reservations: readonly PmsSandboxReservationImportRecord[] }).reservations)
+          : undefined;
+        writeJson(response, 200, options.store.reset(rooms, reservations));
         return;
       }
 
@@ -239,6 +436,16 @@ export async function startPmsLocalHttpServer(options: PmsLocalHttpServerOptions
 
 function executeWithStoreTransaction<TValue>(store: PmsLocalSandboxStore, operation: () => TValue): TValue {
   return store.runInTransaction ? store.runInTransaction(operation) : operation();
+}
+
+function extendedCommandOperationForPath(pathname: string): PmsExtendedCommandApiRequest['operation'] | undefined {
+  if (pathname === '/v1/pms/housekeeping/done') return pmsHousekeepingDoneOperation;
+  if (pathname === '/v1/pms/housekeeping/inspection') return pmsHousekeepingInspectionOperation;
+  if (pathname === '/v1/pms/housekeeping/rework') return pmsHousekeepingReworkOperation;
+  if (pathname === '/v1/pms/maintenance/report') return pmsReportMaintenanceOperation;
+  if (pathname === '/v1/pms/maintenance/done') return pmsMaintenanceDoneOperation;
+  if (pathname === '/v1/pms/maintenance/restore-sellable') return pmsRestoreSellableOperation;
+  return undefined;
 }
 
 function resolveAuth(auth: PmsLocalAuthConfig | undefined) {

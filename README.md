@@ -25,6 +25,7 @@ Out of current bootstrap scope: Feishu integration, Hermes MCP integration, HTTP
 
 - `packages/core/README.md` explains the core command behavior, transition matrix, errors, events, audit, and idempotency semantics.
 - `docs/checkout-core-v1.md` is the handoff proof for future PMS API/MCP exposure.
+- `docs/pms-base-provisioning-v1.md` identifies `packages/provisioning/src/index.ts` as the PMS-owned SSOT for the Chinese Feishu Base table/view/form/field definition.
 
 ## Validation
 

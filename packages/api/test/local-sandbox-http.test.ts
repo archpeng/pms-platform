@@ -15,6 +15,11 @@ const authToken = 'test-local-auth-token';
 const dueOutRoom: RoomAggregate = {
   roomId: 'room-1001',
   roomNumber: '1001',
+  propertyId: 'property-small-hotel',
+  roomTypeId: 'room-type-garden-villa',
+  roomType: '花园别墅',
+  zone: 'A',
+  sortKey: 'A1',
   occupancyStatus: 'dueOut',
   cleaningStatus: 'clean',
   saleStatus: 'sellable',
@@ -191,6 +196,59 @@ describe('PMS local durable checkout sandbox HTTP boundary', () => {
     expect(reset.audits).toEqual([]);
     expect(reset.domainEvents).toEqual([]);
     expect(reset.idempotencyRecords).toEqual([]);
+  });
+
+  it('imports reservations and exposes arrivals plus room reservation context through HTTP', async () => {
+    const { url } = await startServer();
+
+    const imported = await authedPost(`${url}/v1/sandbox/reservations/import`, {
+      reservations: [
+        {
+          reservationId: 'res-http-1',
+          reservationCode: 'R-HTTP-1',
+          propertyId: 'property-small-hotel',
+          roomId: 'room-1001',
+          roomNumber: '1001',
+          roomTypeId: 'room-type-garden-villa',
+          roomType: '花园别墅',
+          guestDisplayName: 'Guest Http',
+          arrivalDate: '2026-04-26',
+          departureDate: '2026-04-27',
+          status: 'booked',
+          allocation: { allocationId: 'alloc-http-1', status: 'allocated' },
+        },
+      ],
+    });
+    expect(imported).toMatchObject({
+      ok: true,
+      operation: 'sandbox_reservations_import',
+      result: { importedCount: 1 },
+    });
+
+    const arrivals = await authedPost(`${url}/v1/pms/reservations/today-arrivals`, {
+      businessDate: '2026-04-26',
+      requestedAt: '2026-04-26T08:00:00.000Z',
+    });
+    expect(arrivals).toMatchObject({
+      ok: true,
+      operation: 'pms_today_arrivals',
+      readModel: {
+        reservations: [{ reservationCode: 'R-HTTP-1', roomNumber: '1001', guestDisplayName: 'Guest Http' }],
+      },
+    });
+
+    const roomContext = await authedPost(`${url}/v1/pms/room/reservation-context`, {
+      roomId: 'room-1001',
+      requestedAt: '2026-04-26T08:00:00.000Z',
+    });
+    expect(roomContext).toMatchObject({
+      ok: true,
+      operation: 'pms_room_reservation_context',
+      readModel: {
+        roomId: 'room-1001',
+        reservations: [{ reservationCode: 'R-HTTP-1' }],
+      },
+    });
   });
 });
 

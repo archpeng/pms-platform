@@ -17,10 +17,15 @@ import {
   executeCheckOutApiRequest,
   executeDashboardApiRequest,
   executeGetRoomApiRequest,
+  executePmsExtendedCommandApiRequest,
   pmsCheckInOperation,
   pmsCheckOutOperation,
   pmsDashboardOperation,
   pmsGetRoomOperation,
+  pmsHousekeepingDoneOperation,
+  pmsMaintenanceDoneOperation,
+  pmsReportMaintenanceOperation,
+  pmsRestoreSellableOperation,
   requestFingerprintInput,
   toCheckInCommand,
   toCheckOutApiResponse,
@@ -32,6 +37,10 @@ import {
   type CheckOutApiResponse,
   type CheckOutConfirmApiRequest,
   type CheckOutDryRunApiRequest,
+  type HousekeepingDoneApiRequest,
+  type MaintenanceDoneApiRequest,
+  type ReportMaintenanceApiRequest,
+  type RestoreSellableApiRequest,
 } from '../src/index.js';
 
 const dueOutRoom: RoomAggregate = {
@@ -55,6 +64,14 @@ const vacantCleanRoom: RoomAggregate = {
   roomNumber: '1003',
   occupancyStatus: 'vacant',
   cleaningStatus: 'clean',
+  saleStatus: 'sellable',
+};
+
+const vacantDirtyRoom: RoomAggregate = {
+  roomId: 'room-1004',
+  roomNumber: '1004',
+  occupancyStatus: 'vacant',
+  cleaningStatus: 'dirty',
   saleStatus: 'sellable',
 };
 
@@ -96,12 +113,57 @@ const checkInConfirmRequest: CheckInConfirmApiRequest = {
   requestFingerprint: 'sha256:check-in-confirm-fingerprint',
 };
 
+const housekeepingDoneRequest: HousekeepingDoneApiRequest = {
+  operation: pmsHousekeepingDoneOperation,
+  mode: 'confirm',
+  roomId: 'room-1004',
+  actor: checkoutContractFixtures.actor,
+  source: 'api',
+  reason: 'A room attendant marked the room clean and ready for inspection.',
+  idempotencyKey: 'housekeeping-done-room-1004',
+  correlationId: 'corr-housekeeping-room-1004',
+  requestedAt: '2026-04-28T00:00:00.000Z',
+  requestFingerprint: 'sha256:housekeeping-done-room-1004',
+  inspectionRequired: true,
+};
+
+const reportMaintenanceRequest: ReportMaintenanceApiRequest = {
+  operation: pmsReportMaintenanceOperation,
+  mode: 'confirm',
+  roomId: 'room-1003',
+  actor: checkoutContractFixtures.actor,
+  source: 'api',
+  reason: 'Air conditioner is broken.',
+  idempotencyKey: 'maintenance-report-room-1003',
+  correlationId: 'corr-maintenance-room-1003',
+  requestedAt: '2026-04-28T00:01:00.000Z',
+  requestFingerprint: 'sha256:maintenance-report-room-1003',
+  severity: 'StopSell',
+  stopSellRequested: true,
+  note: '空调故障，需要停售',
+};
+
 describe('API checkout contract skeleton', () => {
   it('imports PMS contracts/core types through package boundaries', () => {
     expect(describeApiContractBoundary()).toEqual({
       packageName: '@pms-platform/api',
       operation: 'pms_check_out',
-      operations: ['pms_check_in', 'pms_check_out', 'pms_get_room', 'pms_dashboard'],
+      operations: [
+        'pms_check_in',
+        'pms_check_out',
+        'pms_housekeeping_done',
+        'pms_housekeeping_inspection',
+        'pms_housekeeping_rework',
+        'pms_report_maintenance',
+        'pms_maintenance_done',
+        'pms_restore_sellable',
+        'pms_get_room',
+        'pms_dashboard',
+        'pms_reservation_get',
+        'pms_today_arrivals',
+        'pms_today_departures',
+        'pms_room_reservation_context',
+      ],
       importsCoreResult: true,
       exposesLocalHandler: true,
       supportedModes: ['dryRun', 'confirm'],
@@ -388,6 +450,90 @@ describe('API checkout contract skeleton', () => {
     expect(ports.housekeepingTasks.list()).toHaveLength(0);
     expect(ports.audits.list()).toHaveLength(1);
     expect(ports.events.list().map((event) => event.type)).toEqual(['RoomCheckedIn']);
+  });
+
+  it('executes housekeeping and maintenance commands through PMS Core at the API boundary', () => {
+    const ports = createInMemoryCorePorts([vacantDirtyRoom, vacantCleanRoom]);
+    const housekeeping = executePmsExtendedCommandApiRequest(housekeepingDoneRequest, ports);
+    const maintenance = executePmsExtendedCommandApiRequest(reportMaintenanceRequest, ports);
+    const ticketId = maintenance.ok && maintenance.mode === 'confirm' ? maintenance.result.maintenanceTicket?.ticketId : undefined;
+    const maintenanceDoneRequest: MaintenanceDoneApiRequest = {
+      operation: pmsMaintenanceDoneOperation,
+      mode: 'confirm',
+      roomId: 'room-1003',
+      actor: checkoutContractFixtures.actor,
+      source: 'api',
+      reason: 'Maintenance technician marked the ticket complete.',
+      idempotencyKey: 'maintenance-done-room-1003',
+      correlationId: 'corr-maintenance-done-room-1003',
+      requestedAt: '2026-04-28T00:02:00.000Z',
+      requestFingerprint: 'sha256:maintenance-done-room-1003',
+      ticketId,
+    };
+    const restoreSellableRequest: RestoreSellableApiRequest = {
+      operation: pmsRestoreSellableOperation,
+      mode: 'confirm',
+      roomId: 'room-1003',
+      actor: checkoutContractFixtures.actor,
+      source: 'api',
+      reason: 'Front desk approved restoring the room to sellable inventory.',
+      idempotencyKey: 'restore-sellable-room-1003',
+      correlationId: 'corr-restore-sellable-room-1003',
+      requestedAt: '2026-04-28T00:03:00.000Z',
+      requestFingerprint: 'sha256:restore-sellable-room-1003',
+    };
+    const maintenanceDone = executePmsExtendedCommandApiRequest(maintenanceDoneRequest, ports);
+    const restored = executePmsExtendedCommandApiRequest(restoreSellableRequest, ports);
+
+    expect(housekeeping).toMatchObject({
+      ok: true,
+      operation: 'pms_housekeeping_done',
+      mode: 'confirm',
+      result: {
+        commandType: 'HOUSEKEEPING_DONE',
+        nextStatus: { cleaning: 'inspection' },
+        housekeepingTask: { status: 'inspection' },
+      },
+    });
+    expect(maintenance).toMatchObject({
+      ok: true,
+      operation: 'pms_report_maintenance',
+      mode: 'confirm',
+      result: {
+        commandType: 'REPORT_MAINTENANCE',
+        nextStatus: { sale: 'outOfOrder' },
+        maintenanceTicket: { status: 'open', stopSellRequested: true },
+      },
+    });
+    expect(maintenanceDone).toMatchObject({
+      ok: true,
+      operation: 'pms_maintenance_done',
+      mode: 'confirm',
+      result: {
+        commandType: 'MAINTENANCE_DONE',
+        nextStatus: { sale: 'outOfOrder' },
+        maintenanceTicket: { status: 'resolved' },
+      },
+    });
+    expect(restored).toMatchObject({
+      ok: true,
+      operation: 'pms_restore_sellable',
+      mode: 'confirm',
+      result: {
+        commandType: 'RESTORE_SELLABLE',
+        nextStatus: { sale: 'sellable' },
+      },
+    });
+    expect(ports.rooms.get('room-1004')?.cleaningStatus).toBe('inspection');
+    expect(ports.rooms.get('room-1003')?.saleStatus).toBe('sellable');
+    expect(ports.housekeepingTasks.list()).toHaveLength(1);
+    expect(ports.maintenanceTickets.list()).toHaveLength(1);
+    expect(ports.events.list().map((event) => event.type)).toEqual([
+      'HousekeepingCompleted',
+      'MaintenanceReported',
+      'MaintenanceCompleted',
+      'RoomSellabilityRestored',
+    ]);
   });
 
   it('executes confirm through PMS Core and preserves result structure', () => {

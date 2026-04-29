@@ -14,6 +14,12 @@ import {
   describeCoreContractBoundary,
   getDashboardReadModel,
   getRoomReadModel,
+  housekeepingDone,
+  housekeepingInspection,
+  housekeepingRework,
+  maintenanceDone,
+  reportMaintenance,
+  restoreSellable,
   roomAggregateFromState,
   roomStateFromAggregate,
   supportedCleaningStatuses,
@@ -62,7 +68,16 @@ describe('core contract boundary', () => {
     expect(describeCoreContractBoundary()).toEqual({
       packageName: '@pms-platform/core',
       supportedCommandType: 'CHECK_OUT',
-      supportedCommandTypes: ['CHECK_IN', 'CHECK_OUT'],
+      supportedCommandTypes: [
+        'CHECK_IN',
+        'CHECK_OUT',
+        'HOUSEKEEPING_DONE',
+        'HOUSEKEEPING_INSPECTION',
+        'HOUSEKEEPING_REWORK',
+        'REPORT_MAINTENANCE',
+        'MAINTENANCE_DONE',
+        'RESTORE_SELLABLE',
+      ],
       supportedReadModels: ['pms_get_room', 'pms_dashboard'],
       supportedExecutionModes: ['dryRun', 'confirm'],
     });
@@ -72,7 +87,7 @@ describe('core contract boundary', () => {
 describe('room domain model', () => {
   it('supports checkout-relevant room statuses and derives a stable room code', () => {
     expect(supportedOccupancyStatuses).toEqual(['occupied', 'dueOut', 'vacant']);
-    expect(supportedCleaningStatuses).toEqual(['clean', 'dirty']);
+    expect(supportedCleaningStatuses).toEqual(['clean', 'dirty', 'cleaning', 'inspection', 'rework']);
     expect(supportedSaleStatuses).toEqual(['sellable', 'outOfOrder', 'outOfService']);
 
     expect(deriveRoomCode(dueOutRoom)).toBe('1001:dueOut:clean:sellable');
@@ -543,7 +558,15 @@ describe('checkout confirm execution', () => {
   });
 
   it('builds stable command projection objects for check-in and checkout integration', () => {
-    const checkInPorts = createInMemoryCorePorts([vacantCleanRoom]);
+    const catalogRoom: RoomAggregate = {
+      ...vacantCleanRoom,
+      propertyId: 'property-small-hotel',
+      roomTypeId: 'room-type-garden-suite',
+      roomType: '花园套房',
+      zone: 'C',
+      sortKey: 'C2',
+    };
+    const checkInPorts = createInMemoryCorePorts([catalogRoom]);
     const checkInResult = checkIn(confirmCheckInCommand(vacantCleanRoom.roomId), checkInPorts);
     const checkOutPorts = createInMemoryCorePorts([dueOutRoom]);
     const checkOutResult = checkOut(commandWithMeta({ mode: 'confirm' }), checkOutPorts);
@@ -553,6 +576,9 @@ describe('checkout confirm execution', () => {
       commandType: 'CHECK_IN',
       roomLedger: {
         roomId: 'room-1003',
+        roomType: '花园套房',
+        zone: 'C',
+        sortKey: 'C2',
         status: {
           occupancy: 'occupied',
           cleaning: 'clean',
@@ -659,6 +685,143 @@ describe('checkout confirm execution', () => {
         },
       ],
     });
+  });
+});
+
+describe('housekeeping and maintenance execution', () => {
+  it('confirms housekeeping completion, inspection failure, and rework completion through canonical room/task state', () => {
+    const ports = createInMemoryCorePorts([{ ...vacantDirtyRoom, roomId: 'room-A1', roomNumber: 'A1' }]);
+
+    const done = housekeepingDone({
+      type: 'HOUSEKEEPING_DONE',
+      roomId: 'room-A1',
+      inspectionRequired: true,
+      meta: extendedMeta('dryRun', 'hk-done-dry-run'),
+    }, ports);
+    expect(done).toMatchObject({
+      ok: true,
+      mode: 'dryRun',
+      plan: {
+        commandType: 'HOUSEKEEPING_DONE',
+        nextStatus: { cleaning: 'inspection' },
+        housekeepingTask: { status: 'inspection' },
+      },
+    });
+
+    const doneConfirm = housekeepingDone({
+      type: 'HOUSEKEEPING_DONE',
+      roomId: 'room-A1',
+      inspectionRequired: true,
+      meta: extendedMeta('confirm', 'hk-done-confirm'),
+    }, ports);
+    expect(doneConfirm).toMatchObject({
+      ok: true,
+      mode: 'confirm',
+      result: {
+        nextStatus: { cleaning: 'inspection' },
+        housekeepingTask: { status: 'inspection' },
+      },
+    });
+    expect(ports.rooms.get('room-A1')?.cleaningStatus).toBe('inspection');
+
+    const inspectionFail = housekeepingInspection({
+      type: 'HOUSEKEEPING_INSPECTION',
+      roomId: 'room-A1',
+      result: 'fail',
+      meta: extendedMeta('confirm', 'hk-inspection-fail'),
+    }, ports);
+    expect(inspectionFail).toMatchObject({
+      ok: true,
+      mode: 'confirm',
+      result: {
+        nextStatus: { cleaning: 'rework' },
+        housekeepingTask: { status: 'rework' },
+      },
+    });
+    expect(ports.rooms.get('room-A1')?.cleaningStatus).toBe('rework');
+
+    const rework = housekeepingRework({
+      type: 'HOUSEKEEPING_REWORK',
+      roomId: 'room-A1',
+      inspectionRequired: false,
+      meta: extendedMeta('confirm', 'hk-rework-confirm'),
+    }, ports);
+    expect(rework).toMatchObject({
+      ok: true,
+      mode: 'confirm',
+      result: {
+        nextStatus: { cleaning: 'clean' },
+        housekeepingTask: { status: 'done' },
+      },
+    });
+    expect(ports.rooms.get('room-A1')?.cleaningStatus).toBe('clean');
+    expect(ports.events.list().map((event) => event.type)).toEqual([
+      'HousekeepingCompleted',
+      'HousekeepingInspectionFailed',
+      'HousekeepingReworkCompleted',
+    ]);
+  });
+
+  it('reports stop-sell maintenance, completes the ticket, and restores sellable only when explicitly commanded', () => {
+    const ports = createInMemoryCorePorts([{ ...vacantCleanRoom, roomId: 'room-A2', roomNumber: 'A2' }]);
+
+    const reported = reportMaintenance({
+      type: 'REPORT_MAINTENANCE',
+      roomId: 'room-A2',
+      severity: 'StopSell',
+      stopSellRequested: true,
+      note: '空调故障，需要停售',
+      meta: extendedMeta('confirm', 'maintenance-report'),
+    }, ports);
+    expect(reported).toMatchObject({
+      ok: true,
+      mode: 'confirm',
+      result: {
+        nextStatus: { sale: 'outOfOrder' },
+        maintenanceTicket: {
+          status: 'open',
+          severity: 'StopSell',
+          stopSellRequested: true,
+        },
+      },
+    });
+    expect(ports.rooms.get('room-A2')?.saleStatus).toBe('outOfOrder');
+
+    const ticketId = reported.ok && reported.mode === 'confirm' ? reported.result.maintenanceTicket?.ticketId : undefined;
+    const completed = maintenanceDone({
+      type: 'MAINTENANCE_DONE',
+      roomId: 'room-A2',
+      ticketId,
+      meta: extendedMeta('confirm', 'maintenance-done'),
+    }, ports);
+    expect(completed).toMatchObject({
+      ok: true,
+      mode: 'confirm',
+      result: {
+        nextStatus: { sale: 'outOfOrder' },
+        maintenanceTicket: { status: 'resolved' },
+      },
+    });
+    expect(ports.rooms.get('room-A2')?.saleStatus).toBe('outOfOrder');
+
+    const restored = restoreSellable({
+      type: 'RESTORE_SELLABLE',
+      roomId: 'room-A2',
+      meta: extendedMeta('confirm', 'restore-sellable'),
+    }, ports);
+    expect(restored).toMatchObject({
+      ok: true,
+      mode: 'confirm',
+      result: {
+        nextStatus: { sale: 'sellable' },
+      },
+    });
+    expect(ports.rooms.get('room-A2')?.saleStatus).toBe('sellable');
+    expect(ports.events.list().map((event) => event.type)).toEqual([
+      'MaintenanceReported',
+      'MaintenanceCompleted',
+      'RoomSellabilityRestored',
+    ]);
   });
 });
 
@@ -774,6 +937,18 @@ function commandWithMeta(metaPatch: Partial<CheckOutCommand['meta']>): CheckOutC
       ...checkoutContractFixtures.dryRunCommand.meta,
       ...metaPatch,
     },
+  };
+}
+
+function extendedMeta(mode: 'dryRun' | 'confirm', suffix: string) {
+  return {
+    actor: { type: 'human' as const, id: 'ops-1', displayName: 'Ops' },
+    source: 'test' as const,
+    reason: `test ${suffix}`,
+    idempotencyKey: `idem-${suffix}`,
+    correlationId: `corr-${suffix}`,
+    requestedAt: '2026-04-28T00:00:00.000Z',
+    mode,
   };
 }
 
