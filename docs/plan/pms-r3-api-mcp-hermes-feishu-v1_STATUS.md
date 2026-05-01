@@ -1,12 +1,12 @@
 # PMS R3 API/MCP Hermes Feishu v1 — STATUS
 
-> Pack status: active
+> Pack status: superseded
 > Current truth owner: `pms-platform/docs/plan/*`
-> Last updated: 2026-04-26
+> Last updated: 2026-05-01
 
 ## Current Step
 
-- active_step: `S5`
+- active_step: `PACK_SUPERSEDED`
 
 ## Planned Stages
 
@@ -15,52 +15,60 @@
 - [x] `S2` checkout-api-local-surface
 - [x] `S3` checkout-mcp-tool-surface
 - [x] `S4` hermes-local-pms-tool-smoke
-- [ ] `S5` hermes-feishu-messaging-config
-- [ ] `S6` feishu-card-confirmation-loop
-- [ ] `S7` pms-result-feishu-projection
-- [ ] `S8` remote-checkout-e2e-sandbox
-- [ ] `S9` closeout-and-next-pack
+- [~] `S5` hermes-feishu-messaging-config — superseded while blocked
+- [~] `S6` feishu-card-confirmation-loop — superseded
+- [~] `S7` pms-result-feishu-projection — superseded
+- [~] `S8` remote-checkout-e2e-sandbox — superseded
+- [x] `S9` closeout-and-next-pack — supersession closeout written
 
 ## Immediate Focus
 
 ### `S5`
 
-- Owner: `execute-plan`
-- State: `BLOCKED`
-- Priority: `high`
+- Owner: `plan-creator`
+- State: `SUPERSEDED_WHILE_BLOCKED`
+- Priority: `terminal`
 
 目标：
 
-- Configure Hermes Feishu messaging enough for controlled remote operation entry, with secrets and allowlists kept out of git.
+- Supersede the stale Hermes/Feishu messaging lane without claiming the blocked S5-S8 work was completed.
 
 当前事实：
 
 - S1-S4 have landed PMS package contracts, local API execution, local MCP tool execution, and a local Hermes-shaped PMS tool smoke.
 - `docs/hermes-feishu-messaging-config-v1.md` records the no-secret Feishu/Hermes config checklist, operator allowlist rule, and failure modes.
-- Local Feishu app credentials and sandbox chat id are configured outside git.
-- `adapter-feishu` provider webhook smoke delivered to Feishu with `body.code = 0` and `status = delivered`.
-- Hermes gateway was restarted with Feishu env and connected to Feishu/Lark websocket.
-- No explicit `FEISHU_ALLOWED_USERS` / equivalent PMS operator allowlist value was found; Hermes warned unauthorized users will be denied.
-- No secrets were committed and no mutating PMS commands were enabled from Feishu.
+- Local Feishu app credentials and sandbox chat id were configured outside git during the historical S5 attempt.
+- `adapter-feishu` provider webhook smoke delivered to Feishu with `body.code = 0` and `status = delivered` during the historical S5 attempt.
+- Hermes gateway was restarted with Feishu env and connected to Feishu/Lark websocket during the historical S5 attempt.
+- No explicit `FEISHU_ALLOWED_USERS` / equivalent PMS operator allowlist value was found; broad remote access was not enabled.
+- The current customer-facing PMS/Feishu hot path is `adapter-feishu -> ai-conversation -> ai-pms -> pms-platform`, not Hermes as conversation/runtime owner.
+- No secrets were committed and no mutating PMS commands were enabled from Feishu by this pack.
 
 stop_boundary hit:
 
 1. Stop before allowing mutating PMS commands from Feishu without card confirmation.
+2. Stop because the Hermes customer hot-path lane is superseded by the current `ai-pms` / `ai-conversation` product architecture.
+
+closeout artifact:
+
+1. `docs/plan/pms-r3-api-mcp-hermes-feishu-v1_CLOSEOUT.md` records the supersession boundary and retained historical evidence.
 
 ## Machine State
 
-- active_step: `S5`
+- active_step: `PACK_SUPERSEDED`
 - latest_completed_step: `S4`
-- intended_handoff: `human decision`
-- active_pack: `pms-r3-api-mcp-hermes-feishu-v1`
-- status: `blocked_operator_allowlist`
-- next_step_after_active: `S6`
-- latest_closeout_summary: S5 progressed through local Feishu adapter smoke and Hermes Feishu websocket connection; blocked on explicit operator allowlist / inbound proof.
+- intended_handoff: `plan-creator` for any future pack
+- active_pack: `none`
+- superseded_pack: `pms-r3-api-mcp-hermes-feishu-v1`
+- status: `superseded_by_current_ai_pms_ai_conversation_hot_path`
+- next_step_after_active: `none`
+- latest_closeout_summary: S0-S4 retained as historical PMS API/MCP/Hermes-shaped local smoke evidence; S5-S9 superseded because the active customer-facing PMS/Feishu path no longer uses Hermes as hot-path conversation/runtime owner.
 - latest_verification:
   - `2026-04-26 npm run verify passed in pms-platform after S4/S5 docs: 6 test files / 36 tests`
-  - `adapter-feishu smoke:provider-webhook delivered to Feishu using gitignored local ADAPTER_FEISHU_SMOKE_CHAT_ID`
-  - `hermes gateway restart connected to Feishu/Lark websocket`
-  - `S5 blocker doc records no-secret config checklist, allowlist rule, and failure modes`
+  - `2026-05-01 supersession closeout is docs/control-plane only; validation rerun recorded in final workspace closeout.`
+  - `adapter-feishu smoke:provider-webhook delivered to Feishu using gitignored local ADAPTER_FEISHU_SMOKE_CHAT_ID during historical S5 attempt.`
+  - `hermes gateway restart connected to Feishu/Lark websocket during historical S5 attempt.`
+  - `S5 blocker doc records no-secret config checklist, allowlist rule, and failure modes.`
 
 ## Evidence So Far
 
@@ -91,11 +99,12 @@ stop_boundary hit:
 |---|---|
 | API/MCP layer duplicates PMS Core rules | S1-S4 tests prove API/MCP wrappers call PMS Core and preserve result structures. |
 | Hermes or Feishu bypasses PMS Core | S3-S8 stop laws forbid raw table/state writes and require PMS tool path. |
-| Feishu operator allowlist / inbound proof missing | S5 is blocked on explicit allowlist or manual allowed-user inbound proof; no secrets committed and broad access is not enabled. |
+| Feishu operator allowlist / inbound proof missing | Historical S5 remained blocked; the lane is now superseded rather than active. No secrets committed and broad access is not enabled. |
 | Idempotency insufficient for distributed API/MCP use | S2 implements in-memory request-fingerprint guard; durable policy remains future persistence scope. |
 | Adapter absorbs PMS domain behavior | S6/S7 forbid checkout state-machine logic in `adapter-feishu/src/**`. |
 
 ## Notes
 
-- Keep this pack rooted in `pms-platform/docs/plan/*`; do not reactivate the closed adapter-hosted bootstrap pack.
-- Use Feishu as final UI/collaboration surface only after PMS API/MCP and Hermes tool path are stable.
+- Keep this superseded pack rooted in `pms-platform/docs/plan/*`; do not reactivate the closed adapter-hosted bootstrap pack.
+- Do not use this old Hermes lane as active customer-facing execution truth.
+- Future PMS/Feishu work requires a new pack aligned with the current `adapter-feishu -> ai-conversation -> ai-pms -> pms-platform` hot path.

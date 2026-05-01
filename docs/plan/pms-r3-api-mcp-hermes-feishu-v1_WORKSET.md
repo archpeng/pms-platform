@@ -1,6 +1,6 @@
 # PMS R3 API/MCP Hermes Feishu v1 — WORKSET
 
-> Active execution queue for the PMS-owned API/MCP -> Hermes -> Feishu integration pack.
+> Superseded execution queue for the historical PMS-owned API/MCP -> Hermes -> Feishu integration pack.
 > Machine mode: single-root parser-compatible under `pms-platform/docs/plan/*`.
 
 ## Stage Order
@@ -10,11 +10,11 @@
 - [x] `S2` checkout-api-local-surface
 - [x] `S3` checkout-mcp-tool-surface
 - [x] `S4` hermes-local-pms-tool-smoke
-- [ ] `S5` hermes-feishu-messaging-config
-- [ ] `S6` feishu-card-confirmation-loop
-- [ ] `S7` pms-result-feishu-projection
-- [ ] `S8` remote-checkout-e2e-sandbox
-- [ ] `S9` closeout-and-next-pack
+- [~] `S5` hermes-feishu-messaging-config — superseded while blocked
+- [~] `S6` feishu-card-confirmation-loop — superseded
+- [~] `S7` pms-result-feishu-projection — superseded
+- [~] `S8` remote-checkout-e2e-sandbox — superseded
+- [x] `S9` closeout-and-next-pack — supersession closeout written
 
 ## Completed Stages
 
@@ -93,45 +93,45 @@
 
 ## Active Stage
 
-### `S5` — hermes-feishu-messaging-config
+### `PACK_SUPERSEDED` — supersede-stale-hermes-feishu-lane
 
-- Owner: `execute-plan`
-- State: `BLOCKED`
-- Priority: `high`
+- Owner: `plan-creator`
+- State: `SUPERSEDED`
+- Priority: `terminal`
 
 目标：
 
-- Configure Hermes Feishu messaging enough for controlled remote operation entry, with secrets and allowlists kept out of git.
+- Remove the stale Hermes/Feishu S5 blocker from active execution truth without claiming S5-S8 implementation completion.
 
 必须交付：
 
-1. Local secret/config checklist for Hermes Feishu platform setup.
-2. User allowlist / operator authorization rule documented and, if possible, enabled locally.
-3. Feishu message ingress smoke showing Hermes can receive and respond in the intended sandbox.
-4. Failure-mode docs for disabled platform, unauthorized user, missing secret, and gateway down.
+1. A repo-local closeout/supersession artifact that preserves S0-S4 evidence and marks S5-S9 inactive.
+2. README/STATUS/WORKSET alignment showing no active pack and no active execution slice.
+3. Validation evidence for docs/control-plane cleanup.
 
 done_when:
 
-1. Hermes status no longer reports Feishu messaging as unconfigured in the local sandbox, or a documented blocker is routed.
-2. Feishu sandbox message smoke proves Hermes can respond remotely.
-3. No secrets are committed.
-4. Unauthorized remote operation is denied or documented as blocked before production use.
+1. `docs/plan/pms-r3-api-mcp-hermes-feishu-v1_CLOSEOUT.md` exists and records the supersession boundary.
+2. `docs/plan/README.md` no longer routes execution to S5.
+3. STATUS/WORKSET no longer treat Hermes Feishu messaging as active customer-facing backlog.
+4. `git diff --check`, `npm run verify`, and `plan_sync` pass, or any residual is explicitly named.
 
 stop_boundary:
 
-1. Stop if real Feishu credentials/tenant setup are missing.
-2. Stop before allowing mutating PMS commands from Feishu without card confirmation.
+1. Stop before claiming S5-S8 were implemented.
+2. Stop before reintroducing Hermes as current customer hot-path owner without a new architecture decision.
+3. Stop before editing runtime code for this docs/control-plane cleanup.
 
 必须避免：
 
 1. Enabling broad remote shell/tool access without user allowlists and confirmation gates.
+2. Claiming production readiness or Feishu remote rollout from this supersession.
 
-阻塞证据：
+supersession evidence:
 
-1. `docs/hermes-feishu-messaging-config-v1.md` records the local secret/config checklist, allowlist rule, and failure modes.
-2. Local adapter Feishu smoke delivered and Hermes connected to Feishu/Lark websocket.
-3. Explicit operator allowlist / allowed-user inbound proof is still missing; broad remote access was not enabled.
-4. No secrets were committed and no mutating PMS commands were enabled from Feishu.
+1. `docs/plan/pms-r3-api-mcp-hermes-feishu-v1_CLOSEOUT.md` records retained S0-S4 evidence and superseded S5-S9 scope.
+2. The active customer-facing path is now `adapter-feishu -> ai-conversation -> ai-pms -> pms-platform`.
+3. Broad remote access was not enabled and no secrets were committed.
 
 ## Queued Stages
 
@@ -189,15 +189,16 @@ stop_boundary:
 
 ## Machine Queue
 
-- active_step: `S5`
+- active_step: `PACK_SUPERSEDED`
 - latest_completed_step: `S4`
-- intended_handoff: `human decision`
-- active_pack: `pms-r3-api-mcp-hermes-feishu-v1`
-- latest_closeout_summary: S5 progressed through local Feishu adapter smoke and Hermes Feishu websocket connection; blocked on explicit operator allowlist / inbound proof.
+- intended_handoff: `plan-creator` for any future pack
+- active_pack: `none`
+- superseded_pack: `pms-r3-api-mcp-hermes-feishu-v1`
+- latest_closeout_summary: S0-S4 retained as historical PMS API/MCP/Hermes-shaped local smoke evidence; S5-S9 superseded because the active customer-facing PMS/Feishu path no longer uses Hermes as hot-path conversation/runtime owner.
 - latest_verification:
-  - `npm run verify passed: 6 test files / 36 tests.`
-  - `adapter-feishu smoke:provider-webhook delivered to Feishu using gitignored local ADAPTER_FEISHU_SMOKE_CHAT_ID.`
-  - `hermes gateway restart connected to Feishu/Lark websocket.`
-  - `Stage Order marks S0-S4 done; S5 remains active and blocked on operator allowlist / inbound proof.`
+  - `npm run verify passed historically after S4/S5 docs: 6 test files / 36 tests.`
+  - `2026-05-01 supersession closeout is docs/control-plane only; validation rerun recorded in final workspace closeout.`
+  - `adapter-feishu smoke:provider-webhook delivered to Feishu using gitignored local ADAPTER_FEISHU_SMOKE_CHAT_ID during historical S5 attempt.`
+  - `hermes gateway restart connected to Feishu/Lark websocket during historical S5 attempt.`
+  - `Stage Order marks S0-S4 done; S5-S8 are superseded, not implemented.`
   - `docs/hermes-feishu-messaging-config-v1.md records no-secret checklist, allowlist rule, and failure modes.`
-  - `Cross-pack ai-pms product S2 landed PMS local HTTP sandbox runtime and durable checkout state/readback; this pack's S5 remains blocked on operator allowlist / inbound proof.`

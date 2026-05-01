@@ -1,12 +1,14 @@
 # PMS R3 API/MCP Hermes Feishu v1 — PLAN
 
-> Pack status: active
+> Pack status: superseded
 > Current truth owner: `pms-platform/docs/plan/*`
-> Last updated: 2026-04-26
+> Last updated: 2026-05-01
 
 ## Objective
 
-Build the next PMS-owned integration lane from the proven PMS Core `CHECK_OUT` behavior to safe API/MCP tools, Hermes operator access, and Feishu final UI expression through `adapter-feishu`.
+Historical objective: build the next PMS-owned integration lane from the proven PMS Core `CHECK_OUT` behavior to safe API/MCP tools, Hermes operator access, and Feishu final UI expression through `adapter-feishu`.
+
+Current disposition: this pack is superseded after S0-S4. The current customer-facing PMS/Feishu hot path is `adapter-feishu -> ai-conversation -> ai-pms -> pms-platform`, not Hermes as conversation/runtime owner.
 
 This pack starts from completed baselines:
 
@@ -105,27 +107,25 @@ This pack is executed as bounded waves. Each wave must preserve the ownership ta
 
 ### Wave 5 — Feishu remote entry and human confirmation loop
 
-- Slices: `S5`, `S6`, then review/replan around credentials/callback auth.
-- Primary goal: wire controlled Feishu messaging entry and card confirmation without letting Feishu or adapter-feishu own PMS business rules.
-- Constraints: stop on missing real Feishu credentials/tenant setup; no mutating PMS command from Feishu before card confirmation; adapter remains a channel adapter.
-- Missing pieces to close: local secret/config checklist, user allowlist, Feishu ingress smoke, adapter callback contract, card content, stale/duplicate confirmation handling.
-- Validation path: touched-repo `npm run verify`, Feishu sandbox smoke if credentials exist, and adapter tests proving no PMS state-machine duplication.
+- Superseded after S5 blocked on operator allowlist/inbound proof.
+- Historical slices: `S5`, `S6`, then review/replan around credentials/callback auth.
+- Historical primary goal: wire controlled Feishu messaging entry and card confirmation without letting Feishu or adapter-feishu own PMS business rules.
+- Current disposition: do not execute this Hermes customer hot-path lane from this pack; create a new architecture decision and plan if Hermes internal-operator support is desired.
+- Constraints retained: stop on missing real Feishu credentials/tenant setup; no mutating PMS command from Feishu before card confirmation; adapter remains a channel adapter.
 
 ### Wave 6 — PMS result projection back to Feishu
 
-- Slices: `S7`, then review.
-- Primary goal: project PMS checkout results/events to Feishu-visible UI while preserving PMS Core as canonical truth.
-- Constraints: no durable outbox/Postgres unless a new persistence pack is created; do not expand to other workflows.
-- Missing pieces to close: result projection contract, adapter helper/call path, structured failure feedback, and correlation/idempotency/audit references in visible output.
-- Validation path: adapter verify if touched, PMS verify if touched, and smoke/test evidence for `RoomCheckedOut` and `HousekeepingTaskCreated` projection.
+- Superseded in this Hermes lane.
+- Historical slices: `S7`, then review.
+- Historical primary goal: project PMS checkout results/events to Feishu-visible UI while preserving PMS Core as canonical truth.
+- Current disposition: projection coordination is owned by the current `ai-pms` / `adapter-feishu` path, not this stale Hermes pack.
 
 ### Wave 7 — Sandbox end-to-end proof and closeout
 
-- Slices: `S8`, `S9`.
-- Primary goal: prove Feishu UI -> Hermes -> PMS API/MCP -> PMS Core -> adapter-feishu -> Feishu result, then close or supersede the pack.
-- Constraints: stop before production rollout; stop if any link bypasses PMS Core or lacks actor/authorization proof.
-- Missing pieces to close: reproducible E2E transcript/script, security checklist, residual list, closeout evidence, and next-pack recommendation.
-- Validation path: all touched repo verification commands, sandbox transcript covering dry-run -> human confirmation -> confirm -> result projection, and closeout document.
+- Superseded by `docs/plan/pms-r3-api-mcp-hermes-feishu-v1_CLOSEOUT.md`.
+- Historical slices: `S8`, `S9`.
+- Historical primary goal: prove Feishu UI -> Hermes -> PMS API/MCP -> PMS Core -> adapter-feishu -> Feishu result, then close or supersede the pack.
+- Current disposition: the Hermes E2E proof was not completed and is not claimed; future work must use a new pack aligned with current architecture.
 
 ## Stage Plan
 
@@ -335,13 +335,13 @@ stop_boundary:
 
 ### `S5` — hermes-feishu-messaging-config
 
-- Owner: `execute-plan`
-- State: `BLOCKED`
-- Priority: `high`
+- Owner: `plan-creator`
+- State: `SUPERSEDED_WHILE_BLOCKED`
+- Priority: `terminal`
 
 目标：
 
-- Configure Hermes Feishu messaging enough for controlled remote operation entry, with secrets and allowlists kept out of git.
+- Historical goal was to configure Hermes Feishu messaging enough for controlled remote operation entry. Current goal is to preserve the blocker evidence while removing this lane from active customer hot-path execution.
 
 交付物：
 
@@ -374,9 +374,9 @@ stop_boundary:
 
 ### `S6` — feishu-card-confirmation-loop
 
-- Owner: `execute-plan`
-- State: `QUEUED`
-- Priority: `high`
+- Owner: `plan-creator`
+- State: `SUPERSEDED`
+- Priority: `terminal`
 
 目标：
 
@@ -407,9 +407,9 @@ stop_boundary:
 
 ### `S7` — pms-result-feishu-projection
 
-- Owner: `execute-plan`
-- State: `QUEUED`
-- Priority: `medium`
+- Owner: `plan-creator`
+- State: `SUPERSEDED`
+- Priority: `terminal`
 
 目标：
 
@@ -440,9 +440,9 @@ stop_boundary:
 
 ### `S8` — remote-checkout-e2e-sandbox
 
-- Owner: `execute-plan`
-- State: `QUEUED`
-- Priority: `medium`
+- Owner: `plan-creator`
+- State: `SUPERSEDED`
+- Priority: `terminal`
 
 目标：
 
@@ -473,9 +473,9 @@ stop_boundary:
 
 ### `S9` — closeout-and-next-pack
 
-- Owner: `execute-plan`
-- State: `QUEUED`
-- Priority: `medium`
+- Owner: `plan-creator`
+- State: `SUPERSESSION_CLOSEOUT_WRITTEN`
+- Priority: `terminal`
 
 目标：
 

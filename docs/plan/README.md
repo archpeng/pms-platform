@@ -2,34 +2,36 @@
 
 ## Active Pack
 
-- `docs/plan/pms-r3-api-mcp-hermes-feishu-v1_PLAN.md`
-- `docs/plan/pms-r3-api-mcp-hermes-feishu-v1_STATUS.md`
-- `docs/plan/pms-r3-api-mcp-hermes-feishu-v1_WORKSET.md`
+- none
 
 ## Current Active Slice
 
-- `S5`
+- none
 
 ## Intended Handoff
 
-- `human decision`
+- `plan-creator` for any future pack
 
 ## Live control-plane state
 
-- active_step: `S5`
-- status: `blocked_operator_allowlist`
-- active_pack: `pms-r3-api-mcp-hermes-feishu-v1`
+- active_step: `none`
+- status: `no_active_pack`
+- active_pack: `none`
+- latest_superseded_pack: `pms-r3-api-mcp-hermes-feishu-v1`
+- latest_closeout: `docs/plan/pms-r3-api-mcp-hermes-feishu-v1_CLOSEOUT.md`
 - latest_upstream_closed_pack: `adapter-feishu/docs/archive/plan/ai-pms-core-bootstrap-v1-2026-04-26_CLOSEOUT.md`
 - latest_completed_step: `S4`
+- superseded_step: `S5`
 
-## Active slice summary
+## Latest supersession summary
 
-`S5` progressed: local adapter Feishu credentials and sandbox chat id are configured outside git, adapter Feishu smoke delivered, and Hermes gateway connected to Feishu/Lark. Remaining blocker is a safe operator allowlist / inbound proof; do not enable broad remote access with `GATEWAY_ALLOW_ALL_USERS=true`.
+`pms-r3-api-mcp-hermes-feishu-v1` is superseded as an active lane. S0-S4 remain valid historical PMS API/MCP/Hermes-shaped local smoke evidence, but S5-S9 are not active backlog because the current customer-facing PMS/Feishu path is `adapter-feishu -> ai-conversation -> ai-pms -> pms-platform`, not Hermes as hot-path conversation owner.
 
 ## Notes
 
-- `docs/plan/*` is the single-root machine-compatible control plane for the current PMS-owned execution pack.
+- `docs/plan/*` remains the single-root machine-compatible control plane for this repo.
+- There is currently no active parser-compatible pack in `docs/plan/*`.
 - The adapter-hosted `ai-pms-core-bootstrap-v1` pack is closed and archived under `adapter-feishu/docs/archive/plan/`.
-- Keep PMS business truth in `packages/core`; API/MCP/Hermes/Feishu layers must call the core rather than reimplementing checkout rules.
-- `adapter-feishu` remains the Feishu channel adapter; Hermes remains AI operator/runtime; Feishu remains the human UI/collaboration surface.
-- 2026-04-26 cross-pack note: ai-pms product slice `S2 pms-platform-product-transport-and-state` landed a PMS-owned local HTTP sandbox runtime and durable checkout state/readback surface; this does not unblock or advance this pack's `S5` Feishu operator allowlist gate.
+- Keep PMS business truth in `packages/core`; API/MCP/service layers must call the core rather than reimplementing checkout rules.
+- Current customer-facing PMS/Feishu hot path is owned by `adapter-feishu`, `ai-conversation`, `ai-pms`, and `pms-platform`; Hermes is historical/internal-operator only unless a future explicit architecture decision reopens it.
+- Broader production residuals remain successor work under the `ai-pms` production-readiness control plane, not this superseded Hermes lane.
