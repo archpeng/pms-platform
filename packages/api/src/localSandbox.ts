@@ -42,6 +42,7 @@ import {
   pmsMaintenanceDoneOperation,
   pmsOperationRequestCreateOperation,
   pmsOperationRequestGetOperation,
+  pmsOperationRequestListOperation,
   pmsOperationRequestUpdateOperation,
   pmsReservationGetOperation,
   pmsReportMaintenanceOperation,
@@ -58,6 +59,8 @@ import {
   type OperationRequestCreateApiResponse,
   type OperationRequestGetApiRequest,
   type OperationRequestGetApiResponse,
+  type OperationRequestListApiRequest,
+  type OperationRequestListApiResponse,
   type OperationRequestUpdateApiRequest,
   type OperationRequestUpdateApiResponse,
   type PmsExtendedCommandApiRequest,
@@ -196,6 +199,7 @@ export interface PmsLocalSandboxStore {
   inventorySummary(options?: Partial<InventoryHorizonRequest>): InventoryReadModel;
   createOperationRequest(request: OperationRequestCreateApiRequest): OperationRequestCreateApiResponse;
   getOperationRequest(request: OperationRequestGetApiRequest): OperationRequestGetApiResponse;
+  listOperationRequests(request: OperationRequestListApiRequest): OperationRequestListApiResponse;
   updateOperationRequest(request: OperationRequestUpdateApiRequest): OperationRequestUpdateApiResponse;
   recordCheckInStay?(request: CheckInConfirmApiRequest, result: CoreCheckInConfirmResult): PmsSandboxStayReadback | undefined;
   recordCheckOutStay?(request: CheckOutConfirmApiRequest, result: CoreCheckOutConfirmResult): PmsSandboxStayReadback | undefined;
@@ -257,6 +261,7 @@ export function createPmsLocalHttpHandler(options: PmsLocalHttpHandlerOptions) {
             pmsInventorySummaryOperation,
             pmsOperationRequestCreateOperation,
             pmsOperationRequestGetOperation,
+            pmsOperationRequestListOperation,
             pmsOperationRequestUpdateOperation,
           ],
           storage: options.store.storage,
@@ -416,6 +421,12 @@ export function createPmsLocalHttpHandler(options: PmsLocalHttpHandlerOptions) {
       if (request.method === 'POST' && url.pathname === '/v1/pms/operation-requests/get') {
         const body = await readJsonBody(request) as OperationRequestGetApiRequest;
         writeJson(response, 200, options.store.getOperationRequest({ ...body, operation: pmsOperationRequestGetOperation }));
+        return;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/v1/pms/operation-requests/list') {
+        const body = await readJsonBody(request, true) as OperationRequestListApiRequest;
+        writeJson(response, 200, options.store.listOperationRequests({ ...body, operation: pmsOperationRequestListOperation }));
         return;
       }
 

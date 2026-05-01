@@ -28,6 +28,7 @@ import {
   pmsMaintenanceDoneOperation,
   pmsOperationRequestCreateOperation,
   pmsOperationRequestGetOperation,
+  pmsOperationRequestListOperation,
   pmsOperationRequestUpdateOperation,
   pmsReportMaintenanceOperation,
   pmsRestoreSellableOperation,
@@ -172,6 +173,7 @@ describe('API checkout contract skeleton', () => {
         'pms_inventory_summary',
         'pms_operation_request_create',
         'pms_operation_request_get',
+        'pms_operation_request_list',
         'pms_operation_request_update',
       ],
       importsCoreResult: true,
@@ -225,6 +227,7 @@ describe('API checkout contract skeleton', () => {
     expect(pmsInventorySummaryOperation).toBe('pms_inventory_summary');
     expect(pmsOperationRequestCreateOperation).toBe('pms_operation_request_create');
     expect(pmsOperationRequestGetOperation).toBe('pms_operation_request_get');
+    expect(pmsOperationRequestListOperation).toBe('pms_operation_request_list');
     expect(pmsOperationRequestUpdateOperation).toBe('pms_operation_request_update');
   });
 

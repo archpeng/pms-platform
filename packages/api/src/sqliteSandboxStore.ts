@@ -44,6 +44,7 @@ import {
   pmsMaintenanceDoneOperation,
   pmsOperationRequestCreateOperation,
   pmsOperationRequestGetOperation,
+  pmsOperationRequestListOperation,
   pmsOperationRequestUpdateOperation,
   pmsReportMaintenanceOperation,
   pmsRestoreSellableOperation,
@@ -58,6 +59,8 @@ import {
   type OperationRequestCreateApiResponse,
   type OperationRequestGetApiRequest,
   type OperationRequestGetApiResponse,
+  type OperationRequestListApiRequest,
+  type OperationRequestListApiResponse,
   type OperationRequestUpdateApiRequest,
   type OperationRequestUpdateApiResponse,
 } from './index.js';
@@ -127,7 +130,7 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
     const stays = roomId ? this.listStaysByRoomIds(roomIds) : this.listStays();
     const housekeepingTasks = roomId ? this.listHousekeepingTasksByRoomIds(roomIds) : this.listHousekeepingTasks();
     const maintenanceTickets = roomId ? this.listMaintenanceTicketsByRoomIds(roomIds) : this.listMaintenanceTickets();
-    const operationRequests = roomId ? this.listOperationRequestsByRoomIds(roomIds) : this.listOperationRequests();
+    const operationRequests = roomId ? this.listOperationRequestsByRoomIds(roomIds) : this.listOperationRequestRecords();
     const audits = roomId ? this.listAuditsByRoomIds(roomIds) : this.listAudits();
     const domainEvents = roomId ? this.listDomainEventsByRoomIds(roomIds) : this.listDomainEvents();
 
@@ -212,6 +215,29 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
       ok: true,
       operation: pmsOperationRequestGetOperation,
       request: cloneValue(this.findOperationRequest(request)),
+    };
+  }
+
+  listOperationRequests(request: OperationRequestListApiRequest = {}): OperationRequestListApiResponse {
+    const status = typeof request.status === 'string' && isOperationRequestStatus(request.status) ? request.status : undefined;
+    const roomId = optionalString(request.roomId);
+    const limit = operationRequestListLimit(request.limit);
+    const matching = this.listOperationRequestRecords()
+      .filter((entry) => !status || entry.status === status)
+      .filter((entry) => !roomId || entry.roomId === roomId);
+    const requests = matching.slice(0, limit);
+    return {
+      ok: true,
+      operation: pmsOperationRequestListOperation,
+      requests: cloneValue(requests),
+      count: matching.length,
+      truncated: matching.length > requests.length,
+      updatedAt: optionalString(request.requestedAt) ?? this.now(),
+      filter: {
+        ...(status ? { status } : {}),
+        ...(roomId ? { roomId } : {}),
+        limit,
+      },
     };
   }
 
@@ -1775,7 +1801,7 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
     return row ? operationRequestFromRow(row) : undefined;
   }
 
-  private listOperationRequests(): OperationRequest[] {
+  private listOperationRequestRecords(): OperationRequest[] {
     const rows = this.db
       .prepare('SELECT * FROM operation_requests ORDER BY created_at, operation_request_id')
       .all() as unknown as OperationRequestRow[];
@@ -1786,7 +1812,7 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
     if (roomIds.size === 0) {
       return [];
     }
-    return this.listOperationRequests().filter((request) => request.roomId ? roomIds.has(request.roomId) : false);
+    return this.listOperationRequestRecords().filter((request) => request.roomId ? roomIds.has(request.roomId) : false);
   }
 
   private saveOperationRequest(request: OperationRequest): void {
@@ -2521,6 +2547,13 @@ function nonEmptyString(value: string | undefined, fallback: string): string {
 
 function optionalString(value: string | undefined): string | undefined {
   return value && value.trim() ? value : undefined;
+}
+
+function operationRequestListLimit(value: number | undefined): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return 20;
+  }
+  return Math.max(1, Math.min(50, Math.floor(value)));
 }
 
 function sameBusinessDate(value: string, businessDate: string): boolean {

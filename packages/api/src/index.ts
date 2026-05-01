@@ -63,6 +63,7 @@ export const pmsInventoryIntervalsOperation = 'pms_inventory_intervals';
 export const pmsInventorySummaryOperation = 'pms_inventory_summary';
 export const pmsOperationRequestCreateOperation = 'pms_operation_request_create';
 export const pmsOperationRequestGetOperation = 'pms_operation_request_get';
+export const pmsOperationRequestListOperation = 'pms_operation_request_list';
 export const pmsOperationRequestUpdateOperation = 'pms_operation_request_update';
 
 export type PmsCommandOperation =
@@ -88,6 +89,7 @@ export type CheckOutApiMode = PmsApiMode;
 export type PmsOperationRequestOperation =
   | typeof pmsOperationRequestCreateOperation
   | typeof pmsOperationRequestGetOperation
+  | typeof pmsOperationRequestListOperation
   | typeof pmsOperationRequestUpdateOperation;
 export type ApiBoundaryErrorCode =
   | 'IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_FINGERPRINT'
@@ -402,6 +404,14 @@ export interface OperationRequestGetApiRequest {
   readonly clientToken?: string;
 }
 
+export interface OperationRequestListApiRequest {
+  readonly operation?: typeof pmsOperationRequestListOperation;
+  readonly status?: OperationRequestStatus;
+  readonly roomId?: string;
+  readonly limit?: number;
+  readonly requestedAt?: string;
+}
+
 export interface OperationRequestUpdateApiRequest {
   readonly operation?: typeof pmsOperationRequestUpdateOperation;
   readonly operationRequestId?: string;
@@ -428,6 +438,20 @@ export interface OperationRequestGetApiResponse {
   readonly ok: true;
   readonly operation: typeof pmsOperationRequestGetOperation;
   readonly request?: OperationRequest;
+}
+
+export interface OperationRequestListApiResponse {
+  readonly ok: true;
+  readonly operation: typeof pmsOperationRequestListOperation;
+  readonly requests: readonly OperationRequest[];
+  readonly count: number;
+  readonly truncated: boolean;
+  readonly updatedAt: string;
+  readonly filter: {
+    readonly status?: OperationRequestStatus;
+    readonly roomId?: string;
+    readonly limit: number;
+  };
 }
 
 export interface OperationRequestUpdateApiSuccessResponse {
@@ -795,6 +819,7 @@ export function describeApiContractBoundary() {
       pmsInventorySummaryOperation,
       pmsOperationRequestCreateOperation,
       pmsOperationRequestGetOperation,
+      pmsOperationRequestListOperation,
       pmsOperationRequestUpdateOperation,
     ] as const,
     importsCoreResult: true,

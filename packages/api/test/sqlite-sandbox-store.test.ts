@@ -729,6 +729,15 @@ describe('SQLite local sandbox store', () => {
       status: 'awaitingConfirmation',
       resultJson: '{"dryRun":"ready"}',
     });
+    expect(store.listOperationRequests({ status: 'awaitingConfirmation', roomId: 'room-1001', limit: 1, requestedAt: '2026-04-28T00:02:00.000Z' })).toMatchObject({
+      ok: true,
+      operation: 'pms_operation_request_list',
+      count: 1,
+      truncated: false,
+      updatedAt: '2026-04-28T00:02:00.000Z',
+      filter: { status: 'awaitingConfirmation', roomId: 'room-1001', limit: 1 },
+      requests: [{ clientToken: 'form-checkout-room-1001', status: 'awaitingConfirmation', roomId: 'room-1001' }],
+    });
 
     const readback = store.readback('room-1001');
     expect(readback.operationRequests).toHaveLength(1);

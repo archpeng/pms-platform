@@ -109,6 +109,7 @@ describe('PMS local durable checkout sandbox HTTP boundary', () => {
       'pms_inventory_summary',
       'pms_operation_request_create',
       'pms_operation_request_get',
+      'pms_operation_request_list',
       'pms_operation_request_update',
     ]));
     expect(health).toMatchObject({
@@ -338,6 +339,12 @@ describe('PMS local durable checkout sandbox HTTP boundary', () => {
     const fetched = await authedPost(`${url}/v1/pms/operation-requests/get`, {
       clientToken: 'http-form-checkout-room-1001',
     });
+    const listed = await authedPost(`${url}/v1/pms/operation-requests/list`, {
+      status: 'awaitingConfirmation',
+      roomId: 'room-1001',
+      limit: 3,
+      requestedAt: '2026-04-26T00:02:00.000Z',
+    });
     const after = await authedGet(`${url}/v1/sandbox/readback/room-1001`);
 
     expect(created).toMatchObject({
@@ -350,6 +357,15 @@ describe('PMS local durable checkout sandbox HTTP boundary', () => {
     expect(mismatch).toMatchObject({ ok: false, errors: [{ code: 'OPERATION_REQUEST_TOKEN_REUSED_WITH_DIFFERENT_FINGERPRINT' }] });
     expect(updated).toMatchObject({ ok: true, request: { status: 'awaitingConfirmation', resultJson: '{"dryRun":"ready"}' } });
     expect(fetched).toMatchObject({ ok: true, operation: 'pms_operation_request_get', request: { status: 'awaitingConfirmation' } });
+    expect(listed).toMatchObject({
+      ok: true,
+      operation: 'pms_operation_request_list',
+      count: 1,
+      truncated: false,
+      updatedAt: '2026-04-26T00:02:00.000Z',
+      filter: { status: 'awaitingConfirmation', roomId: 'room-1001', limit: 3 },
+      requests: [{ clientToken: 'http-form-checkout-room-1001', status: 'awaitingConfirmation', roomId: 'room-1001' }],
+    });
     expect(after.rooms).toEqual(before.rooms);
     expect(after.housekeepingTasks).toEqual([]);
     expect(after.maintenanceTickets).toEqual([]);
