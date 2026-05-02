@@ -31,6 +31,7 @@ import {
   executeDashboardApiRequest,
   executeGetRoomApiRequest,
   executePmsExtendedCommandApiRequest,
+  executeReservationDraftWorkflowApiRequest,
   getPmsCapabilityManifest,
   pmsAvailabilitySearchOperation,
   pmsCapabilityManifestOperation,
@@ -50,6 +51,11 @@ import {
   pmsOperationRequestUpdateOperation,
   pmsReservationGetOperation,
   pmsReportMaintenanceOperation,
+  pmsReservationDraftCancelOperation,
+  pmsReservationDraftCreateOperation,
+  pmsReservationDraftUpdateOperation,
+  pmsReservationPrepareConfirmOperation,
+  pmsReservationQuoteOperation,
   pmsRoomReservationContextOperation,
   pmsRestoreSellableOperation,
   pmsTodayArrivalsOperation,
@@ -68,6 +74,7 @@ import {
   type OperationRequestUpdateApiRequest,
   type OperationRequestUpdateApiResponse,
   type PmsExtendedCommandApiRequest,
+  type ReservationDraftWorkflowApiRequest,
   type PmsReadModelApiRequest,
 } from './index.js';
 
@@ -264,6 +271,11 @@ export function createPmsLocalHttpHandler(options: PmsLocalHttpHandlerOptions) {
             pmsInventoryIntervalsOperation,
             pmsInventorySummaryOperation,
             pmsAvailabilitySearchOperation,
+            pmsReservationDraftCreateOperation,
+            pmsReservationDraftUpdateOperation,
+            pmsReservationQuoteOperation,
+            pmsReservationPrepareConfirmOperation,
+            pmsReservationDraftCancelOperation,
             pmsOperationRequestCreateOperation,
             pmsOperationRequestGetOperation,
             pmsOperationRequestListOperation,
@@ -446,6 +458,17 @@ export function createPmsLocalHttpHandler(options: PmsLocalHttpHandlerOptions) {
         return;
       }
 
+      const reservationDraftRoute = reservationDraftOperationForPath(url.pathname);
+      if (request.method === 'POST' && reservationDraftRoute) {
+        const body = await readJsonBody(request);
+        const result = executeReservationDraftWorkflowApiRequest({
+          ...(body as Record<string, unknown>),
+          operation: reservationDraftRoute,
+        } as ReservationDraftWorkflowApiRequest);
+        writeJson(response, 501, result);
+        return;
+      }
+
       if (request.method === 'POST' && url.pathname === '/v1/pms/operation-requests/create') {
         const body = await readJsonBody(request) as OperationRequestCreateApiRequest;
         const result = options.store.createOperationRequest({ ...body, operation: pmsOperationRequestCreateOperation });
@@ -562,6 +585,15 @@ export async function startPmsLocalHttpServer(options: PmsLocalHttpServerOptions
 
 function executeWithStoreTransaction<TValue>(store: PmsLocalSandboxStore, operation: () => TValue): TValue {
   return store.runInTransaction ? store.runInTransaction(operation) : operation();
+}
+
+function reservationDraftOperationForPath(pathname: string): ReservationDraftWorkflowApiRequest['operation'] | undefined {
+  if (pathname === '/v1/pms/reservation-drafts/create') return pmsReservationDraftCreateOperation;
+  if (pathname === '/v1/pms/reservation-drafts/update') return pmsReservationDraftUpdateOperation;
+  if (pathname === '/v1/pms/reservation-drafts/quote') return pmsReservationQuoteOperation;
+  if (pathname === '/v1/pms/reservation-drafts/prepare-confirm') return pmsReservationPrepareConfirmOperation;
+  if (pathname === '/v1/pms/reservation-drafts/cancel') return pmsReservationDraftCancelOperation;
+  return undefined;
 }
 
 function extendedCommandOperationForPath(pathname: string): PmsExtendedCommandApiRequest['operation'] | undefined {

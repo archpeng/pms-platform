@@ -106,6 +106,7 @@ export interface PmsCapabilitySlot {
 export interface PmsCapabilityRefs {
   readonly commandType?: PmsCommandType;
   readonly readModel?: string;
+  readonly workflow?: string;
   readonly operationRequestAction?: OperationRequestAction;
   readonly domainEvents?: readonly string[];
 }
@@ -640,6 +641,59 @@ export interface AvailabilitySearchReadModel {
   readonly candidateCount: number;
   readonly truncated: boolean;
   readonly projectionFreshness: ProjectionFreshness;
+}
+
+export const reservationDraftCreateOperationName = 'pms.reservation.draft.create';
+export const reservationDraftUpdateOperationName = 'pms.reservation.draft.update';
+export const reservationQuoteOperationName = 'pms.reservation.quote';
+export const reservationPrepareConfirmOperationName = 'pms.reservation.prepare_confirm';
+export const reservationDraftCancelOperationName = 'pms.reservation.draft.cancel';
+export const reservationDraftWorkflowOperations = [
+  reservationDraftCreateOperationName,
+  reservationDraftUpdateOperationName,
+  reservationQuoteOperationName,
+  reservationPrepareConfirmOperationName,
+  reservationDraftCancelOperationName,
+] as const;
+
+export type ReservationDraftWorkflowOperation = typeof reservationDraftWorkflowOperations[number];
+export type ReservationDraftStatus = 'collectingSlots' | 'quoteReady' | 'awaitingConfirmation' | 'cancelled' | 'expired';
+export type ReservationDraftMissingSlot = 'guest' | 'stayDates' | 'roomType' | 'candidateSelection';
+export type ReservationDraftEvidenceSource = 'availabilitySearch' | 'userTurn' | 'platformReadModel' | 'system';
+
+export interface ReservationDraftEvidenceRef {
+  readonly source: ReservationDraftEvidenceSource;
+  readonly refId: string;
+  readonly generatedAt?: string;
+}
+
+export interface ReservationDraftSlots {
+  readonly guestDisplayName?: string;
+  readonly arrivalDate?: string;
+  readonly departureDate?: string;
+  readonly roomTypeId?: string;
+  readonly roomTypeKeyword?: string;
+  readonly roomId?: string;
+  readonly selectedCandidateRef?: string;
+  readonly adults?: number;
+  readonly children?: number;
+  readonly note?: string;
+}
+
+export interface ReservationDraftWorkflowRef {
+  readonly workflowType: 'reservation';
+  readonly draftId?: string;
+  readonly status: ReservationDraftStatus;
+  readonly missingSlots: readonly ReservationDraftMissingSlot[];
+  readonly evidenceRefs: readonly ReservationDraftEvidenceRef[];
+  readonly expiresAt?: string;
+}
+
+export interface ReservationDraftWorkflowSafeGap {
+  readonly code: 'RESERVATION_DRAFT_WORKFLOW_NOT_IMPLEMENTED';
+  readonly owner: 'pms-platform';
+  readonly mutationStatus: 'none';
+  readonly message: string;
 }
 
 export interface MaintenanceTicketSummary {

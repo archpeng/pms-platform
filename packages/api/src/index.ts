@@ -17,6 +17,12 @@ import type {
   OperationRequestSource,
   OperationRequestStatus,
   PmsCapabilityClass,
+  ReservationDraftEvidenceRef,
+  ReservationDraftMissingSlot,
+  ReservationDraftSlots,
+  ReservationDraftWorkflowOperation,
+  ReservationDraftWorkflowRef,
+  ReservationDraftWorkflowSafeGap,
   PmsCapabilityManifest,
   PmsCapabilityManifestItem,
   PmsCapabilityPlannerProjection,
@@ -28,6 +34,13 @@ import type {
   RestoreSellableCommand,
   RoomReadModel,
   TodayReservationsReadModel,
+} from '@pms-platform/contracts';
+import {
+  reservationDraftCancelOperationName,
+  reservationDraftCreateOperationName,
+  reservationDraftUpdateOperationName,
+  reservationPrepareConfirmOperationName,
+  reservationQuoteOperationName,
 } from '@pms-platform/contracts';
 import {
   checkIn,
@@ -69,6 +82,11 @@ export const pmsRoomReservationContextOperation = 'pms_room_reservation_context'
 export const pmsInventoryIntervalsOperation = 'pms_inventory_intervals';
 export const pmsInventorySummaryOperation = 'pms_inventory_summary';
 export const pmsAvailabilitySearchOperation = 'pms_availability_search';
+export const pmsReservationDraftCreateOperation = reservationDraftCreateOperationName;
+export const pmsReservationDraftUpdateOperation = reservationDraftUpdateOperationName;
+export const pmsReservationQuoteOperation = reservationQuoteOperationName;
+export const pmsReservationPrepareConfirmOperation = reservationPrepareConfirmOperationName;
+export const pmsReservationDraftCancelOperation = reservationDraftCancelOperationName;
 export const pmsOperationRequestCreateOperation = 'pms_operation_request_create';
 export const pmsOperationRequestGetOperation = 'pms_operation_request_get';
 export const pmsOperationRequestListOperation = 'pms_operation_request_list';
@@ -96,6 +114,7 @@ export type PmsReadModelOperation =
   | typeof pmsAvailabilitySearchOperation;
 export type PmsApiMode = 'dryRun' | 'confirm';
 export type CheckOutApiMode = PmsApiMode;
+export type PmsReservationDraftWorkflowOperation = ReservationDraftWorkflowOperation;
 export type PmsOperationRequestOperation =
   | typeof pmsOperationRequestCreateOperation
   | typeof pmsOperationRequestGetOperation
@@ -103,6 +122,7 @@ export type PmsOperationRequestOperation =
   | typeof pmsOperationRequestUpdateOperation;
 export type ApiBoundaryErrorCode =
   | 'IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_FINGERPRINT'
+  | 'RESERVATION_DRAFT_WORKFLOW_NOT_IMPLEMENTED'
   | 'OPERATION_REQUEST_TOKEN_REUSED_WITH_DIFFERENT_FINGERPRINT'
   | 'OPERATION_REQUEST_UNSUPPORTED_ACTION'
   | 'OPERATION_REQUEST_UNSUPPORTED_SOURCE'
@@ -395,6 +415,66 @@ export interface AvailabilitySearchApiResponse {
   readonly readModel: AvailabilitySearchReadModel;
 }
 
+interface ReservationDraftWorkflowApiRequestBase {
+  readonly operation: PmsReservationDraftWorkflowOperation;
+  readonly propertyId: string;
+  readonly actor: Actor;
+  readonly source: Extract<CommandMeta['source'], 'api' | 'mcp' | 'test'>;
+  readonly clientToken: string;
+  readonly requestFingerprint: string;
+  readonly correlationId: string;
+  readonly requestedAt: string;
+  readonly slots?: ReservationDraftSlots;
+  readonly evidenceRefs?: readonly ReservationDraftEvidenceRef[];
+  readonly expiresAt?: string;
+}
+
+export interface ReservationDraftCreateApiRequest extends ReservationDraftWorkflowApiRequestBase {
+  readonly operation: typeof pmsReservationDraftCreateOperation;
+}
+
+export interface ReservationDraftUpdateApiRequest extends ReservationDraftWorkflowApiRequestBase {
+  readonly operation: typeof pmsReservationDraftUpdateOperation;
+  readonly draftId: string;
+  readonly missingSlots?: readonly ReservationDraftMissingSlot[];
+}
+
+export interface ReservationQuoteApiRequest extends ReservationDraftWorkflowApiRequestBase {
+  readonly operation: typeof pmsReservationQuoteOperation;
+  readonly draftId?: string;
+}
+
+export interface ReservationPrepareConfirmApiRequest extends ReservationDraftWorkflowApiRequestBase {
+  readonly operation: typeof pmsReservationPrepareConfirmOperation;
+  readonly draftId: string;
+  readonly quoteRef?: string;
+}
+
+export interface ReservationDraftCancelApiRequest extends ReservationDraftWorkflowApiRequestBase {
+  readonly operation: typeof pmsReservationDraftCancelOperation;
+  readonly draftId: string;
+  readonly reason: string;
+}
+
+export type ReservationDraftWorkflowApiRequest =
+  | ReservationDraftCreateApiRequest
+  | ReservationDraftUpdateApiRequest
+  | ReservationQuoteApiRequest
+  | ReservationPrepareConfirmApiRequest
+  | ReservationDraftCancelApiRequest;
+
+export interface ReservationDraftWorkflowSafeGapApiResponse {
+  readonly ok: false;
+  readonly operation: PmsReservationDraftWorkflowOperation;
+  readonly status: 'notImplemented';
+  readonly mutationStatus: 'none';
+  readonly draft?: ReservationDraftWorkflowRef;
+  readonly gap: ReservationDraftWorkflowSafeGap;
+  readonly errors: readonly ApiError[];
+}
+
+export type ReservationDraftWorkflowApiResponse = ReservationDraftWorkflowSafeGapApiResponse;
+
 export type PmsReadModelApiRequest =
   | GetRoomApiRequest
   | DashboardApiRequest
@@ -561,6 +641,32 @@ function buildPmsCapabilityManifestItems(): readonly PmsCapabilityManifestItem[]
       { name: 'capacity', required: false, source: 'user' },
       { name: 'count', required: false, source: 'user' },
     ], 'AvailabilitySearchReadModel'),
+    reservationDraftCapability(pmsReservationDraftCreateOperation, '/v1/pms/reservation-drafts/create', 'draft', 'ReservationDraftCreateApiRequest', [
+      { name: 'propertyId', required: true, source: 'context' },
+      { name: 'guestDisplayName', required: false, source: 'user' },
+      { name: 'arrivalDate', required: false, source: 'user' },
+      { name: 'departureDate', required: false, source: 'user' },
+      { name: 'roomTypeKeyword', required: false, source: 'user' },
+    ]),
+    reservationDraftCapability(pmsReservationDraftUpdateOperation, '/v1/pms/reservation-drafts/update', 'draft', 'ReservationDraftUpdateApiRequest', [
+      { name: 'draftId', required: true, source: 'context' },
+      { name: 'guestDisplayName', required: false, source: 'user' },
+      { name: 'arrivalDate', required: false, source: 'user' },
+      { name: 'departureDate', required: false, source: 'user' },
+      { name: 'roomTypeKeyword', required: false, source: 'user' },
+    ]),
+    reservationDraftCapability(pmsReservationQuoteOperation, '/v1/pms/reservation-drafts/quote', 'draft', 'ReservationQuoteApiRequest', [
+      { name: 'draftId', required: false, source: 'context' },
+      { name: 'selectedCandidateRef', required: false, source: 'user' },
+    ]),
+    reservationDraftCapability(pmsReservationPrepareConfirmOperation, '/v1/pms/reservation-drafts/prepare-confirm', 'prepareConfirm', 'ReservationPrepareConfirmApiRequest', [
+      { name: 'draftId', required: true, source: 'context' },
+      { name: 'quoteRef', required: false, source: 'context' },
+    ]),
+    reservationDraftCapability(pmsReservationDraftCancelOperation, '/v1/pms/reservation-drafts/cancel', 'draft', 'ReservationDraftCancelApiRequest', [
+      { name: 'draftId', required: true, source: 'context' },
+      { name: 'reason', required: true, source: 'user' },
+    ]),
     readCapability(pmsOperationRequestGetOperation, '/v1/pms/operation-requests/get', 'OperationRequestGetApiRequest', 'OperationRequestGetApiResponse', [{ name: 'operationRequestId', required: false, source: 'context' }], 'OperationRequest'),
     readCapability(pmsOperationRequestListOperation, '/v1/pms/operation-requests/list', 'OperationRequestListApiRequest', 'OperationRequestListApiResponse', [], 'OperationRequest'),
     commandCapability(pmsCheckInOperation, 'CHECK_IN', '/v1/pms/check-in', 'dryRun', ['RoomCheckedIn'], [{ name: 'roomId', required: true, source: 'user' }, { name: 'reservationCode', required: false, source: 'user' }]),
@@ -597,6 +703,28 @@ function buildPmsCapabilityManifestItems(): readonly PmsCapabilityManifestItem[]
     internalCapability('pms_sandbox_readback', 'GET', '/v1/sandbox/readback', undefined, 'PmsSandboxReadback'),
     internalCapability('pms_sandbox_reset', 'POST', '/v1/sandbox/reset', undefined, 'PmsSandboxReadback'),
   ];
+}
+
+function reservationDraftCapability(
+  operation: PmsReservationDraftWorkflowOperation,
+  path: string,
+  capabilityClass: Extract<PmsCapabilityClass, 'draft' | 'prepareConfirm'>,
+  requestSchemaRef: string,
+  slots: PmsCapabilityManifestItem['slots'],
+): PmsCapabilityManifestItem {
+  return capability({
+    name: operation,
+    class: capabilityClass,
+    customerChatAllowed: true,
+    naturalLanguageExecutable: true,
+    confirmationRequired: false,
+    schemaRefs: { request: requestSchemaRef, response: 'ReservationDraftWorkflowApiResponse' },
+    slots,
+    refs: { workflow: 'reservationDraft' },
+    idempotency: { required: true, keyField: 'clientToken', fingerprintRequired: true, replaySafe: true },
+    audit: { auditRequired: true, emitsDomainEvents: false, eventTypes: [] },
+    endpoint: { method: 'POST', path, operation, auth: 'bearer-token' },
+  });
 }
 
 function readCapability(
@@ -1007,6 +1135,40 @@ export function executeDashboardApiRequest(request: DashboardApiRequest, ports: 
   };
 }
 
+export function executeReservationDraftWorkflowApiRequest(
+  request: ReservationDraftWorkflowApiRequest,
+): ReservationDraftWorkflowApiResponse {
+  const gap: ReservationDraftWorkflowSafeGap = {
+    code: 'RESERVATION_DRAFT_WORKFLOW_NOT_IMPLEMENTED',
+    owner: 'pms-platform',
+    mutationStatus: 'none',
+    message: 'Reservation draft workflow storage and mutation behavior are intentionally not implemented in this contract skeleton.',
+  };
+
+  return {
+    ok: false,
+    operation: request.operation,
+    status: 'notImplemented',
+    mutationStatus: 'none',
+    draft: {
+      workflowType: 'reservation',
+      ...(isDraftScopedRequest(request) ? { draftId: request.draftId } : {}),
+      status: 'collectingSlots',
+      missingSlots: [],
+      evidenceRefs: request.evidenceRefs ?? [],
+      ...(request.expiresAt ? { expiresAt: request.expiresAt } : {}),
+    },
+    gap,
+    errors: [
+      {
+        code: gap.code,
+        message: gap.message,
+        field: 'operation',
+      },
+    ],
+  };
+}
+
 export function executeAvailabilitySearchApiRequest(
   request: AvailabilitySearchApiRequest,
   inventory: InventoryReadModel,
@@ -1039,6 +1201,12 @@ export function executeAvailabilitySearchApiRequest(
       projectionFreshness: inventory.projectionFreshness,
     },
   };
+}
+
+function isDraftScopedRequest(
+  request: ReservationDraftWorkflowApiRequest,
+): request is ReservationDraftUpdateApiRequest | ReservationPrepareConfirmApiRequest | ReservationDraftCancelApiRequest {
+  return 'draftId' in request;
 }
 
 function findAvailabilityCandidates(
@@ -1122,6 +1290,11 @@ export function describeApiContractBoundary() {
       pmsInventoryIntervalsOperation,
       pmsInventorySummaryOperation,
       pmsAvailabilitySearchOperation,
+      pmsReservationDraftCreateOperation,
+      pmsReservationDraftUpdateOperation,
+      pmsReservationQuoteOperation,
+      pmsReservationPrepareConfirmOperation,
+      pmsReservationDraftCancelOperation,
       pmsOperationRequestCreateOperation,
       pmsOperationRequestGetOperation,
       pmsOperationRequestListOperation,

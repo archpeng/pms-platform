@@ -7,6 +7,8 @@ import {
   pmsCapabilityManifestOperation,
   pmsCheckInOperation,
   pmsCheckOutOperation,
+  pmsReservationDraftCreateOperation,
+  pmsReservationPrepareConfirmOperation,
   type CheckInConfirmApiRequest,
   type CheckOutConfirmApiRequest,
   type CheckOutDryRunApiRequest,
@@ -110,6 +112,11 @@ describe('PMS local durable checkout sandbox HTTP boundary', () => {
       'pms_inventory_intervals',
       'pms_inventory_summary',
       'pms_availability_search',
+      'pms.reservation.draft.create',
+      'pms.reservation.draft.update',
+      'pms.reservation.quote',
+      'pms.reservation.prepare_confirm',
+      'pms.reservation.draft.cancel',
       'pms_operation_request_create',
       'pms_operation_request_get',
       'pms_operation_request_list',
@@ -166,6 +173,8 @@ describe('PMS local durable checkout sandbox HTTP boundary', () => {
       expect.objectContaining({ name: 'pms_check_in.dryRun', class: 'dryRun' }),
       expect.objectContaining({ name: 'pms_check_in.confirm', class: 'confirm', naturalLanguageExecutable: false }),
       expect.objectContaining({ name: 'pms_operation_request_create', class: 'prepareConfirm' }),
+      expect.objectContaining({ name: 'pms.reservation.draft.create', class: 'draft', naturalLanguageExecutable: true }),
+      expect.objectContaining({ name: 'pms.reservation.prepare_confirm', class: 'prepareConfirm', naturalLanguageExecutable: true }),
       expect.objectContaining({ name: 'pms_capabilities_manifest', class: 'internal', naturalLanguageExecutable: false }),
       expect.objectContaining({ name: 'pms_sandbox_reset', class: 'internal', customerChatAllowed: false }),
     ]));
@@ -333,6 +342,55 @@ describe('PMS local durable checkout sandbox HTTP boundary', () => {
     expect(reset.audits).toEqual([]);
     expect(reset.domainEvents).toEqual([]);
     expect(reset.idempotencyRecords).toEqual([]);
+  });
+
+  it('serves reservation draft route skeletons as safe gaps without mutating PMS state', async () => {
+    const { url } = await startServer();
+
+    const before = await authedGet(`${url}/v1/sandbox/readback/room-1001`);
+    const create = await authedPost(`${url}/v1/pms/reservation-drafts/create`, {
+      operation: pmsReservationDraftCreateOperation,
+      propertyId: 'property-small-hotel',
+      actor: { type: 'human', id: 'frontdesk-1', displayName: 'Front Desk' },
+      source: 'api',
+      clientToken: 'http-reservation-draft-create-1',
+      requestFingerprint: 'sha256:http-reservation-draft-create-1',
+      correlationId: 'corr-http-reservation-draft-create-1',
+      requestedAt: '2026-05-02T00:00:00.000Z',
+      slots: { guestDisplayName: 'Guest Draft', arrivalDate: '2026-05-04', departureDate: '2026-05-05' },
+    });
+    const prepareConfirm = await authedPost(`${url}/v1/pms/reservation-drafts/prepare-confirm`, {
+      operation: pmsReservationPrepareConfirmOperation,
+      propertyId: 'property-small-hotel',
+      actor: { type: 'human', id: 'frontdesk-1', displayName: 'Front Desk' },
+      source: 'api',
+      clientToken: 'http-reservation-prepare-1',
+      requestFingerprint: 'sha256:http-reservation-prepare-1',
+      correlationId: 'corr-http-reservation-prepare-1',
+      requestedAt: '2026-05-02T00:01:00.000Z',
+      draftId: 'draft-http-1',
+      quoteRef: 'quote-http-1',
+    });
+    const after = await authedGet(`${url}/v1/sandbox/readback/room-1001`);
+
+    expect(create).toMatchObject({
+      ok: false,
+      operation: 'pms.reservation.draft.create',
+      status: 'notImplemented',
+      mutationStatus: 'none',
+      gap: { code: 'RESERVATION_DRAFT_WORKFLOW_NOT_IMPLEMENTED', owner: 'pms-platform' },
+    });
+    expect(prepareConfirm).toMatchObject({
+      ok: false,
+      operation: 'pms.reservation.prepare_confirm',
+      mutationStatus: 'none',
+      draft: { draftId: 'draft-http-1' },
+    });
+    expect(after.rooms).toEqual(before.rooms);
+    expect(after.reservations).toEqual(before.reservations);
+    expect(after.operationRequests).toEqual(before.operationRequests);
+    expect(after.audits).toEqual([]);
+    expect(after.domainEvents).toEqual([]);
   });
 
   it('creates, reads, and updates operation requests through HTTP without mutating PMS state', async () => {

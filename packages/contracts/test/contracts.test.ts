@@ -29,6 +29,10 @@ import {
   type OperationRequest,
   type PmsCapabilityManifest,
   type PmsCommandDryRunPlan,
+  reservationDraftCreateOperationName,
+  reservationDraftWorkflowOperations,
+  type ReservationDraftWorkflowRef,
+  type ReservationDraftWorkflowSafeGap,
   type ReportMaintenanceCommand,
   type RestoreSellableCommand,
   type RoomCheckedInEvent,
@@ -201,6 +205,34 @@ describe('PMS command contracts', () => {
 
     expect(manifest.capabilities[0].endpoint.path).toBe('/v1/pms/check-out');
     expect(manifest.plannerProjection.capabilities[0]).not.toHaveProperty('endpoint');
+  });
+
+  it('defines reservation draft workflow contract names and safe-gap refs', () => {
+    const draftRef: ReservationDraftWorkflowRef = {
+      workflowType: 'reservation',
+      draftId: 'draft-contract-1',
+      status: 'collectingSlots',
+      missingSlots: ['guest', 'stayDates', 'roomType'],
+      evidenceRefs: [{ source: 'availabilitySearch', refId: 'availability-1', generatedAt: validMeta.requestedAt }],
+      expiresAt: '2026-05-03T00:00:00.000Z',
+    };
+    const safeGap: ReservationDraftWorkflowSafeGap = {
+      code: 'RESERVATION_DRAFT_WORKFLOW_NOT_IMPLEMENTED',
+      owner: 'pms-platform',
+      mutationStatus: 'none',
+      message: 'Contract skeleton only.',
+    };
+
+    expect(reservationDraftCreateOperationName).toBe('pms.reservation.draft.create');
+    expect(reservationDraftWorkflowOperations).toEqual([
+      'pms.reservation.draft.create',
+      'pms.reservation.draft.update',
+      'pms.reservation.quote',
+      'pms.reservation.prepare_confirm',
+      'pms.reservation.draft.cancel',
+    ]);
+    expect(draftRef).toMatchObject({ workflowType: 'reservation', status: 'collectingSlots', missingSlots: ['guest', 'stayDates', 'roomType'] });
+    expect(safeGap).toMatchObject({ owner: 'pms-platform', mutationStatus: 'none' });
   });
 
   it('defines PMS-owned room/dashboard read models and command projection shapes', () => {

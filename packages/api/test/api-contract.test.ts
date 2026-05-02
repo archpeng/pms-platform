@@ -19,6 +19,7 @@ import {
   executeDashboardApiRequest,
   executeGetRoomApiRequest,
   executePmsExtendedCommandApiRequest,
+  executeReservationDraftWorkflowApiRequest,
   getPmsCapabilityManifest,
   getPmsCapabilityPlannerProjection,
   pmsCapabilityManifestOperation,
@@ -35,6 +36,11 @@ import {
   pmsOperationRequestListOperation,
   pmsOperationRequestUpdateOperation,
   pmsReportMaintenanceOperation,
+  pmsReservationDraftCancelOperation,
+  pmsReservationDraftCreateOperation,
+  pmsReservationDraftUpdateOperation,
+  pmsReservationPrepareConfirmOperation,
+  pmsReservationQuoteOperation,
   pmsRestoreSellableOperation,
   requestFingerprintInput,
   toCheckInCommand,
@@ -51,6 +57,8 @@ import {
   type HousekeepingDoneApiRequest,
   type MaintenanceDoneApiRequest,
   type ReportMaintenanceApiRequest,
+  type ReservationDraftCreateApiRequest,
+  type ReservationPrepareConfirmApiRequest,
   type RestoreSellableApiRequest,
 } from '../src/index.js';
 
@@ -177,6 +185,11 @@ describe('API checkout contract skeleton', () => {
         'pms_inventory_intervals',
         'pms_inventory_summary',
         'pms_availability_search',
+        'pms.reservation.draft.create',
+        'pms.reservation.draft.update',
+        'pms.reservation.quote',
+        'pms.reservation.prepare_confirm',
+        'pms.reservation.draft.cancel',
         'pms_operation_request_create',
         'pms_operation_request_get',
         'pms_operation_request_list',
@@ -233,11 +246,54 @@ describe('API checkout contract skeleton', () => {
     expect(pmsInventoryIntervalsOperation).toBe('pms_inventory_intervals');
     expect(pmsInventorySummaryOperation).toBe('pms_inventory_summary');
     expect(pmsAvailabilitySearchOperation).toBe('pms_availability_search');
+    expect(pmsReservationDraftCreateOperation).toBe('pms.reservation.draft.create');
+    expect(pmsReservationDraftUpdateOperation).toBe('pms.reservation.draft.update');
+    expect(pmsReservationQuoteOperation).toBe('pms.reservation.quote');
+    expect(pmsReservationPrepareConfirmOperation).toBe('pms.reservation.prepare_confirm');
+    expect(pmsReservationDraftCancelOperation).toBe('pms.reservation.draft.cancel');
     expect(pmsOperationRequestCreateOperation).toBe('pms_operation_request_create');
     expect(pmsOperationRequestGetOperation).toBe('pms_operation_request_get');
     expect(pmsOperationRequestListOperation).toBe('pms_operation_request_list');
     expect(pmsOperationRequestUpdateOperation).toBe('pms_operation_request_update');
     expect(pmsCapabilityManifestOperation).toBe('pms_capabilities_manifest');
+  });
+
+  it('returns typed reservation draft safe gaps without final PMS mutations', () => {
+    const createRequest: ReservationDraftCreateApiRequest = {
+      operation: pmsReservationDraftCreateOperation,
+      propertyId: 'property-small-hotel',
+      actor: checkoutContractFixtures.actor,
+      source: 'api',
+      clientToken: 'reservation-draft-create-1',
+      requestFingerprint: 'sha256:reservation-draft-create-1',
+      correlationId: 'corr-reservation-draft-create-1',
+      requestedAt: '2026-05-02T00:00:00.000Z',
+      slots: { guestDisplayName: 'Guest A', arrivalDate: '2026-05-04', departureDate: '2026-05-05' },
+      evidenceRefs: [{ source: 'availabilitySearch', refId: 'availability-search-1' }],
+    };
+    const prepareRequest: ReservationPrepareConfirmApiRequest = {
+      ...createRequest,
+      operation: pmsReservationPrepareConfirmOperation,
+      clientToken: 'reservation-draft-prepare-1',
+      requestFingerprint: 'sha256:reservation-draft-prepare-1',
+      draftId: 'draft-1',
+      quoteRef: 'quote-1',
+    };
+
+    expect(executeReservationDraftWorkflowApiRequest(createRequest)).toMatchObject({
+      ok: false,
+      operation: 'pms.reservation.draft.create',
+      status: 'notImplemented',
+      mutationStatus: 'none',
+      gap: { code: 'RESERVATION_DRAFT_WORKFLOW_NOT_IMPLEMENTED', owner: 'pms-platform', mutationStatus: 'none' },
+      draft: { workflowType: 'reservation', status: 'collectingSlots', evidenceRefs: [{ refId: 'availability-search-1' }] },
+    });
+    expect(executeReservationDraftWorkflowApiRequest(prepareRequest)).toMatchObject({
+      ok: false,
+      operation: 'pms.reservation.prepare_confirm',
+      mutationStatus: 'none',
+      draft: { draftId: 'draft-1' },
+    });
   });
 
   it('exposes a typed capability manifest with a sanitized planner projection', () => {
@@ -283,6 +339,25 @@ describe('API checkout contract skeleton', () => {
       endpoint: { method: 'POST', path: '/v1/pms/availability/search', auth: 'bearer-token' },
       refs: { readModel: 'AvailabilitySearchReadModel' },
     });
+    expect(byName.get('pms.reservation.draft.create')).toMatchObject({
+      class: 'draft',
+      customerChatAllowed: true,
+      naturalLanguageExecutable: true,
+      confirmationRequired: false,
+      schemaRefs: { request: 'ReservationDraftCreateApiRequest', response: 'ReservationDraftWorkflowApiResponse' },
+      refs: { workflow: 'reservationDraft' },
+      idempotency: { required: true, keyField: 'clientToken', fingerprintRequired: true },
+      audit: { auditRequired: true, emitsDomainEvents: false },
+      endpoint: { method: 'POST', path: '/v1/pms/reservation-drafts/create', auth: 'bearer-token' },
+    });
+    expect(byName.get('pms.reservation.prepare_confirm')).toMatchObject({
+      class: 'prepareConfirm',
+      customerChatAllowed: true,
+      naturalLanguageExecutable: true,
+      confirmationRequired: false,
+      schemaRefs: { request: 'ReservationPrepareConfirmApiRequest', response: 'ReservationDraftWorkflowApiResponse' },
+      endpoint: { method: 'POST', path: '/v1/pms/reservation-drafts/prepare-confirm', auth: 'bearer-token' },
+    });
     expect(byName.get('pms_capabilities_manifest')).toMatchObject({
       class: 'internal',
       customerChatAllowed: false,
@@ -301,6 +376,9 @@ describe('API checkout contract skeleton', () => {
       'pms_get_room',
       'pms_check_out.dryRun',
       'pms_operation_request_create',
+      'pms.reservation.draft.create',
+      'pms.reservation.quote',
+      'pms.reservation.prepare_confirm',
     ]));
     expect(JSON.stringify(projection)).not.toContain('/v1/pms/');
     expect(JSON.stringify(projection)).not.toContain('bearer-token');
