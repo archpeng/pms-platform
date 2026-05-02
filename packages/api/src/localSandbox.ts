@@ -27,9 +27,13 @@ import {
 import {
   executeCheckInApiRequest,
   executeCheckOutApiRequest,
+  executeAvailabilitySearchApiRequest,
   executeDashboardApiRequest,
   executeGetRoomApiRequest,
   executePmsExtendedCommandApiRequest,
+  getPmsCapabilityManifest,
+  pmsAvailabilitySearchOperation,
+  pmsCapabilityManifestOperation,
   pmsCheckInOperation,
   pmsCheckOutOperation,
   pmsDashboardOperation,
@@ -259,10 +263,12 @@ export function createPmsLocalHttpHandler(options: PmsLocalHttpHandlerOptions) {
             pmsRoomReservationContextOperation,
             pmsInventoryIntervalsOperation,
             pmsInventorySummaryOperation,
+            pmsAvailabilitySearchOperation,
             pmsOperationRequestCreateOperation,
             pmsOperationRequestGetOperation,
             pmsOperationRequestListOperation,
             pmsOperationRequestUpdateOperation,
+            pmsCapabilityManifestOperation,
           ],
           storage: options.store.storage,
           auth: {
@@ -284,6 +290,15 @@ export function createPmsLocalHttpHandler(options: PmsLocalHttpHandlerOptions) {
             envName: auth.envName,
             required: auth.required,
           },
+        });
+        return;
+      }
+
+      if (request.method === 'GET' && url.pathname === '/v1/pms/capabilities/manifest') {
+        writeJson(response, 200, {
+          ok: true,
+          operation: pmsCapabilityManifestOperation,
+          manifest: getPmsCapabilityManifest(),
         });
         return;
       }
@@ -408,6 +423,26 @@ export function createPmsLocalHttpHandler(options: PmsLocalHttpHandlerOptions) {
           operation: pmsInventorySummaryOperation,
           readModel: options.store.inventorySummary(body),
         });
+        return;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/v1/pms/availability/search') {
+        const body = await readJsonBody(request) as { startDate?: string; endDate?: string; horizonDays?: number };
+        const startDate = typeof body.startDate === 'string' ? body.startDate : new Date().toISOString().slice(0, 10);
+        const horizonDays = typeof body.horizonDays === 'number'
+          ? body.horizonDays
+          : typeof body.endDate === 'string'
+            ? Math.max(1, businessDateDiff(startDate, body.endDate))
+            : 1;
+        const inventory = options.store.inventoryIntervals({ startDate, horizonDays });
+        writeJson(response, 200, executeAvailabilitySearchApiRequest({
+          ...(body as Record<string, unknown>),
+          operation: pmsAvailabilitySearchOperation,
+          startDate,
+          requestedAt: typeof (body as { requestedAt?: unknown }).requestedAt === 'string'
+            ? (body as { requestedAt: string }).requestedAt
+            : new Date().toISOString(),
+        }, inventory));
         return;
       }
 
@@ -614,4 +649,11 @@ function readJsonBody(request: IncomingMessage, allowEmpty = false): Promise<unk
 function writeJson(response: ServerResponse, statusCode: number, body: unknown): void {
   response.writeHead(statusCode, { 'content-type': 'application/json; charset=utf-8' });
   response.end(`${JSON.stringify(body)}\n`);
+}
+
+function businessDateDiff(startDate: string, endDate: string): number {
+  const start = Date.parse(`${startDate}T00:00:00.000Z`);
+  const end = Date.parse(`${endDate}T00:00:00.000Z`);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return 1;
+  return Math.ceil((end - start) / 86_400_000);
 }

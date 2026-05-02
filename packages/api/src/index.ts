@@ -1,5 +1,7 @@
 import type {
   Actor,
+  AvailabilityRoomCandidate,
+  AvailabilitySearchReadModel,
   CheckInCommand,
   CheckOutCommand,
   CommandExecutionMode,
@@ -14,6 +16,11 @@ import type {
   OperationRequest,
   OperationRequestSource,
   OperationRequestStatus,
+  PmsCapabilityClass,
+  PmsCapabilityManifest,
+  PmsCapabilityManifestItem,
+  PmsCapabilityPlannerProjection,
+  PmsCapabilityPlannerProjectionItem,
   MaintenanceDoneCommand,
   ReservationReadModel,
   ReportMaintenanceCommand,
@@ -61,10 +68,12 @@ export const pmsTodayDeparturesOperation = 'pms_today_departures';
 export const pmsRoomReservationContextOperation = 'pms_room_reservation_context';
 export const pmsInventoryIntervalsOperation = 'pms_inventory_intervals';
 export const pmsInventorySummaryOperation = 'pms_inventory_summary';
+export const pmsAvailabilitySearchOperation = 'pms_availability_search';
 export const pmsOperationRequestCreateOperation = 'pms_operation_request_create';
 export const pmsOperationRequestGetOperation = 'pms_operation_request_get';
 export const pmsOperationRequestListOperation = 'pms_operation_request_list';
 export const pmsOperationRequestUpdateOperation = 'pms_operation_request_update';
+export const pmsCapabilityManifestOperation = 'pms_capabilities_manifest';
 
 export type PmsCommandOperation =
   | typeof pmsCheckInOperation
@@ -83,7 +92,8 @@ export type PmsReadModelOperation =
   | typeof pmsTodayDeparturesOperation
   | typeof pmsRoomReservationContextOperation
   | typeof pmsInventoryIntervalsOperation
-  | typeof pmsInventorySummaryOperation;
+  | typeof pmsInventorySummaryOperation
+  | typeof pmsAvailabilitySearchOperation;
 export type PmsApiMode = 'dryRun' | 'confirm';
 export type CheckOutApiMode = PmsApiMode;
 export type PmsOperationRequestOperation =
@@ -367,6 +377,24 @@ export interface InventorySummaryApiResponse {
   readonly readModel: InventoryReadModel;
 }
 
+export interface AvailabilitySearchApiRequest {
+  readonly operation: typeof pmsAvailabilitySearchOperation;
+  readonly startDate: string;
+  readonly endDate?: string;
+  readonly horizonDays?: number;
+  readonly roomTypeId?: string;
+  readonly roomTypeKeyword?: string;
+  readonly capacity?: number;
+  readonly count?: number;
+  readonly requestedAt: string;
+}
+
+export interface AvailabilitySearchApiResponse {
+  readonly ok: true;
+  readonly operation: typeof pmsAvailabilitySearchOperation;
+  readonly readModel: AvailabilitySearchReadModel;
+}
+
 export type PmsReadModelApiRequest =
   | GetRoomApiRequest
   | DashboardApiRequest
@@ -374,7 +402,8 @@ export type PmsReadModelApiRequest =
   | TodayReservationsApiRequest
   | RoomReservationContextApiRequest
   | InventoryIntervalsApiRequest
-  | InventorySummaryApiRequest;
+  | InventorySummaryApiRequest
+  | AvailabilitySearchApiRequest;
 export type PmsReadModelApiResponse =
   | GetRoomApiResponse
   | DashboardApiResponse
@@ -382,7 +411,8 @@ export type PmsReadModelApiResponse =
   | TodayReservationsApiResponse
   | RoomReservationContextApiResponse
   | InventoryIntervalsApiResponse
-  | InventorySummaryApiResponse;
+  | InventorySummaryApiResponse
+  | AvailabilitySearchApiResponse;
 
 export interface OperationRequestCreateApiRequest {
   readonly operation?: typeof pmsOperationRequestCreateOperation;
@@ -486,6 +516,187 @@ export interface ExecuteCheckOutApiOptions {
 }
 
 export type ExecuteCheckInApiOptions = ExecuteCheckOutApiOptions;
+
+export function getPmsCapabilityManifest(generatedAt = new Date().toISOString()): PmsCapabilityManifest {
+  const capabilities = buildPmsCapabilityManifestItems();
+  return {
+    schemaVersion: 'pms-capability-manifest-v1',
+    generatedAt,
+    capabilities,
+    plannerProjection: getPmsCapabilityPlannerProjection(capabilities),
+  };
+}
+
+export function getPmsCapabilityPlannerProjection(
+  capabilities: readonly PmsCapabilityManifestItem[],
+): PmsCapabilityPlannerProjection {
+  return {
+    schemaVersion: 'pms-capability-planner-projection-v1',
+    capabilities: capabilities
+      .filter((capability) =>
+        capability.customerChatAllowed &&
+        capability.naturalLanguageExecutable &&
+        !capability.confirmationRequired &&
+        capability.class !== 'confirm' &&
+        capability.class !== 'internal'
+      )
+      .map(({ endpoint: _endpoint, ...capability }): PmsCapabilityPlannerProjectionItem => capability),
+  };
+}
+
+function buildPmsCapabilityManifestItems(): readonly PmsCapabilityManifestItem[] {
+  return [
+    readCapability(pmsGetRoomOperation, '/v1/pms/room', 'GetRoomApiRequest', 'GetRoomApiResponse', [{ name: 'roomId', required: true, source: 'user' }], 'RoomReadModel'),
+    readCapability(pmsDashboardOperation, '/v1/pms/dashboard', 'DashboardApiRequest', 'DashboardApiResponse', [], 'DashboardReadModel'),
+    readCapability(pmsReservationGetOperation, '/v1/pms/reservations/get', 'ReservationGetApiRequest', 'ReservationGetApiResponse', [{ name: 'reservationCode', required: true, source: 'user' }], 'ReservationReadModel'),
+    readCapability(pmsTodayArrivalsOperation, '/v1/pms/reservations/today-arrivals', 'TodayReservationsApiRequest', 'TodayReservationsApiResponse', [{ name: 'businessDate', required: true, source: 'user' }], 'TodayReservationsReadModel'),
+    readCapability(pmsTodayDeparturesOperation, '/v1/pms/reservations/today-departures', 'TodayReservationsApiRequest', 'TodayReservationsApiResponse', [{ name: 'businessDate', required: true, source: 'user' }], 'TodayReservationsReadModel'),
+    readCapability(pmsRoomReservationContextOperation, '/v1/pms/room/reservation-context', 'RoomReservationContextApiRequest', 'RoomReservationContextApiResponse', [{ name: 'roomId', required: true, source: 'user' }], 'RoomReservationContextReadModel'),
+    readCapability(pmsInventoryIntervalsOperation, '/v1/pms/inventory/intervals', 'InventoryIntervalsApiRequest', 'InventoryIntervalsApiResponse', [], 'InventoryReadModel'),
+    readCapability(pmsInventorySummaryOperation, '/v1/pms/inventory/summary', 'InventorySummaryApiRequest', 'InventorySummaryApiResponse', [], 'InventoryReadModel'),
+    readCapability(pmsAvailabilitySearchOperation, '/v1/pms/availability/search', 'AvailabilitySearchApiRequest', 'AvailabilitySearchApiResponse', [
+      { name: 'startDate', required: true, source: 'user' },
+      { name: 'endDate', required: false, source: 'user' },
+      { name: 'roomTypeKeyword', required: false, source: 'user' },
+      { name: 'capacity', required: false, source: 'user' },
+      { name: 'count', required: false, source: 'user' },
+    ], 'AvailabilitySearchReadModel'),
+    readCapability(pmsOperationRequestGetOperation, '/v1/pms/operation-requests/get', 'OperationRequestGetApiRequest', 'OperationRequestGetApiResponse', [{ name: 'operationRequestId', required: false, source: 'context' }], 'OperationRequest'),
+    readCapability(pmsOperationRequestListOperation, '/v1/pms/operation-requests/list', 'OperationRequestListApiRequest', 'OperationRequestListApiResponse', [], 'OperationRequest'),
+    commandCapability(pmsCheckInOperation, 'CHECK_IN', '/v1/pms/check-in', 'dryRun', ['RoomCheckedIn'], [{ name: 'roomId', required: true, source: 'user' }, { name: 'reservationCode', required: false, source: 'user' }]),
+    commandCapability(pmsCheckInOperation, 'CHECK_IN', '/v1/pms/check-in', 'confirm', ['RoomCheckedIn'], [{ name: 'roomId', required: true, source: 'user' }, { name: 'reservationCode', required: false, source: 'user' }]),
+    commandCapability(pmsCheckOutOperation, 'CHECK_OUT', '/v1/pms/check-out', 'dryRun', ['RoomCheckedOut', 'HousekeepingTaskCreated'], [{ name: 'roomId', required: true, source: 'user' }]),
+    commandCapability(pmsCheckOutOperation, 'CHECK_OUT', '/v1/pms/check-out', 'confirm', ['RoomCheckedOut', 'HousekeepingTaskCreated'], [{ name: 'roomId', required: true, source: 'user' }]),
+    commandCapability(pmsHousekeepingDoneOperation, 'HOUSEKEEPING_DONE', '/v1/pms/housekeeping/done', 'dryRun', ['HousekeepingCompleted'], [{ name: 'roomId', required: true, source: 'user' }]),
+    commandCapability(pmsHousekeepingDoneOperation, 'HOUSEKEEPING_DONE', '/v1/pms/housekeeping/done', 'confirm', ['HousekeepingCompleted'], [{ name: 'roomId', required: true, source: 'user' }]),
+    commandCapability(pmsHousekeepingInspectionOperation, 'HOUSEKEEPING_INSPECTION', '/v1/pms/housekeeping/inspection', 'dryRun', ['HousekeepingInspectionPassed', 'HousekeepingInspectionFailed'], [{ name: 'roomId', required: true, source: 'user' }, { name: 'result', required: true, source: 'user' }]),
+    commandCapability(pmsHousekeepingInspectionOperation, 'HOUSEKEEPING_INSPECTION', '/v1/pms/housekeeping/inspection', 'confirm', ['HousekeepingInspectionPassed', 'HousekeepingInspectionFailed'], [{ name: 'roomId', required: true, source: 'user' }, { name: 'result', required: true, source: 'user' }]),
+    commandCapability(pmsHousekeepingReworkOperation, 'HOUSEKEEPING_REWORK', '/v1/pms/housekeeping/rework', 'dryRun', ['HousekeepingReworkCompleted'], [{ name: 'roomId', required: true, source: 'user' }]),
+    commandCapability(pmsHousekeepingReworkOperation, 'HOUSEKEEPING_REWORK', '/v1/pms/housekeeping/rework', 'confirm', ['HousekeepingReworkCompleted'], [{ name: 'roomId', required: true, source: 'user' }]),
+    commandCapability(pmsReportMaintenanceOperation, 'REPORT_MAINTENANCE', '/v1/pms/maintenance/report', 'dryRun', ['MaintenanceReported'], [{ name: 'roomId', required: true, source: 'user' }, { name: 'severity', required: false, source: 'user' }]),
+    commandCapability(pmsReportMaintenanceOperation, 'REPORT_MAINTENANCE', '/v1/pms/maintenance/report', 'confirm', ['MaintenanceReported'], [{ name: 'roomId', required: true, source: 'user' }, { name: 'severity', required: false, source: 'user' }]),
+    commandCapability(pmsMaintenanceDoneOperation, 'MAINTENANCE_DONE', '/v1/pms/maintenance/done', 'dryRun', ['MaintenanceCompleted'], [{ name: 'roomId', required: true, source: 'user' }, { name: 'ticketId', required: false, source: 'context' }]),
+    commandCapability(pmsMaintenanceDoneOperation, 'MAINTENANCE_DONE', '/v1/pms/maintenance/done', 'confirm', ['MaintenanceCompleted'], [{ name: 'roomId', required: true, source: 'user' }, { name: 'ticketId', required: false, source: 'context' }]),
+    commandCapability(pmsRestoreSellableOperation, 'RESTORE_SELLABLE', '/v1/pms/maintenance/restore-sellable', 'dryRun', ['RoomSellabilityRestored'], [{ name: 'roomId', required: true, source: 'user' }]),
+    commandCapability(pmsRestoreSellableOperation, 'RESTORE_SELLABLE', '/v1/pms/maintenance/restore-sellable', 'confirm', ['RoomSellabilityRestored'], [{ name: 'roomId', required: true, source: 'user' }]),
+    capability({
+      name: pmsOperationRequestCreateOperation,
+      class: 'prepareConfirm',
+      customerChatAllowed: true,
+      naturalLanguageExecutable: true,
+      confirmationRequired: false,
+      schemaRefs: { request: 'OperationRequestCreateApiRequest', response: 'OperationRequestCreateApiResponse' },
+      slots: [{ name: 'action', required: true, source: 'user' }],
+      refs: { readModel: 'OperationRequest' },
+      idempotency: { required: true, keyField: 'clientToken', fingerprintRequired: true, replaySafe: true },
+      audit: { auditRequired: true, emitsDomainEvents: false, eventTypes: [] },
+      endpoint: { method: 'POST', path: '/v1/pms/operation-requests/create', operation: pmsOperationRequestCreateOperation, auth: 'bearer-token' },
+    }),
+    internalCapability(pmsOperationRequestUpdateOperation, 'POST', '/v1/pms/operation-requests/update', 'OperationRequestUpdateApiRequest', 'OperationRequestUpdateApiResponse'),
+    internalCapability(pmsCapabilityManifestOperation, 'GET', '/v1/pms/capabilities/manifest', undefined, 'PmsCapabilityManifest'),
+    internalCapability('pms_sandbox_readback', 'GET', '/v1/sandbox/readback', undefined, 'PmsSandboxReadback'),
+    internalCapability('pms_sandbox_reset', 'POST', '/v1/sandbox/reset', undefined, 'PmsSandboxReadback'),
+  ];
+}
+
+function readCapability(
+  operation: string,
+  path: string,
+  requestSchemaRef: string,
+  responseSchemaRef: string,
+  slots: PmsCapabilityManifestItem['slots'],
+  readModel: string,
+): PmsCapabilityManifestItem {
+  return capability({
+    name: operation,
+    class: 'read',
+    customerChatAllowed: true,
+    naturalLanguageExecutable: true,
+    confirmationRequired: false,
+    schemaRefs: { request: requestSchemaRef, response: responseSchemaRef },
+    slots,
+    refs: { readModel },
+    idempotency: { required: false, fingerprintRequired: false, replaySafe: true },
+    audit: { auditRequired: false, emitsDomainEvents: false, eventTypes: [] },
+    endpoint: { method: 'POST', path, operation, auth: 'bearer-token' },
+  });
+}
+
+function commandCapability(
+  operation: PmsCommandOperation,
+  commandType: PmsCapabilityManifestItem['refs']['commandType'],
+  path: string,
+  mode: PmsApiMode,
+  eventTypes: readonly string[],
+  slots: PmsCapabilityManifestItem['slots'],
+): PmsCapabilityManifestItem {
+  const isConfirm = mode === 'confirm';
+  return capability({
+    name: `${operation}.${mode}`,
+    class: isConfirm ? 'confirm' : 'dryRun',
+    customerChatAllowed: !isConfirm,
+    naturalLanguageExecutable: !isConfirm,
+    confirmationRequired: isConfirm,
+    schemaRefs: { request: `${commandSchemaStem(operation)}${isConfirm ? 'Confirm' : 'DryRun'}ApiRequest`, response: `${commandSchemaStem(operation)}ApiResponse` },
+    slots,
+    refs: { commandType, domainEvents: eventTypes },
+    idempotency: { required: true, keyField: 'idempotencyKey', fingerprintRequired: true, replaySafe: true },
+    audit: { auditRequired: isConfirm, emitsDomainEvents: isConfirm, eventTypes: isConfirm ? eventTypes : [] },
+    endpoint: { method: 'POST', path, operation, mode, auth: 'bearer-token' },
+  });
+}
+
+function commandSchemaStem(operation: PmsCommandOperation): string {
+  if (operation === pmsCheckInOperation) return 'CheckIn';
+  if (operation === pmsCheckOutOperation) return 'CheckOut';
+  if (operation === pmsHousekeepingDoneOperation) return 'HousekeepingDone';
+  if (operation === pmsHousekeepingInspectionOperation) return 'HousekeepingInspection';
+  if (operation === pmsHousekeepingReworkOperation) return 'HousekeepingRework';
+  if (operation === pmsReportMaintenanceOperation) return 'ReportMaintenance';
+  if (operation === pmsMaintenanceDoneOperation) return 'MaintenanceDone';
+  return 'RestoreSellable';
+}
+
+function internalCapability(
+  operation: string,
+  method: PmsCapabilityManifestItem['endpoint']['method'],
+  path: string,
+  requestSchemaRef: string | undefined,
+  responseSchemaRef: string,
+): PmsCapabilityManifestItem {
+  return capability({
+    name: operation,
+    class: 'internal',
+    customerChatAllowed: false,
+    naturalLanguageExecutable: false,
+    confirmationRequired: false,
+    schemaRefs: { request: requestSchemaRef, response: responseSchemaRef },
+    slots: [],
+    refs: {},
+    idempotency: { required: false, fingerprintRequired: false, replaySafe: false },
+    audit: { auditRequired: true, emitsDomainEvents: false, eventTypes: [] },
+    endpoint: { method, path, operation, auth: 'bearer-token' },
+  });
+}
+
+function capability(options: {
+  readonly name: string;
+  readonly class: PmsCapabilityClass;
+  readonly customerChatAllowed: boolean;
+  readonly naturalLanguageExecutable: boolean;
+  readonly confirmationRequired: boolean;
+  readonly schemaRefs: PmsCapabilityManifestItem['schemaRefs'];
+  readonly slots: PmsCapabilityManifestItem['slots'];
+  readonly refs: PmsCapabilityManifestItem['refs'];
+  readonly idempotency: PmsCapabilityManifestItem['idempotency'];
+  readonly audit: PmsCapabilityManifestItem['audit'];
+  readonly endpoint: PmsCapabilityManifestItem['endpoint'];
+}): PmsCapabilityManifestItem {
+  return {
+    version: 'v1',
+    ...options,
+  };
+}
 
 export function executeCheckInApiRequest(
   request: CheckInApiRequest,
@@ -796,6 +1007,99 @@ export function executeDashboardApiRequest(request: DashboardApiRequest, ports: 
   };
 }
 
+export function executeAvailabilitySearchApiRequest(
+  request: AvailabilitySearchApiRequest,
+  inventory: InventoryReadModel,
+): AvailabilitySearchApiResponse {
+  const requestedDates = dateRange(request.startDate, request.endDate ?? addBusinessDays(request.startDate, 1));
+  const unsupportedFilters = request.capacity === undefined ? [] as const : ['capacity'] as const;
+  const count = positiveIntegerOrUndefined(request.count);
+  const candidates = unsupportedFilters.length > 0
+    ? []
+    : findAvailabilityCandidates(inventory, requestedDates, request).slice(0, count);
+
+  return {
+    ok: true,
+    operation: pmsAvailabilitySearchOperation,
+    readModel: {
+      schemaVersion: inventory.schemaVersion,
+      generatedAt: request.requestedAt,
+      summaryStatus: inventory.summaryStatus,
+      request: {
+        startDate: request.startDate,
+        endDate: request.endDate ?? addBusinessDays(request.startDate, 1),
+        ...(request.roomTypeId ? { roomTypeId: request.roomTypeId } : {}),
+        ...(request.roomTypeKeyword ? { roomTypeKeyword: request.roomTypeKeyword } : {}),
+        ...(count ? { count } : {}),
+        unsupportedFilters,
+      },
+      candidates,
+      candidateCount: candidates.length,
+      truncated: count !== undefined && findAvailabilityCandidates(inventory, requestedDates, request).length > candidates.length,
+      projectionFreshness: inventory.projectionFreshness,
+    },
+  };
+}
+
+function findAvailabilityCandidates(
+  inventory: InventoryReadModel,
+  requestedDates: readonly string[],
+  request: AvailabilitySearchApiRequest,
+): readonly AvailabilityRoomCandidate[] {
+  const byRoom = new Map<string, typeof inventory.dayRooms>();
+  for (const dayRoom of inventory.dayRooms) {
+    if (!requestedDates.includes(dayRoom.businessDate)) continue;
+    if (request.roomTypeId && dayRoom.roomTypeId !== request.roomTypeId) continue;
+    if (request.roomTypeKeyword && !matchesRoomTypeKeyword(dayRoom, request.roomTypeKeyword)) continue;
+    byRoom.set(dayRoom.roomId, [...(byRoom.get(dayRoom.roomId) ?? []), dayRoom]);
+  }
+
+  return Array.from(byRoom.values())
+    .filter((dayRooms) => dayRooms.length === requestedDates.length)
+    .filter((dayRooms) => dayRooms.every((dayRoom) => dayRoom.availabilityStatus === 'available'))
+    .map((dayRooms) => {
+      const first = dayRooms[0]!;
+      return {
+        roomId: first.roomId,
+        roomNumber: first.roomNumber,
+        propertyId: first.propertyId,
+        ...(first.roomTypeId ? { roomTypeId: first.roomTypeId } : {}),
+        ...(first.roomType ? { roomType: first.roomType } : {}),
+        availableDates: dayRooms.map((dayRoom) => dayRoom.businessDate).sort(),
+        sourceRefs: dayRooms.flatMap((dayRoom) => dayRoom.sourceRefs),
+      };
+    })
+    .sort((left, right) => left.roomNumber.localeCompare(right.roomNumber));
+}
+
+function matchesRoomTypeKeyword(dayRoom: InventoryReadModel['dayRooms'][number], keyword: string): boolean {
+  const needle = keyword.trim().toLocaleLowerCase();
+  if (!needle) return true;
+  return [dayRoom.roomTypeId, dayRoom.roomType, dayRoom.roomNumber]
+    .filter((value): value is string => typeof value === 'string')
+    .some((value) => value.toLocaleLowerCase().includes(needle));
+}
+
+function dateRange(startDate: string, endDate: string): readonly string[] {
+  const dates: string[] = [];
+  for (let cursor = startDate; cursor < endDate; cursor = addBusinessDays(cursor, 1)) {
+    dates.push(cursor);
+    if (dates.length > 90) break;
+  }
+  return dates.length > 0 ? dates : [startDate];
+}
+
+function addBusinessDays(date: string, days: number): string {
+  const parsed = new Date(`${date}T00:00:00.000Z`);
+  parsed.setUTCDate(parsed.getUTCDate() + days);
+  return parsed.toISOString().slice(0, 10);
+}
+
+function positiveIntegerOrUndefined(value: number | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  return Number.isInteger(value) && value > 0 ? value : undefined;
+}
+
 export function describeApiContractBoundary() {
   return {
     packageName: apiPackageName,
@@ -817,10 +1121,12 @@ export function describeApiContractBoundary() {
       pmsRoomReservationContextOperation,
       pmsInventoryIntervalsOperation,
       pmsInventorySummaryOperation,
+      pmsAvailabilitySearchOperation,
       pmsOperationRequestCreateOperation,
       pmsOperationRequestGetOperation,
       pmsOperationRequestListOperation,
       pmsOperationRequestUpdateOperation,
+      pmsCapabilityManifestOperation,
     ] as const,
     importsCoreResult: true,
     exposesLocalHandler: true,

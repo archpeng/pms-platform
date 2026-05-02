@@ -88,6 +88,78 @@ export function isOperationRequestStatus(value: string): value is OperationReque
   return (operationRequestStatuses as readonly string[]).includes(value);
 }
 
+export type PmsCapabilityClass = 'read' | 'dryRun' | 'draft' | 'prepareConfirm' | 'confirm' | 'internal';
+
+export interface PmsCapabilitySchemaRefs {
+  readonly request?: string;
+  readonly response?: string;
+  readonly result?: string;
+}
+
+export interface PmsCapabilitySlot {
+  readonly name: string;
+  readonly required: boolean;
+  readonly source: 'user' | 'context' | 'system' | 'server';
+  readonly schemaRef?: string;
+}
+
+export interface PmsCapabilityRefs {
+  readonly commandType?: PmsCommandType;
+  readonly readModel?: string;
+  readonly operationRequestAction?: OperationRequestAction;
+  readonly domainEvents?: readonly string[];
+}
+
+export interface PmsCapabilityIdempotencyMetadata {
+  readonly required: boolean;
+  readonly keyField?: string;
+  readonly fingerprintRequired: boolean;
+  readonly replaySafe: boolean;
+}
+
+export interface PmsCapabilityAuditMetadata {
+  readonly auditRequired: boolean;
+  readonly emitsDomainEvents: boolean;
+  readonly eventTypes: readonly string[];
+}
+
+export interface PmsCapabilityEndpointMetadata {
+  readonly method: 'GET' | 'POST';
+  readonly path: string;
+  readonly operation: string;
+  readonly mode?: CommandExecutionMode;
+  readonly auth: 'bearer-token';
+}
+
+export interface PmsCapabilityManifestItem {
+  readonly name: string;
+  readonly version: string;
+  readonly class: PmsCapabilityClass;
+  readonly customerChatAllowed: boolean;
+  readonly naturalLanguageExecutable: boolean;
+  readonly confirmationRequired: boolean;
+  readonly schemaRefs: PmsCapabilitySchemaRefs;
+  readonly slots: readonly PmsCapabilitySlot[];
+  readonly refs: PmsCapabilityRefs;
+  readonly idempotency: PmsCapabilityIdempotencyMetadata;
+  readonly audit: PmsCapabilityAuditMetadata;
+  readonly endpoint: PmsCapabilityEndpointMetadata;
+}
+
+export type PmsCapabilityPlannerProjectionItem = Omit<PmsCapabilityManifestItem, 'endpoint'>;
+
+export interface PmsCapabilityPlannerProjection {
+  readonly schemaVersion: 'pms-capability-planner-projection-v1';
+  readonly capabilities: readonly PmsCapabilityPlannerProjectionItem[];
+}
+
+export interface PmsCapabilityManifest {
+  readonly schemaVersion: 'pms-capability-manifest-v1';
+  readonly generatedAt: string;
+  readonly capabilities: readonly PmsCapabilityManifestItem[];
+  readonly plannerProjection: PmsCapabilityPlannerProjection;
+}
+
 export interface CommandMeta {
   readonly actor: Actor;
   readonly source: CommandSource;
@@ -535,6 +607,38 @@ export interface InventoryReadModel {
   readonly dayRooms: readonly InventoryDayRoom[];
   readonly intervals: readonly InventoryIntervalProjection[];
   readonly summaries: readonly InventorySummaryDayType[];
+  readonly projectionFreshness: ProjectionFreshness;
+}
+
+export type AvailabilityUnsupportedFilter = 'capacity';
+
+export interface AvailabilitySearchRequestEcho {
+  readonly startDate: string;
+  readonly endDate: string;
+  readonly roomTypeId?: string;
+  readonly roomTypeKeyword?: string;
+  readonly count?: number;
+  readonly unsupportedFilters: readonly AvailabilityUnsupportedFilter[];
+}
+
+export interface AvailabilityRoomCandidate {
+  readonly roomId: string;
+  readonly roomNumber: string;
+  readonly propertyId: string;
+  readonly roomTypeId?: string;
+  readonly roomType?: string;
+  readonly availableDates: readonly string[];
+  readonly sourceRefs: readonly InventorySourceRef[];
+}
+
+export interface AvailabilitySearchReadModel {
+  readonly schemaVersion: typeof pmsProjectionSchemaVersion;
+  readonly generatedAt: string;
+  readonly summaryStatus: ReadModelStatus;
+  readonly request: AvailabilitySearchRequestEcho;
+  readonly candidates: readonly AvailabilityRoomCandidate[];
+  readonly candidateCount: number;
+  readonly truncated: boolean;
   readonly projectionFreshness: ProjectionFreshness;
 }
 

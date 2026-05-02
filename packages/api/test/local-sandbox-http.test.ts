@@ -3,6 +3,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  pmsAvailabilitySearchOperation,
+  pmsCapabilityManifestOperation,
   pmsCheckInOperation,
   pmsCheckOutOperation,
   type CheckInConfirmApiRequest,
@@ -107,10 +109,12 @@ describe('PMS local durable checkout sandbox HTTP boundary', () => {
     expect(health.operations).toEqual(expect.arrayContaining([
       'pms_inventory_intervals',
       'pms_inventory_summary',
+      'pms_availability_search',
       'pms_operation_request_create',
       'pms_operation_request_get',
       'pms_operation_request_list',
       'pms_operation_request_update',
+      'pms_capabilities_manifest',
     ]));
     expect(health).toMatchObject({
       ok: true,
@@ -144,6 +148,29 @@ describe('PMS local durable checkout sandbox HTTP boundary', () => {
     });
     expect(wrong.status).toBe(403);
     expect(await wrong.json()).toMatchObject({ ok: false, error: { code: 'PMS_LOCAL_AUTH_DENIED' } });
+  });
+
+  it('serves the typed capability manifest through an authenticated GET route', async () => {
+    const { url } = await startServer();
+
+    const manifestResponse = await authedGet(`${url}/v1/pms/capabilities/manifest`);
+    expect(manifestResponse).toMatchObject({
+      ok: true,
+      operation: pmsCapabilityManifestOperation,
+      manifest: {
+        schemaVersion: 'pms-capability-manifest-v1',
+        plannerProjection: { schemaVersion: 'pms-capability-planner-projection-v1' },
+      },
+    });
+    expect(manifestResponse.manifest.capabilities).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'pms_check_in.dryRun', class: 'dryRun' }),
+      expect.objectContaining({ name: 'pms_check_in.confirm', class: 'confirm', naturalLanguageExecutable: false }),
+      expect.objectContaining({ name: 'pms_operation_request_create', class: 'prepareConfirm' }),
+      expect.objectContaining({ name: 'pms_capabilities_manifest', class: 'internal', naturalLanguageExecutable: false }),
+      expect.objectContaining({ name: 'pms_sandbox_reset', class: 'internal', customerChatAllowed: false }),
+    ]));
+    expect(JSON.stringify(manifestResponse.manifest.plannerProjection)).not.toContain('/v1/pms/');
+    expect(JSON.stringify(manifestResponse.manifest.plannerProjection)).not.toContain('bearer-token');
   });
 
   it('serves dry-run and confirm through PMS API/Core and readback proves state, audit, task, events, and idempotency', async () => {
@@ -447,6 +474,36 @@ describe('PMS local durable checkout sandbox HTTP boundary', () => {
       operation: 'pms_inventory_summary',
       readModel: {
         summaries: [{ businessDate: '2026-04-26', totalRooms: 1, reservedRooms: 1 }],
+      },
+    });
+
+    const availability = await authedPost(`${url}/v1/pms/availability/search`, {
+      operation: pmsAvailabilitySearchOperation,
+      startDate: '2026-04-27',
+      roomTypeKeyword: '花园',
+      requestedAt: '2026-04-26T08:00:00.000Z',
+    });
+    expect(availability).toMatchObject({
+      ok: true,
+      operation: 'pms_availability_search',
+      readModel: {
+        request: { startDate: '2026-04-27', endDate: '2026-04-28', roomTypeKeyword: '花园', unsupportedFilters: [] },
+        candidates: [{ roomId: 'room-1001', roomNumber: '1001', roomType: '花园别墅', availableDates: ['2026-04-27'] }],
+      },
+    });
+
+    const capacityGap = await authedPost(`${url}/v1/pms/availability/search`, {
+      operation: pmsAvailabilitySearchOperation,
+      startDate: '2026-04-27',
+      capacity: 3,
+      requestedAt: '2026-04-26T08:00:00.000Z',
+    });
+    expect(capacityGap).toMatchObject({
+      ok: true,
+      operation: 'pms_availability_search',
+      readModel: {
+        request: { unsupportedFilters: ['capacity'] },
+        candidates: [],
       },
     });
   });

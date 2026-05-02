@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   checkinContractFixtures,
   checkInNextStatus,
+  type AvailabilitySearchReadModel,
   checkoutContractFixtures,
   checkoutNextStatus,
   deferredPmsCommandStubs,
@@ -26,6 +27,7 @@ import {
   isSupportedOperationRequestAction,
   type MaintenanceDoneCommand,
   type OperationRequest,
+  type PmsCapabilityManifest,
   type PmsCommandDryRunPlan,
   type ReportMaintenanceCommand,
   type RestoreSellableCommand,
@@ -155,6 +157,50 @@ describe('PMS command contracts', () => {
     expect(stay.status).toBe('inHouse');
     expect(['inHouse', 'checkedOut']).toContain(stay.status);
     expect(stay.reservationCode).toBe('R-A2-1');
+  });
+
+  it('defines the PMS capability manifest and sanitized planner projection contracts', () => {
+    const manifest: PmsCapabilityManifest = {
+      schemaVersion: 'pms-capability-manifest-v1',
+      generatedAt: validMeta.requestedAt,
+      capabilities: [
+        {
+          name: 'pms_check_out.dryRun',
+          version: 'v1',
+          class: 'dryRun',
+          customerChatAllowed: true,
+          naturalLanguageExecutable: true,
+          confirmationRequired: false,
+          schemaRefs: { request: 'CheckOutDryRunApiRequest', response: 'CheckOutApiResponse' },
+          slots: [{ name: 'roomId', required: true, source: 'user' }],
+          refs: { commandType: 'CHECK_OUT', domainEvents: ['RoomCheckedOut'] },
+          idempotency: { required: true, keyField: 'idempotencyKey', fingerprintRequired: true, replaySafe: true },
+          audit: { auditRequired: false, emitsDomainEvents: false, eventTypes: [] },
+          endpoint: { method: 'POST', path: '/v1/pms/check-out', operation: 'pms_check_out', mode: 'dryRun', auth: 'bearer-token' },
+        },
+      ],
+      plannerProjection: {
+        schemaVersion: 'pms-capability-planner-projection-v1',
+        capabilities: [
+          {
+            name: 'pms_check_out.dryRun',
+            version: 'v1',
+            class: 'dryRun',
+            customerChatAllowed: true,
+            naturalLanguageExecutable: true,
+            confirmationRequired: false,
+            schemaRefs: { request: 'CheckOutDryRunApiRequest', response: 'CheckOutApiResponse' },
+            slots: [{ name: 'roomId', required: true, source: 'user' }],
+            refs: { commandType: 'CHECK_OUT', domainEvents: ['RoomCheckedOut'] },
+            idempotency: { required: true, keyField: 'idempotencyKey', fingerprintRequired: true, replaySafe: true },
+            audit: { auditRequired: false, emitsDomainEvents: false, eventTypes: [] },
+          },
+        ],
+      },
+    };
+
+    expect(manifest.capabilities[0].endpoint.path).toBe('/v1/pms/check-out');
+    expect(manifest.plannerProjection.capabilities[0]).not.toHaveProperty('endpoint');
   });
 
   it('defines PMS-owned room/dashboard read models and command projection shapes', () => {
@@ -303,9 +349,35 @@ describe('PMS command contracts', () => {
       },
     };
 
+    const availability: AvailabilitySearchReadModel = {
+      schemaVersion: pmsProjectionSchemaVersion,
+      generatedAt: validMeta.requestedAt,
+      summaryStatus: 'fresh',
+      request: {
+        startDate: '2026-04-28',
+        endDate: '2026-04-29',
+        roomTypeKeyword: 'Garden',
+        unsupportedFilters: ['capacity'],
+      },
+      candidates: [{
+        roomId: 'room-A1',
+        roomNumber: 'A1',
+        propertyId: 'property-small-hotel',
+        roomTypeId: 'room-type-garden-villa',
+        roomType: 'Garden Villa',
+        availableDates: ['2026-04-28'],
+        sourceRefs: [],
+      }],
+      candidateCount: 1,
+      truncated: false,
+      projectionFreshness: readModel.projectionFreshness,
+    };
+
     expect(readModel.intervals[0].calendarKind).toBe('blocked');
     expect(readModel.summaries[0].blockedRooms).toBe(1);
     expect(readModel.blocks[0].sourceType).toBe('maintenance_ticket');
+    expect(availability.candidates[0].availableDates).toEqual(['2026-04-28']);
+    expect(availability.request.unsupportedFilters).toEqual(['capacity']);
   });
 
   it('defines PMS-owned operation request intake contracts', () => {

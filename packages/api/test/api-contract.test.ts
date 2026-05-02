@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { checkinContractFixtures, checkoutContractFixtures } from '@pms-platform/contracts';
+import { checkinContractFixtures, checkoutContractFixtures, pmsProjectionSchemaVersion, type InventoryReadModel } from '@pms-platform/contracts';
 import {
   createInMemoryCorePorts,
   type CoreCheckInConfirmResult,
@@ -13,11 +13,15 @@ import {
 import {
   createInMemoryApiIdempotencyRepository,
   describeApiContractBoundary,
+  executeAvailabilitySearchApiRequest,
   executeCheckInApiRequest,
   executeCheckOutApiRequest,
   executeDashboardApiRequest,
   executeGetRoomApiRequest,
   executePmsExtendedCommandApiRequest,
+  getPmsCapabilityManifest,
+  getPmsCapabilityPlannerProjection,
+  pmsCapabilityManifestOperation,
   pmsCheckInOperation,
   pmsCheckOutOperation,
   pmsDashboardOperation,
@@ -36,6 +40,7 @@ import {
   toCheckInCommand,
   toCheckOutApiResponse,
   toCheckOutCommand,
+  pmsAvailabilitySearchOperation,
   type ApiError,
   type CheckInApiResponse,
   type CheckInConfirmApiRequest,
@@ -171,10 +176,12 @@ describe('API checkout contract skeleton', () => {
         'pms_room_reservation_context',
         'pms_inventory_intervals',
         'pms_inventory_summary',
+        'pms_availability_search',
         'pms_operation_request_create',
         'pms_operation_request_get',
         'pms_operation_request_list',
         'pms_operation_request_update',
+        'pms_capabilities_manifest',
       ],
       importsCoreResult: true,
       exposesLocalHandler: true,
@@ -225,10 +232,78 @@ describe('API checkout contract skeleton', () => {
   it('defines inventory and operation-request operation names at the API boundary', () => {
     expect(pmsInventoryIntervalsOperation).toBe('pms_inventory_intervals');
     expect(pmsInventorySummaryOperation).toBe('pms_inventory_summary');
+    expect(pmsAvailabilitySearchOperation).toBe('pms_availability_search');
     expect(pmsOperationRequestCreateOperation).toBe('pms_operation_request_create');
     expect(pmsOperationRequestGetOperation).toBe('pms_operation_request_get');
     expect(pmsOperationRequestListOperation).toBe('pms_operation_request_list');
     expect(pmsOperationRequestUpdateOperation).toBe('pms_operation_request_update');
+    expect(pmsCapabilityManifestOperation).toBe('pms_capabilities_manifest');
+  });
+
+  it('exposes a typed capability manifest with a sanitized planner projection', () => {
+    const manifest = getPmsCapabilityManifest('2026-05-02T00:00:00.000Z');
+    const projection = getPmsCapabilityPlannerProjection(manifest.capabilities);
+    const byName = new Map(manifest.capabilities.map((capability) => [capability.name, capability]));
+
+    expect(manifest).toMatchObject({
+      schemaVersion: 'pms-capability-manifest-v1',
+      generatedAt: '2026-05-02T00:00:00.000Z',
+    });
+    expect(byName.get('pms_get_room')).toMatchObject({
+      class: 'read',
+      customerChatAllowed: true,
+      naturalLanguageExecutable: true,
+      confirmationRequired: false,
+      endpoint: { method: 'POST', path: '/v1/pms/room', auth: 'bearer-token' },
+    });
+    expect(byName.get('pms_check_out.dryRun')).toMatchObject({
+      class: 'dryRun',
+      customerChatAllowed: true,
+      naturalLanguageExecutable: true,
+      confirmationRequired: false,
+      idempotency: { required: true, fingerprintRequired: true },
+    });
+    expect(byName.get('pms_check_out.confirm')).toMatchObject({
+      class: 'confirm',
+      customerChatAllowed: false,
+      naturalLanguageExecutable: false,
+      confirmationRequired: true,
+      audit: { auditRequired: true, emitsDomainEvents: true },
+    });
+    expect(byName.get('pms_operation_request_create')).toMatchObject({
+      class: 'prepareConfirm',
+      customerChatAllowed: true,
+      naturalLanguageExecutable: true,
+    });
+    expect(byName.get('pms_availability_search')).toMatchObject({
+      class: 'read',
+      customerChatAllowed: true,
+      naturalLanguageExecutable: true,
+      confirmationRequired: false,
+      endpoint: { method: 'POST', path: '/v1/pms/availability/search', auth: 'bearer-token' },
+      refs: { readModel: 'AvailabilitySearchReadModel' },
+    });
+    expect(byName.get('pms_capabilities_manifest')).toMatchObject({
+      class: 'internal',
+      customerChatAllowed: false,
+      naturalLanguageExecutable: false,
+      endpoint: { method: 'GET', path: '/v1/pms/capabilities/manifest' },
+    });
+    expect(byName.get('pms_sandbox_reset')).toMatchObject({
+      class: 'internal',
+      customerChatAllowed: false,
+      naturalLanguageExecutable: false,
+    });
+
+    expect(projection.capabilities.some((capability) => capability.class === 'confirm')).toBe(false);
+    expect(projection.capabilities.some((capability) => capability.class === 'internal')).toBe(false);
+    expect(projection.capabilities.map((capability) => capability.name)).toEqual(expect.arrayContaining([
+      'pms_get_room',
+      'pms_check_out.dryRun',
+      'pms_operation_request_create',
+    ]));
+    expect(JSON.stringify(projection)).not.toContain('/v1/pms/');
+    expect(JSON.stringify(projection)).not.toContain('bearer-token');
   });
 
   it('defines pms_get_room and pms_dashboard read-model responses at the API boundary', () => {
@@ -275,6 +350,90 @@ describe('API checkout contract skeleton', () => {
           stopSell: 0,
         },
       },
+    });
+  });
+
+  it('derives future availability search from inventory day-room truth', () => {
+    const inventory: InventoryReadModel = {
+      schemaVersion: pmsProjectionSchemaVersion,
+      generatedAt: '2026-05-02T00:00:00.000Z',
+      startDate: '2026-05-04',
+      endDate: '2026-05-05',
+      horizonDays: 1,
+      summaryStatus: 'fresh',
+      blocks: [],
+      dayRooms: [
+        {
+          businessDate: '2026-05-04',
+          propertyId: 'property-small-hotel',
+          roomId: 'room-garden-1',
+          roomNumber: 'G1',
+          roomTypeId: 'room-type-garden-room',
+          roomType: '花园房',
+          availabilityStatus: 'available',
+          sourceRefs: [],
+          updatedAt: '2026-05-02T00:00:00.000Z',
+        },
+        {
+          businessDate: '2026-05-04',
+          propertyId: 'property-small-hotel',
+          roomId: 'room-garden-2',
+          roomNumber: 'G2',
+          roomTypeId: 'room-type-garden-room',
+          roomType: '花园房',
+          availabilityStatus: 'reserved',
+          sourceRefs: [{ sourceType: 'reservation', sourceId: 'reservation-1', label: 'R-1' }],
+          updatedAt: '2026-05-02T00:00:00.000Z',
+        },
+      ],
+      intervals: [],
+      summaries: [{
+        businessDate: '2026-05-04',
+        propertyId: 'property-small-hotel',
+        roomTypeId: 'room-type-garden-room',
+        roomType: '花园房',
+        totalRooms: 2,
+        availableRooms: 1,
+        occupiedRooms: 0,
+        blockedRooms: 0,
+        reservedRooms: 1,
+        updatedAt: '2026-05-02T00:00:00.000Z',
+      }],
+      projectionFreshness: {
+        status: 'fresh',
+        generatedAt: '2026-05-02T00:00:00.000Z',
+        note: 'pms-read-model-current',
+      },
+    };
+
+    const response = executeAvailabilitySearchApiRequest({
+      operation: pmsAvailabilitySearchOperation,
+      startDate: '2026-05-04',
+      roomTypeKeyword: '花园',
+      count: 1,
+      requestedAt: '2026-05-02T00:00:00.000Z',
+    }, inventory);
+    const capacityGap = executeAvailabilitySearchApiRequest({
+      operation: pmsAvailabilitySearchOperation,
+      startDate: '2026-05-04',
+      capacity: 3,
+      requestedAt: '2026-05-02T00:00:00.000Z',
+    }, inventory);
+
+    expect(response).toMatchObject({
+      ok: true,
+      operation: 'pms_availability_search',
+      readModel: {
+        request: { startDate: '2026-05-04', endDate: '2026-05-05', roomTypeKeyword: '花园', unsupportedFilters: [] },
+        candidates: [{ roomId: 'room-garden-1', roomType: '花园房', availableDates: ['2026-05-04'] }],
+        candidateCount: 1,
+        truncated: false,
+      },
+    });
+    expect(capacityGap.readModel).toMatchObject({
+      request: { unsupportedFilters: ['capacity'] },
+      candidates: [],
+      candidateCount: 0,
     });
   });
 
