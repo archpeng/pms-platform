@@ -623,12 +623,19 @@ describe('PMS local durable checkout sandbox HTTP boundary', () => {
       requestedAt: '2026-05-02T00:04:00.000Z',
       cardPayloadRef,
     };
+    const cardPayloadMismatch = await authedPost(`${url}/v1/pms/pending-actions/confirm`, {
+      ...confirmRequest,
+      clientToken: 'http-pending-action-card-mismatch-1',
+      requestFingerprint: 'sha256:http-pending-action-card-mismatch-1',
+      cardPayloadRef: 'card-payload-ref-tampered'
+    });
     const confirm = await authedPost(`${url}/v1/pms/pending-actions/confirm`, confirmRequest);
     const replay = await authedPost(`${url}/v1/pms/pending-actions/confirm`, confirmRequest);
     const conflict = await authedPost(`${url}/v1/pms/pending-actions/confirm`, { ...confirmRequest, requestFingerprint: 'sha256:http-pending-action-confirm-different' });
     const after = await authedGet(`${url}/v1/sandbox/readback/room-1001`);
 
     expect(status).toMatchObject({ ok: true, operation: 'pms.pending_action.status', mutationStatus: 'none', pendingAction: { pendingActionRef, status: 'awaitingConfirmation', cardPayloadRef } });
+    expect(cardPayloadMismatch).toMatchObject({ ok: false, operation: 'pms.pending_action.confirm', mutationStatus: 'none', pendingAction: { pendingActionRef, status: 'awaitingConfirmation', cardPayloadRef }, errors: [{ code: 'PENDING_ACTION_CARD_PAYLOAD_MISMATCH', field: 'cardPayloadRef' }] });
     expect(confirm).toMatchObject({ ok: true, operation: 'pms.pending_action.confirm', mutationStatus: 'deferred', pendingAction: { pendingActionRef, status: 'confirmed', mutationStatus: 'deferred' } });
     expect(replay).toEqual(confirm);
     expect(conflict).toMatchObject({ ok: false, status: 'rejected', errors: [{ code: 'PENDING_ACTION_TOKEN_REUSED_WITH_DIFFERENT_FINGERPRINT' }] });

@@ -1028,6 +1028,7 @@ describe('SQLite local sandbox store', () => {
     const scope = { propertyId: 'property-small-hotel', channel: 'typed_card' as const, userIdHash: 'sha256:user-callback-1' };
     const status = store.getPendingActionStatus({ operation: pmsPendingActionStatusOperation, pendingActionRef, actor: baseCreate.actor, scope, clientToken: 'pending-sqlite-status-1', requestFingerprint: 'sha256:pending-sqlite-status-1', correlationId: 'corr-pending-sqlite-status-1', requestedAt: '2026-04-28T00:11:00.000Z', cardPayloadRef });
     const confirmRequest = { operation: pmsPendingActionConfirmOperation, pendingActionRef, actor: baseCreate.actor, scope, clientToken: 'pending-sqlite-confirm-1', requestFingerprint: 'sha256:pending-sqlite-confirm-1', correlationId: 'corr-pending-sqlite-confirm-1', requestedAt: '2026-04-28T00:12:00.000Z', cardPayloadRef } as const;
+    const cardPayloadMismatch = store.confirmPendingAction({ ...confirmRequest, clientToken: 'pending-sqlite-card-mismatch-1', requestFingerprint: 'sha256:pending-sqlite-card-mismatch-1', cardPayloadRef: 'card-payload-ref-tampered' });
     const confirmed = store.confirmPendingAction(confirmRequest);
     const replayedConfirm = store.confirmPendingAction(confirmRequest);
     const confirmMismatch = store.confirmPendingAction({ ...confirmRequest, requestFingerprint: 'sha256:pending-sqlite-confirm-different' });
@@ -1047,6 +1048,7 @@ describe('SQLite local sandbox store', () => {
     const expired = store.confirmPendingAction({ operation: pmsPendingActionConfirmOperation, pendingActionRef: expiredPrepared.ok ? expiredPrepared.draft.pendingAction!.pendingActionRef : 'missing-expired-pending', actor: baseCreate.actor, scope, clientToken: 'pending-sqlite-expired-confirm-1', requestFingerprint: 'sha256:pending-sqlite-expired-confirm-1', correlationId: 'corr-pending-sqlite-expired-confirm-1', requestedAt: '2026-04-28T00:15:00.000Z', cardPayloadRef: expiredPrepared.ok ? expiredPrepared.draft.pendingAction!.cardPayloadRef : 'missing-expired-card' });
 
     expect(status).toMatchObject({ ok: true, operation: 'pms.pending_action.status', mutationStatus: 'none', pendingAction: { pendingActionRef, status: 'awaitingConfirmation' } });
+    expect(cardPayloadMismatch).toMatchObject({ ok: false, operation: 'pms.pending_action.confirm', mutationStatus: 'none', pendingAction: { pendingActionRef, status: 'awaitingConfirmation', cardPayloadRef }, errors: [{ code: 'PENDING_ACTION_CARD_PAYLOAD_MISMATCH', field: 'cardPayloadRef' }] });
     expect(confirmed).toMatchObject({ ok: true, operation: 'pms.pending_action.confirm', mutationStatus: 'deferred', pendingAction: { pendingActionRef, status: 'confirmed', mutationStatus: 'deferred' } });
     expect(replayedConfirm).toEqual(confirmed);
     expect(confirmMismatch).toMatchObject({ ok: false, errors: [{ code: 'PENDING_ACTION_TOKEN_REUSED_WITH_DIFFERENT_FINGERPRINT' }] });
