@@ -748,6 +748,7 @@ export type PendingActionCallbackIdempotencyStatus = 'statusRead' | 'confirmed' 
 
 export interface ReservationDraftWorkflowRef {
   readonly workflowType: 'reservation';
+  readonly draftRef?: string;
   readonly draftId?: string;
   readonly status: ReservationDraftStatus;
   readonly slots?: ReservationDraftSlots;

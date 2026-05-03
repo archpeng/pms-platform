@@ -829,7 +829,9 @@ describe('SQLite local sandbox store', () => {
     const created = store.createReservationDraft(createRequest);
     const replayed = store.createReservationDraft(createRequest);
     const mismatch = store.createReservationDraft({ ...createRequest, requestFingerprint: 'sha256:draft-sqlite-create-1-different' });
-    const draftId = created.ok ? created.draft.draftId! : 'missing-draft';
+    const draftRef = created.ok ? created.draft.draftRef! : 'missing-draft';
+    expect(draftRef).toMatch(/^[a-f0-9]{16}$/);
+    expect(created.ok ? created.draft.draftId : undefined).toBeUndefined();
     const updateRequest: ReservationDraftUpdateApiRequest = {
       ...createRequest,
       operation: pmsReservationDraftUpdateOperation,
@@ -837,7 +839,7 @@ describe('SQLite local sandbox store', () => {
       requestFingerprint: 'sha256:draft-sqlite-update-1',
       correlationId: 'corr-draft-sqlite-update-1',
       requestedAt: '2026-04-28T00:10:00.000Z',
-      draftId,
+      draftRef,
       slots: { roomId: 'room-1001', selectedCandidateRef: 'availability-1:room-1001' },
       evidenceRefs: [{ source: 'userTurn', refId: 'turn-2', generatedAt: '2026-04-28T00:10:00.000Z' }],
     };
@@ -849,7 +851,7 @@ describe('SQLite local sandbox store', () => {
       requestFingerprint: 'sha256:draft-sqlite-cancel-1',
       correlationId: 'corr-draft-sqlite-cancel-1',
       requestedAt: '2026-04-28T00:20:00.000Z',
-      draftId,
+      draftRef,
       reason: 'guest changed plan',
     };
     const cancelled = store.cancelReservationDraft(cancelRequest);
@@ -860,7 +862,7 @@ describe('SQLite local sandbox store', () => {
       mutationStatus: 'draftOnly',
       idempotencyStatus: 'created',
       draft: {
-        draftId,
+        draftRef,
         status: 'quoteReady',
         slots: { guestDisplayName: 'Guest Draft', roomTypeKeyword: '花园' },
         missingSlots: [],
@@ -870,8 +872,8 @@ describe('SQLite local sandbox store', () => {
     });
     expect(replayed).toEqual(created);
     expect(mismatch).toMatchObject({ ok: false, status: 'rejected', errors: [{ code: 'RESERVATION_DRAFT_TOKEN_REUSED_WITH_DIFFERENT_FINGERPRINT' }] });
-    expect(updated).toMatchObject({ ok: true, operation: 'pms.reservation.draft.update', draft: { draftId, slots: { roomId: 'room-1001' } } });
-    expect(cancelled).toMatchObject({ ok: true, operation: 'pms.reservation.draft.cancel', draft: { draftId, status: 'cancelled' } });
+    expect(updated).toMatchObject({ ok: true, operation: 'pms.reservation.draft.update', draft: { draftRef, slots: { roomId: 'room-1001' } } });
+    expect(cancelled).toMatchObject({ ok: true, operation: 'pms.reservation.draft.cancel', draft: { draftRef, status: 'cancelled' } });
 
     const expired = store.createReservationDraft({
       ...createRequest,
@@ -884,7 +886,7 @@ describe('SQLite local sandbox store', () => {
 
     const readback = store.readback('room-1001');
     expect(readback.reservationDrafts).toEqual(expect.arrayContaining([
-      expect.objectContaining({ draftId, status: 'cancelled', missingSlots: [], evidenceRefs: expect.arrayContaining([expect.objectContaining({ refId: 'turn-2' })]) }),
+      expect.objectContaining({ draftRef, status: 'cancelled', missingSlots: [], evidenceRefs: expect.arrayContaining([expect.objectContaining({ refId: 'turn-2' })]) }),
       expect.objectContaining({ status: 'expired' }),
     ]));
     expect(readback.reservationDraftAudits.map((audit) => audit.action)).toEqual(['created', 'updated', 'cancelled', 'expired']);
@@ -896,7 +898,7 @@ describe('SQLite local sandbox store', () => {
     store.close();
 
     const restarted = createSqliteLocalSandboxStore({ dbPath, seedRooms: [], resetOnStart: false, now: () => now });
-    expect(restarted.readback().reservationDrafts).toEqual(expect.arrayContaining([expect.objectContaining({ draftId, status: 'cancelled' })]));
+    expect(restarted.readback().reservationDrafts).toEqual(expect.arrayContaining([expect.objectContaining({ draftRef, status: 'cancelled' })]));
     restarted.close();
   });
 
@@ -917,7 +919,7 @@ describe('SQLite local sandbox store', () => {
       expiresAt: '2026-05-03T00:00:00.000Z',
     };
     const created = store.createReservationDraft(baseCreate);
-    const draftId = created.ok ? created.draft.draftId! : 'missing-draft';
+    const draftRef = created.ok ? created.draft.draftRef! : 'missing-draft';
     const quoteRequest: ReservationQuoteApiRequest = {
       ...baseCreate,
       operation: pmsReservationQuoteOperation,
@@ -925,7 +927,7 @@ describe('SQLite local sandbox store', () => {
       requestFingerprint: 'sha256:draft-sqlite-quote-1',
       correlationId: 'corr-draft-sqlite-quote-1',
       requestedAt: '2026-04-28T00:05:00.000Z',
-      draftId,
+      draftRef,
     };
     const quoted = store.quoteReservationDraft(quoteRequest);
     const replayedQuote = store.quoteReservationDraft(quoteRequest);
@@ -938,7 +940,7 @@ describe('SQLite local sandbox store', () => {
       requestFingerprint: 'sha256:draft-sqlite-prepare-1',
       correlationId: 'corr-draft-sqlite-prepare-1',
       requestedAt: '2026-04-28T00:10:00.000Z',
-      draftId,
+      draftRef,
       quoteRef,
     };
     const prepared = store.prepareConfirmReservationDraft(prepareRequest);
@@ -951,7 +953,7 @@ describe('SQLite local sandbox store', () => {
       requestFingerprint: 'sha256:draft-sqlite-quote-missing-create-1',
       slots: { guestDisplayName: 'Missing Slots' },
     });
-    const missingSlotsQuote = store.quoteReservationDraft({ ...quoteRequest, clientToken: 'draft-sqlite-quote-missing-1', requestFingerprint: 'sha256:draft-sqlite-quote-missing-1', draftId: missingSlots.ok ? missingSlots.draft.draftId : 'missing' });
+    const missingSlotsQuote = store.quoteReservationDraft({ ...quoteRequest, clientToken: 'draft-sqlite-quote-missing-1', requestFingerprint: 'sha256:draft-sqlite-quote-missing-1', draftRef: missingSlots.ok ? missingSlots.draft.draftRef : 'missing' });
     const expired = store.createReservationDraft({
       ...baseCreate,
       clientToken: 'draft-sqlite-quote-expired-create-1',
@@ -959,16 +961,16 @@ describe('SQLite local sandbox store', () => {
       requestedAt: '2026-04-30T00:00:00.000Z',
       expiresAt: '2026-04-29T00:00:00.000Z',
     });
-    const expiredQuote = store.quoteReservationDraft({ ...quoteRequest, clientToken: 'draft-sqlite-quote-expired-1', requestFingerprint: 'sha256:draft-sqlite-quote-expired-1', draftId: expired.ok ? expired.draft.draftId : 'missing' });
+    const expiredQuote = store.quoteReservationDraft({ ...quoteRequest, clientToken: 'draft-sqlite-quote-expired-1', requestFingerprint: 'sha256:draft-sqlite-quote-expired-1', draftRef: expired.ok ? expired.draft.draftRef : 'missing' });
     const cancelTarget = store.createReservationDraft({ ...baseCreate, clientToken: 'draft-sqlite-quote-cancel-create-1', requestFingerprint: 'sha256:draft-sqlite-quote-cancel-create-1' });
-    const cancelDraftId = cancelTarget.ok ? cancelTarget.draft.draftId! : 'missing';
-    store.cancelReservationDraft({ ...baseCreate, operation: pmsReservationDraftCancelOperation, clientToken: 'draft-sqlite-quote-cancel-1', requestFingerprint: 'sha256:draft-sqlite-quote-cancel-1', draftId: cancelDraftId, reason: 'test cancel' });
-    const cancelledQuote = store.quoteReservationDraft({ ...quoteRequest, clientToken: 'draft-sqlite-quote-cancelled-1', requestFingerprint: 'sha256:draft-sqlite-quote-cancelled-1', draftId: cancelDraftId });
-    const notFoundQuote = store.quoteReservationDraft({ ...quoteRequest, clientToken: 'draft-sqlite-quote-not-found-1', requestFingerprint: 'sha256:draft-sqlite-quote-not-found-1', draftId: 'draft-does-not-exist' });
+    const cancelDraftRef = cancelTarget.ok ? cancelTarget.draft.draftRef! : 'missing';
+    store.cancelReservationDraft({ ...baseCreate, operation: pmsReservationDraftCancelOperation, clientToken: 'draft-sqlite-quote-cancel-1', requestFingerprint: 'sha256:draft-sqlite-quote-cancel-1', draftRef: cancelDraftRef, reason: 'test cancel' });
+    const cancelledQuote = store.quoteReservationDraft({ ...quoteRequest, clientToken: 'draft-sqlite-quote-cancelled-1', requestFingerprint: 'sha256:draft-sqlite-quote-cancelled-1', draftRef: cancelDraftRef });
+    const notFoundQuote = store.quoteReservationDraft({ ...quoteRequest, clientToken: 'draft-sqlite-quote-not-found-1', requestFingerprint: 'sha256:draft-sqlite-quote-not-found-1', draftRef: '0000000000000000' });
 
     const staleTarget = store.createReservationDraft({ ...baseCreate, clientToken: 'draft-sqlite-stale-quote-create-1', requestFingerprint: 'sha256:draft-sqlite-stale-quote-create-1' });
-    const staleDraftId = staleTarget.ok ? staleTarget.draft.draftId! : 'missing';
-    const staleQuote = store.quoteReservationDraft({ ...quoteRequest, clientToken: 'draft-sqlite-stale-quote-1', requestFingerprint: 'sha256:draft-sqlite-stale-quote-1', draftId: staleDraftId });
+    const staleDraftRef = staleTarget.ok ? staleTarget.draft.draftRef! : 'missing';
+    const staleQuote = store.quoteReservationDraft({ ...quoteRequest, clientToken: 'draft-sqlite-stale-quote-1', requestFingerprint: 'sha256:draft-sqlite-stale-quote-1', draftRef: staleDraftRef });
     const staleQuoteRef = staleQuote.ok ? staleQuote.draft.quote!.quoteRef : 'missing-stale-quote';
     store.updateReservationDraft({
       ...baseCreate,
@@ -977,14 +979,14 @@ describe('SQLite local sandbox store', () => {
       requestFingerprint: 'sha256:draft-sqlite-stale-update-1',
       correlationId: 'corr-draft-sqlite-stale-update-1',
       requestedAt: '2026-04-28T00:08:00.000Z',
-      draftId: staleDraftId,
+      draftRef: staleDraftRef,
       slots: { ...baseCreate.slots, roomId: 'room-1002', selectedCandidateRef: 'availability-quote-2:room-1002' },
     });
     const stalePrepare = store.prepareConfirmReservationDraft({
       ...prepareRequest,
       clientToken: 'draft-sqlite-stale-prepare-1',
       requestFingerprint: 'sha256:draft-sqlite-stale-prepare-1',
-      draftId: staleDraftId,
+      draftRef: staleDraftRef,
       quoteRef: staleQuoteRef,
     });
 
@@ -993,7 +995,7 @@ describe('SQLite local sandbox store', () => {
       operation: 'pms.reservation.quote',
       mutationStatus: 'draftOnly',
       idempotencyStatus: 'quoted',
-      draft: { draftId, status: 'quoteReady', quote: { status: 'pricingUnsupported', capabilityGap: { code: 'RESERVATION_QUOTE_PRICING_UNSUPPORTED' } } },
+      draft: { draftRef, status: 'quoteReady', quote: { status: 'pricingUnsupported', capabilityGap: { code: 'RESERVATION_QUOTE_PRICING_UNSUPPORTED' } } },
     });
     expect(replayedQuote).toEqual(quoted);
     expect(quoteMismatch).toMatchObject({ ok: false, status: 'rejected', errors: [{ code: 'RESERVATION_DRAFT_TOKEN_REUSED_WITH_DIFFERENT_FINGERPRINT' }] });
@@ -1002,7 +1004,7 @@ describe('SQLite local sandbox store', () => {
       operation: 'pms.reservation.prepare_confirm',
       mutationStatus: 'draftOnly',
       idempotencyStatus: 'prepared',
-      draft: { draftId, status: 'awaitingConfirmation', quote: { quoteRef }, pendingAction: { quoteRef, confirmationMode: 'typedCardOnly', mutationStatus: 'none' } },
+      draft: { draftRef, status: 'awaitingConfirmation', quote: { quoteRef }, pendingAction: { quoteRef, confirmationMode: 'typedCardOnly', mutationStatus: 'none' } }
     });
     expect(replayedPrepare).toEqual(prepared);
     expect(prepareMismatch).toMatchObject({ ok: false, status: 'rejected', errors: [{ code: 'RESERVATION_DRAFT_TOKEN_REUSED_WITH_DIFFERENT_FINGERPRINT' }] });
@@ -1014,7 +1016,7 @@ describe('SQLite local sandbox store', () => {
 
     const readback = store.readback('room-1001');
     expect(readback.reservationDrafts).toEqual(expect.arrayContaining([
-      expect.objectContaining({ draftId, status: 'awaitingConfirmation', quote: expect.objectContaining({ quoteRef }), pendingAction: expect.objectContaining({ quoteRef }) }),
+      expect.objectContaining({ draftRef, status: 'awaitingConfirmation', quote: expect.objectContaining({ quoteRef }), pendingAction: expect.objectContaining({ quoteRef }) }),
     ]));
     expect(readback.reservationDraftAudits.map((audit) => audit.action)).toEqual(expect.arrayContaining(['created', 'quoted', 'prepared', 'cancelled']));
     expect(readback.reservations).toEqual([]);
@@ -1025,7 +1027,7 @@ describe('SQLite local sandbox store', () => {
 
     const restarted = createSqliteLocalSandboxStore({ dbPath, seedRooms: [], resetOnStart: false, now: () => now });
     expect(restarted.readback().reservationDrafts).toEqual(expect.arrayContaining([
-      expect.objectContaining({ draftId, status: 'awaitingConfirmation', quote: expect.objectContaining({ quoteRef }), pendingAction: expect.objectContaining({ quoteRef }) }),
+      expect.objectContaining({ draftRef, status: 'awaitingConfirmation', quote: expect.objectContaining({ quoteRef }), pendingAction: expect.objectContaining({ quoteRef }) }),
     ]));
     restarted.close();
   });
@@ -1047,10 +1049,10 @@ describe('SQLite local sandbox store', () => {
       expiresAt: '2026-05-03T00:00:00.000Z',
     };
     const created = store.createReservationDraft(baseCreate);
-    const draftId = created.ok ? created.draft.draftId! : 'missing-draft';
-    const quoted = store.quoteReservationDraft({ ...baseCreate, operation: pmsReservationQuoteOperation, clientToken: 'pending-sqlite-quote-1', requestFingerprint: 'sha256:pending-sqlite-quote-1', correlationId: 'corr-pending-sqlite-quote-1', draftId });
+    const draftRef = created.ok ? created.draft.draftRef! : 'missing-draft';
+    const quoted = store.quoteReservationDraft({ ...baseCreate, operation: pmsReservationQuoteOperation, clientToken: 'pending-sqlite-quote-1', requestFingerprint: 'sha256:pending-sqlite-quote-1', correlationId: 'corr-pending-sqlite-quote-1', draftRef });
     const quoteRef = quoted.ok ? quoted.draft.quote!.quoteRef : 'missing-quote';
-    const prepared = store.prepareConfirmReservationDraft({ ...baseCreate, operation: pmsReservationPrepareConfirmOperation, clientToken: 'pending-sqlite-prepare-1', requestFingerprint: 'sha256:pending-sqlite-prepare-1', correlationId: 'corr-pending-sqlite-prepare-1', draftId, quoteRef });
+    const prepared = store.prepareConfirmReservationDraft({ ...baseCreate, operation: pmsReservationPrepareConfirmOperation, clientToken: 'pending-sqlite-prepare-1', requestFingerprint: 'sha256:pending-sqlite-prepare-1', correlationId: 'corr-pending-sqlite-prepare-1', draftRef, quoteRef });
     const pendingActionRef = prepared.ok ? prepared.draft.pendingAction!.pendingActionRef : 'missing-pending';
     const cardPayloadRef = prepared.ok ? prepared.draft.pendingAction!.cardPayloadRef : 'missing-card';
     const scope = { propertyId: 'property-small-hotel', channel: 'typed_card' as const, userIdHash: 'sha256:user-callback-1' };
@@ -1064,15 +1066,15 @@ describe('SQLite local sandbox store', () => {
     const inactiveCancel = store.cancelPendingAction({ operation: pmsPendingActionCancelOperation, pendingActionRef, actor: baseCreate.actor, scope, clientToken: 'pending-sqlite-inactive-cancel-1', requestFingerprint: 'sha256:pending-sqlite-inactive-cancel-1', correlationId: 'corr-pending-sqlite-inactive-cancel-1', requestedAt: '2026-04-28T00:13:00.000Z', cardPayloadRef, reason: 'too late' });
 
     const cancelTarget = store.createReservationDraft({ ...baseCreate, clientToken: 'pending-sqlite-cancel-create-1', requestFingerprint: 'sha256:pending-sqlite-cancel-create-1', correlationId: 'corr-pending-sqlite-cancel-create-1' });
-    const cancelDraftId = cancelTarget.ok ? cancelTarget.draft.draftId! : 'missing-cancel-draft';
-    const cancelQuote = store.quoteReservationDraft({ ...baseCreate, operation: pmsReservationQuoteOperation, clientToken: 'pending-sqlite-cancel-quote-1', requestFingerprint: 'sha256:pending-sqlite-cancel-quote-1', correlationId: 'corr-pending-sqlite-cancel-quote-1', draftId: cancelDraftId });
-    const cancelPrepared = store.prepareConfirmReservationDraft({ ...baseCreate, operation: pmsReservationPrepareConfirmOperation, clientToken: 'pending-sqlite-cancel-prepare-1', requestFingerprint: 'sha256:pending-sqlite-cancel-prepare-1', correlationId: 'corr-pending-sqlite-cancel-prepare-1', draftId: cancelDraftId, quoteRef: cancelQuote.ok ? cancelQuote.draft.quote!.quoteRef : 'missing-cancel-quote' });
+    const cancelDraftRef = cancelTarget.ok ? cancelTarget.draft.draftRef! : 'missing-cancel-draft';
+    const cancelQuote = store.quoteReservationDraft({ ...baseCreate, operation: pmsReservationQuoteOperation, clientToken: 'pending-sqlite-cancel-quote-1', requestFingerprint: 'sha256:pending-sqlite-cancel-quote-1', correlationId: 'corr-pending-sqlite-cancel-quote-1', draftRef: cancelDraftRef });
+    const cancelPrepared = store.prepareConfirmReservationDraft({ ...baseCreate, operation: pmsReservationPrepareConfirmOperation, clientToken: 'pending-sqlite-cancel-prepare-1', requestFingerprint: 'sha256:pending-sqlite-cancel-prepare-1', correlationId: 'corr-pending-sqlite-cancel-prepare-1', draftRef: cancelDraftRef, quoteRef: cancelQuote.ok ? cancelQuote.draft.quote!.quoteRef : 'missing-cancel-quote' });
     const cancelled = store.cancelPendingAction({ operation: pmsPendingActionCancelOperation, pendingActionRef: cancelPrepared.ok ? cancelPrepared.draft.pendingAction!.pendingActionRef : 'missing-cancel-pending', actor: baseCreate.actor, scope, clientToken: 'pending-sqlite-cancel-1', requestFingerprint: 'sha256:pending-sqlite-cancel-1', correlationId: 'corr-pending-sqlite-cancel-1', requestedAt: '2026-04-28T00:14:00.000Z', cardPayloadRef: cancelPrepared.ok ? cancelPrepared.draft.pendingAction!.cardPayloadRef : 'missing-cancel-card', reason: 'guest cancelled card' });
 
     const expiredTarget = store.createReservationDraft({ ...baseCreate, clientToken: 'pending-sqlite-expire-create-1', requestFingerprint: 'sha256:pending-sqlite-expire-create-1', correlationId: 'corr-pending-sqlite-expire-create-1', expiresAt: '2026-04-28T00:10:00.000Z' });
-    const expiredDraftId = expiredTarget.ok ? expiredTarget.draft.draftId! : 'missing-expired-draft';
-    const expiredQuote = store.quoteReservationDraft({ ...baseCreate, operation: pmsReservationQuoteOperation, clientToken: 'pending-sqlite-expire-quote-1', requestFingerprint: 'sha256:pending-sqlite-expire-quote-1', correlationId: 'corr-pending-sqlite-expire-quote-1', requestedAt: '2026-04-28T00:01:00.000Z', draftId: expiredDraftId });
-    const expiredPrepared = store.prepareConfirmReservationDraft({ ...baseCreate, operation: pmsReservationPrepareConfirmOperation, clientToken: 'pending-sqlite-expire-prepare-1', requestFingerprint: 'sha256:pending-sqlite-expire-prepare-1', correlationId: 'corr-pending-sqlite-expire-prepare-1', requestedAt: '2026-04-28T00:02:00.000Z', draftId: expiredDraftId, quoteRef: expiredQuote.ok ? expiredQuote.draft.quote!.quoteRef : 'missing-expire-quote' });
+    const expiredDraftRef = expiredTarget.ok ? expiredTarget.draft.draftRef! : 'missing-expired-draft';
+    const expiredQuote = store.quoteReservationDraft({ ...baseCreate, operation: pmsReservationQuoteOperation, clientToken: 'pending-sqlite-expire-quote-1', requestFingerprint: 'sha256:pending-sqlite-expire-quote-1', correlationId: 'corr-pending-sqlite-expire-quote-1', requestedAt: '2026-04-28T00:01:00.000Z', draftRef: expiredDraftRef });
+    const expiredPrepared = store.prepareConfirmReservationDraft({ ...baseCreate, operation: pmsReservationPrepareConfirmOperation, clientToken: 'pending-sqlite-expire-prepare-1', requestFingerprint: 'sha256:pending-sqlite-expire-prepare-1', correlationId: 'corr-pending-sqlite-expire-prepare-1', requestedAt: '2026-04-28T00:02:00.000Z', draftRef: expiredDraftRef, quoteRef: expiredQuote.ok ? expiredQuote.draft.quote!.quoteRef : 'missing-expire-quote' });
     const expired = store.confirmPendingAction({ operation: pmsPendingActionConfirmOperation, pendingActionRef: expiredPrepared.ok ? expiredPrepared.draft.pendingAction!.pendingActionRef : 'missing-expired-pending', actor: baseCreate.actor, scope, clientToken: 'pending-sqlite-expired-confirm-1', requestFingerprint: 'sha256:pending-sqlite-expired-confirm-1', correlationId: 'corr-pending-sqlite-expired-confirm-1', requestedAt: '2026-04-28T00:15:00.000Z', cardPayloadRef: expiredPrepared.ok ? expiredPrepared.draft.pendingAction!.cardPayloadRef : 'missing-expired-card' });
 
     expect(status).toMatchObject({ ok: true, operation: 'pms.pending_action.status', mutationStatus: 'none', pendingAction: { pendingActionRef, status: 'awaitingConfirmation' } });
@@ -1087,9 +1089,9 @@ describe('SQLite local sandbox store', () => {
 
     const readback = store.readback('room-1001');
     expect(readback.reservationDrafts).toEqual(expect.arrayContaining([
-      expect.objectContaining({ draftId, status: 'awaitingConfirmation', pendingAction: expect.objectContaining({ pendingActionRef, status: 'confirmed', mutationStatus: 'deferred' }) }),
-      expect.objectContaining({ draftId: cancelDraftId, status: 'cancelled', pendingAction: expect.objectContaining({ status: 'cancelled' }) }),
-      expect.objectContaining({ draftId: expiredDraftId, status: 'expired', pendingAction: expect.objectContaining({ status: 'expired' }) }),
+      expect.objectContaining({ draftRef, status: 'awaitingConfirmation', pendingAction: expect.objectContaining({ pendingActionRef, status: 'confirmed', mutationStatus: 'deferred' }) }),
+      expect.objectContaining({ draftRef: cancelDraftRef, status: 'cancelled', pendingAction: expect.objectContaining({ status: 'cancelled' }) }),
+      expect.objectContaining({ draftRef: expiredDraftRef, status: 'expired', pendingAction: expect.objectContaining({ status: 'expired' }) }),
     ]));
     expect(readback.reservationDraftAudits.map((audit) => audit.action)).toEqual(expect.arrayContaining(['pendingActionStatusRead', 'pendingActionConfirmed', 'pendingActionCancelled', 'pendingActionExpired']));
     const exposedAuditSurface = JSON.stringify(readback.reservationDraftAudits);
@@ -1116,7 +1118,7 @@ describe('SQLite local sandbox store', () => {
     store.close();
 
     const restarted = createSqliteLocalSandboxStore({ dbPath, seedRooms: [], resetOnStart: false, now: () => now });
-    expect(restarted.readback().reservationDrafts).toEqual(expect.arrayContaining([expect.objectContaining({ draftId, pendingAction: expect.objectContaining({ status: 'confirmed' }) })]));
+    expect(restarted.readback().reservationDrafts).toEqual(expect.arrayContaining([expect.objectContaining({ draftRef, pendingAction: expect.objectContaining({ status: 'confirmed' }) })]));
     restarted.close();
   });
 

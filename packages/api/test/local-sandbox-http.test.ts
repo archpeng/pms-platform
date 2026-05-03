@@ -458,7 +458,9 @@ describe('PMS local durable checkout sandbox HTTP boundary', () => {
       ...createBody,
       requestFingerprint: 'sha256:http-reservation-draft-create-1-different',
     });
-    const draftId = create.draft.draftId;
+    const draftRef = create.draft.draftRef;
+    expect(draftRef).toMatch(/^[a-f0-9]{16}$/);
+    expect(create.draft.draftId).toBeUndefined();
     const update = await authedPost(`${url}/v1/pms/reservation-drafts/update`, {
       ...createBody,
       operation: pmsReservationDraftUpdateOperation,
@@ -466,7 +468,7 @@ describe('PMS local durable checkout sandbox HTTP boundary', () => {
       requestFingerprint: 'sha256:http-reservation-draft-update-1',
       correlationId: 'corr-http-reservation-draft-update-1',
       requestedAt: '2026-05-02T00:01:00.000Z',
-      draftId,
+      draftRef,
       slots: { roomId: 'room-1001', selectedCandidateRef: 'availability-http-1:room-1001' },
       evidenceRefs: [{ source: 'userTurn', refId: 'turn-http-2' }],
     });
@@ -477,7 +479,7 @@ describe('PMS local durable checkout sandbox HTTP boundary', () => {
       requestFingerprint: 'sha256:http-reservation-draft-quote-1',
       correlationId: 'corr-http-reservation-draft-quote-1',
       requestedAt: '2026-05-02T00:02:00.000Z',
-      draftId,
+      draftRef,
     });
     const duplicateQuote = await authedPost(`${url}/v1/pms/reservation-drafts/quote`, {
       ...createBody,
@@ -486,7 +488,7 @@ describe('PMS local durable checkout sandbox HTTP boundary', () => {
       requestFingerprint: 'sha256:http-reservation-draft-quote-1',
       correlationId: 'corr-http-reservation-draft-quote-1',
       requestedAt: '2026-05-02T00:02:00.000Z',
-      draftId,
+      draftRef,
     });
     const quoteMismatch = await authedPost(`${url}/v1/pms/reservation-drafts/quote`, {
       ...createBody,
@@ -495,7 +497,7 @@ describe('PMS local durable checkout sandbox HTTP boundary', () => {
       requestFingerprint: 'sha256:http-reservation-draft-quote-1-different',
       correlationId: 'corr-http-reservation-draft-quote-1',
       requestedAt: '2026-05-02T00:02:00.000Z',
-      draftId,
+      draftRef,
     });
     const quoteRef = quote.draft.quote.quoteRef;
     const prepareConfirm = await authedPost(`${url}/v1/pms/reservation-drafts/prepare-confirm`, {
@@ -507,7 +509,7 @@ describe('PMS local durable checkout sandbox HTTP boundary', () => {
       requestFingerprint: 'sha256:http-reservation-prepare-1',
       correlationId: 'corr-http-reservation-prepare-1',
       requestedAt: '2026-05-02T00:03:00.000Z',
-      draftId,
+      draftRef,
       quoteRef,
     });
     const cancel = await authedPost(`${url}/v1/pms/reservation-drafts/cancel`, {
@@ -517,7 +519,7 @@ describe('PMS local durable checkout sandbox HTTP boundary', () => {
       requestFingerprint: 'sha256:http-reservation-draft-cancel-1',
       correlationId: 'corr-http-reservation-draft-cancel-1',
       requestedAt: '2026-05-02T00:04:00.000Z',
-      draftId,
+      draftRef,
       reason: 'guest changed plan',
     });
     const cancelledQuote = await authedPost(`${url}/v1/pms/reservation-drafts/quote`, {
@@ -527,7 +529,7 @@ describe('PMS local durable checkout sandbox HTTP boundary', () => {
       requestFingerprint: 'sha256:http-reservation-draft-cancelled-quote-1',
       correlationId: 'corr-http-reservation-draft-cancelled-quote-1',
       requestedAt: '2026-05-02T00:05:00.000Z',
-      draftId,
+      draftRef,
     });
     const after = await authedGet(`${url}/v1/sandbox/readback/room-1001`);
 
@@ -536,16 +538,16 @@ describe('PMS local durable checkout sandbox HTTP boundary', () => {
       operation: 'pms.reservation.draft.create',
       status: 'ok',
       mutationStatus: 'draftOnly',
-      draft: { draftId, workflowType: 'reservation', status: 'collectingSlots', evidenceRefs: [{ refId: 'availability-http-1' }] },
+      draft: { draftRef, workflowType: 'reservation', status: 'collectingSlots', evidenceRefs: [{ refId: 'availability-http-1' }] },
     });
     expect(duplicate).toEqual(create);
     expect(mismatch).toMatchObject({ ok: false, status: 'rejected', errors: [{ code: 'RESERVATION_DRAFT_TOKEN_REUSED_WITH_DIFFERENT_FINGERPRINT' }] });
-    expect(update).toMatchObject({ ok: true, operation: 'pms.reservation.draft.update', draft: { draftId, slots: { roomId: 'room-1001' } } });
+    expect(update).toMatchObject({ ok: true, operation: 'pms.reservation.draft.update', draft: { draftRef, slots: { roomId: 'room-1001' } } });
     expect(quote).toMatchObject({
       ok: true,
       operation: 'pms.reservation.quote',
       mutationStatus: 'draftOnly',
-      draft: { draftId, status: 'quoteReady', quote: { status: 'pricingUnsupported', capabilityGap: { code: 'RESERVATION_QUOTE_PRICING_UNSUPPORTED' } } },
+      draft: { draftRef, status: 'quoteReady', quote: { status: 'pricingUnsupported', capabilityGap: { code: 'RESERVATION_QUOTE_PRICING_UNSUPPORTED' } } },
     });
     expect(duplicateQuote).toEqual(quote);
     expect(quoteMismatch).toMatchObject({ ok: false, status: 'rejected', errors: [{ code: 'RESERVATION_DRAFT_TOKEN_REUSED_WITH_DIFFERENT_FINGERPRINT' }] });
@@ -553,11 +555,11 @@ describe('PMS local durable checkout sandbox HTTP boundary', () => {
       ok: true,
       operation: 'pms.reservation.prepare_confirm',
       mutationStatus: 'draftOnly',
-      draft: { draftId, status: 'awaitingConfirmation', quote: { quoteRef }, pendingAction: { quoteRef, confirmationMode: 'typedCardOnly', mutationStatus: 'none' } },
+      draft: { draftRef, status: 'awaitingConfirmation', quote: { quoteRef }, pendingAction: { quoteRef, confirmationMode: 'typedCardOnly', mutationStatus: 'none' } },
     });
-    expect(cancel).toMatchObject({ ok: true, operation: 'pms.reservation.draft.cancel', draft: { draftId, status: 'cancelled' } });
+    expect(cancel).toMatchObject({ ok: true, operation: 'pms.reservation.draft.cancel', draft: { draftRef, status: 'cancelled' } });
     expect(cancelledQuote).toMatchObject({ ok: false, status: 'rejected', errors: [{ code: 'RESERVATION_DRAFT_NOT_ACTIVE' }] });
-    expect(after.reservationDrafts).toEqual(expect.arrayContaining([expect.objectContaining({ draftId, status: 'cancelled', quote: expect.objectContaining({ quoteRef }), pendingAction: expect.objectContaining({ quoteRef }) })]));
+    expect(after.reservationDrafts).toEqual(expect.arrayContaining([expect.objectContaining({ draftRef, status: 'cancelled', quote: expect.objectContaining({ quoteRef }), pendingAction: expect.objectContaining({ quoteRef }) })]));
     expect(after.reservationDraftAudits.map((audit: { action: string }) => audit.action)).toEqual(['created', 'updated', 'quoted', 'prepared', 'cancelled']);
     expect(after.rooms).toEqual(before.rooms);
     expect(after.reservations).toEqual(before.reservations);
@@ -585,7 +587,7 @@ describe('PMS local durable checkout sandbox HTTP boundary', () => {
       expiresAt: '2026-05-03T00:00:00.000Z',
     };
     const create = await authedPost(`${url}/v1/pms/reservation-drafts/create`, createBase);
-    const draftId = create.draft.draftId;
+    const draftRef = create.draft.draftRef;
     const quote = await authedPost(`${url}/v1/pms/reservation-drafts/quote`, {
       ...createBase,
       operation: pmsReservationQuoteOperation,
@@ -593,7 +595,7 @@ describe('PMS local durable checkout sandbox HTTP boundary', () => {
       requestFingerprint: 'sha256:http-pending-draft-quote-1',
       correlationId: 'corr-http-pending-draft-quote-1',
       requestedAt: '2026-05-02T00:01:00.000Z',
-      draftId,
+      draftRef,
     });
     const prepare = await authedPost(`${url}/v1/pms/reservation-drafts/prepare-confirm`, {
       ...createBase,
@@ -602,7 +604,7 @@ describe('PMS local durable checkout sandbox HTTP boundary', () => {
       requestFingerprint: 'sha256:http-pending-draft-prepare-1',
       correlationId: 'corr-http-pending-draft-prepare-1',
       requestedAt: '2026-05-02T00:02:00.000Z',
-      draftId,
+      draftRef,
       quoteRef: quote.draft.quote.quoteRef,
     });
     const pendingActionRef = prepare.draft.pendingAction.pendingActionRef;
@@ -647,7 +649,7 @@ describe('PMS local durable checkout sandbox HTTP boundary', () => {
     expect(replay).toEqual(confirm);
     expect(conflict).toMatchObject({ ok: false, status: 'rejected', errors: [{ code: 'PENDING_ACTION_TOKEN_REUSED_WITH_DIFFERENT_FINGERPRINT' }] });
     expect(JSON.stringify(confirm)).not.toContain('frontdesk-1');
-    expect(after.reservationDrafts).toEqual(expect.arrayContaining([expect.objectContaining({ draftId, status: 'awaitingConfirmation', pendingAction: expect.objectContaining({ pendingActionRef, status: 'confirmed', mutationStatus: 'deferred' }) })]));
+    expect(after.reservationDrafts).toEqual(expect.arrayContaining([expect.objectContaining({ draftRef, status: 'awaitingConfirmation', pendingAction: expect.objectContaining({ pendingActionRef, status: 'confirmed', mutationStatus: 'deferred' }) })]));
     expect(after.reservationDraftAudits.map((audit: { action: string }) => audit.action)).toEqual(expect.arrayContaining(['pendingActionStatusRead', 'pendingActionConfirmed']));
     expect(after.rooms).toEqual(before.rooms);
     expect(after.reservations).toEqual(before.reservations);
@@ -656,9 +658,9 @@ describe('PMS local durable checkout sandbox HTTP boundary', () => {
     expect(after.domainEvents).toEqual([]);
 
     const createCancel = await authedPost(`${url}/v1/pms/reservation-drafts/create`, { ...createBase, clientToken: 'http-pending-cancel-create-1', requestFingerprint: 'sha256:http-pending-cancel-create-1', correlationId: 'corr-http-pending-cancel-create-1' });
-    const cancelDraftId = createCancel.draft.draftId;
-    const quoteCancel = await authedPost(`${url}/v1/pms/reservation-drafts/quote`, { ...createBase, operation: pmsReservationQuoteOperation, clientToken: 'http-pending-cancel-quote-1', requestFingerprint: 'sha256:http-pending-cancel-quote-1', correlationId: 'corr-http-pending-cancel-quote-1', draftId: cancelDraftId });
-    const prepareCancel = await authedPost(`${url}/v1/pms/reservation-drafts/prepare-confirm`, { ...createBase, operation: pmsReservationPrepareConfirmOperation, clientToken: 'http-pending-cancel-prepare-1', requestFingerprint: 'sha256:http-pending-cancel-prepare-1', correlationId: 'corr-http-pending-cancel-prepare-1', draftId: cancelDraftId, quoteRef: quoteCancel.draft.quote.quoteRef });
+    const cancelDraftRef = createCancel.draft.draftRef;
+    const quoteCancel = await authedPost(`${url}/v1/pms/reservation-drafts/quote`, { ...createBase, operation: pmsReservationQuoteOperation, clientToken: 'http-pending-cancel-quote-1', requestFingerprint: 'sha256:http-pending-cancel-quote-1', correlationId: 'corr-http-pending-cancel-quote-1', draftRef: cancelDraftRef });
+    const prepareCancel = await authedPost(`${url}/v1/pms/reservation-drafts/prepare-confirm`, { ...createBase, operation: pmsReservationPrepareConfirmOperation, clientToken: 'http-pending-cancel-prepare-1', requestFingerprint: 'sha256:http-pending-cancel-prepare-1', correlationId: 'corr-http-pending-cancel-prepare-1', draftRef: cancelDraftRef, quoteRef: quoteCancel.draft.quote.quoteRef });
     const cancel = await authedPost(`${url}/v1/pms/pending-actions/cancel`, {
       operation: pmsPendingActionCancelOperation,
       pendingActionRef: prepareCancel.draft.pendingAction.pendingActionRef,

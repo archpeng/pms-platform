@@ -459,24 +459,28 @@ export interface ReservationDraftCreateApiRequest extends ReservationDraftWorkfl
 
 export interface ReservationDraftUpdateApiRequest extends ReservationDraftWorkflowApiRequestBase {
   readonly operation: typeof pmsReservationDraftUpdateOperation;
-  readonly draftId: string;
+  readonly draftRef?: string;
+  readonly draftId?: string;
   readonly missingSlots?: readonly ReservationDraftMissingSlot[];
 }
 
 export interface ReservationQuoteApiRequest extends ReservationDraftWorkflowApiRequestBase {
   readonly operation: typeof pmsReservationQuoteOperation;
+  readonly draftRef?: string;
   readonly draftId?: string;
 }
 
 export interface ReservationPrepareConfirmApiRequest extends ReservationDraftWorkflowApiRequestBase {
   readonly operation: typeof pmsReservationPrepareConfirmOperation;
-  readonly draftId: string;
+  readonly draftRef?: string;
+  readonly draftId?: string;
   readonly quoteRef?: string;
 }
 
 export interface ReservationDraftCancelApiRequest extends ReservationDraftWorkflowApiRequestBase {
   readonly operation: typeof pmsReservationDraftCancelOperation;
-  readonly draftId: string;
+  readonly draftRef?: string;
+  readonly draftId?: string;
   readonly reason: string;
 }
 
@@ -761,22 +765,22 @@ function buildPmsCapabilityManifestItems(): readonly PmsCapabilityManifestItem[]
       { name: 'roomTypeKeyword', required: false, source: 'user' },
     ]),
     reservationDraftCapability(pmsReservationDraftUpdateOperation, '/v1/pms/reservation-drafts/update', 'draft', 'ReservationDraftUpdateApiRequest', [
-      { name: 'draftId', required: true, source: 'context' },
+      { name: 'draftRef', required: true, source: 'context' },
       { name: 'guestDisplayName', required: false, source: 'user' },
       { name: 'arrivalDate', required: false, source: 'user' },
       { name: 'departureDate', required: false, source: 'user' },
       { name: 'roomTypeKeyword', required: false, source: 'user' },
     ]),
     reservationDraftCapability(pmsReservationQuoteOperation, '/v1/pms/reservation-drafts/quote', 'draft', 'ReservationQuoteApiRequest', [
-      { name: 'draftId', required: false, source: 'context' },
+      { name: 'draftRef', required: false, source: 'context' },
       { name: 'selectedCandidateRef', required: false, source: 'user' },
     ]),
     reservationDraftCapability(pmsReservationPrepareConfirmOperation, '/v1/pms/reservation-drafts/prepare-confirm', 'prepareConfirm', 'ReservationPrepareConfirmApiRequest', [
-      { name: 'draftId', required: true, source: 'context' },
+      { name: 'draftRef', required: true, source: 'context' },
       { name: 'quoteRef', required: false, source: 'context' },
     ]),
     reservationDraftCapability(pmsReservationDraftCancelOperation, '/v1/pms/reservation-drafts/cancel', 'draft', 'ReservationDraftCancelApiRequest', [
-      { name: 'draftId', required: true, source: 'context' },
+      { name: 'draftRef', required: true, source: 'context' },
       { name: 'reason', required: true, source: 'user' },
     ]),
     readCapability(pmsOperationRequestGetOperation, '/v1/pms/operation-requests/get', 'OperationRequestGetApiRequest', 'OperationRequestGetApiResponse', [{ name: 'operationRequestId', required: false, source: 'context' }], 'OperationRequest'),
@@ -1319,7 +1323,7 @@ export function executeReservationDraftWorkflowApiRequest(
     mutationStatus: 'none',
     draft: {
       workflowType: 'reservation',
-      ...(isDraftScopedRequest(request) ? { draftId: request.draftId } : {}),
+      ...(isDraftScopedRequest(request) ? draftContextFromRequest(request) : {}),
       status: 'collectingSlots',
       missingSlots: [],
       evidenceRefs: request.evidenceRefs ?? [],
@@ -1372,8 +1376,17 @@ export function executeAvailabilitySearchApiRequest(
 
 function isDraftScopedRequest(
   request: ReservationDraftWorkflowApiRequest,
-): request is ReservationDraftUpdateApiRequest | ReservationPrepareConfirmApiRequest | ReservationDraftCancelApiRequest {
-  return 'draftId' in request;
+): request is ReservationDraftUpdateApiRequest | ReservationQuoteApiRequest | ReservationPrepareConfirmApiRequest | ReservationDraftCancelApiRequest {
+  return 'draftRef' in request || 'draftId' in request;
+}
+
+function draftContextFromRequest(
+  request: ReservationDraftUpdateApiRequest | ReservationQuoteApiRequest | ReservationPrepareConfirmApiRequest | ReservationDraftCancelApiRequest,
+): { draftRef?: string; draftId?: string } {
+  return {
+    ...(request.draftRef ? { draftRef: request.draftRef } : {}),
+    ...(request.draftId ? { draftId: request.draftId } : {}),
+  };
 }
 
 function findAvailabilityCandidates(

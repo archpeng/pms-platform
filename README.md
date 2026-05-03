@@ -21,6 +21,10 @@ The workspace now contains a verified first PMS Core `CHECK_OUT` proof:
 
 Out of current bootstrap scope: Feishu integration, Hermes MCP integration, HTTP APIs, workers, persistence, durable outbox, and broader PMS workflows beyond the first `CHECK_OUT` proof.
 
+## Reservation draft continuation boundary
+
+Reservation draft workflow APIs are platform-owned. Customer-chat callers may resume draft update, quote, and prepare-confirm with the redacted `draftRef` returned by draft create; raw `draftId` remains platform-internal for sandbox readback/debug only. `ai-conversation` must not persist PMS draft truth, raw draft IDs, raw quote refs, raw pending-action refs, raw card payload refs, guest PII, or raw platform payloads. Final reservation mutation still requires typed card callback transport; natural-language prepare-confirm only creates draft/pending-action state with `mutationStatus=none` or `draftOnly`.
+
 ## Documentation
 
 - `packages/core/README.md` explains the core command behavior, transition matrix, errors, events, audit, and idempotency semantics.

@@ -376,6 +376,9 @@ describe('API checkout contract skeleton', () => {
       audit: { auditRequired: true, emitsDomainEvents: false },
       endpoint: { method: 'POST', path: '/v1/pms/reservation-drafts/create', auth: 'bearer-token' },
     });
+    expect(byName.get('pms.reservation.draft.update')?.slots).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'draftRef', required: true, source: 'context' }),
+    ]));
     expect(byName.get('pms.reservation.prepare_confirm')).toMatchObject({
       class: 'prepareConfirm',
       customerChatAllowed: true,
@@ -383,6 +386,7 @@ describe('API checkout contract skeleton', () => {
       confirmationRequired: false,
       schemaRefs: { request: 'ReservationPrepareConfirmApiRequest', response: 'ReservationDraftWorkflowApiResponse' },
       endpoint: { method: 'POST', path: '/v1/pms/reservation-drafts/prepare-confirm', auth: 'bearer-token' },
+      slots: expect.arrayContaining([expect.objectContaining({ name: 'draftRef', required: true, source: 'context' })]),
     });
     expect(byName.get('pms.pending_action.status')).toMatchObject({
       class: 'internal',

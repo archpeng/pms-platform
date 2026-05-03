@@ -808,7 +808,7 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
     const replay = this.reservationDraftReplayOrConflict(request);
     if (replay) return replay;
 
-    const existing = this.getReservationDraftById(request.draftId);
+    const existing = this.getReservationDraftByContext(request);
     if (!existing) return reservationDraftNotFoundResponse(request);
     const updatedAt = nonEmptyString(request.requestedAt, this.now());
     const slots = { ...existing.slots, ...(request.slots ?? {}) };
@@ -838,8 +838,7 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
     const replay = this.reservationDraftReplayOrConflict(request);
     if (replay) return replay;
 
-    if (!request.draftId) return reservationDraftNotFoundResponse(request);
-    const existing = this.getReservationDraftById(request.draftId);
+    const existing = this.getReservationDraftByContext(request);
     if (!existing) return reservationDraftNotFoundResponse(request);
 
     const quotedAt = nonEmptyString(request.requestedAt, this.now());
@@ -867,7 +866,7 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
     const replay = this.reservationDraftReplayOrConflict(request);
     if (replay) return replay;
 
-    const existing = this.getReservationDraftById(request.draftId);
+    const existing = this.getReservationDraftByContext(request);
     if (!existing) return reservationDraftNotFoundResponse(request);
 
     const preparedAt = nonEmptyString(request.requestedAt, this.now());
@@ -901,7 +900,7 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
     const replay = this.reservationDraftReplayOrConflict(request);
     if (replay) return replay;
 
-    const existing = this.getReservationDraftById(request.draftId);
+    const existing = this.getReservationDraftByContext(request);
     if (!existing) return reservationDraftNotFoundResponse(request);
     const updatedAt = nonEmptyString(request.requestedAt, this.now());
     const draft: StoredReservationDraft = {
@@ -2154,6 +2153,11 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
     return row ? reservationDraftFromRow(row) : undefined;
   }
 
+  private getReservationDraftByContext(request: ReservationDraftUpdateApiRequest | ReservationQuoteApiRequest | ReservationPrepareConfirmApiRequest | ReservationDraftCancelApiRequest): StoredReservationDraft | undefined {
+    if (request.draftRef) return this.listStoredReservationDrafts().find((draft) => reservationDraftRef(draft.draftId) === request.draftRef);
+    return request.draftId ? this.getReservationDraftById(request.draftId) : undefined;
+  }
+
   private getReservationDraftByPendingActionRef(pendingActionRef: string): StoredReservationDraft | undefined {
     return this.listStoredReservationDrafts().find((draft) => draft.pendingAction?.pendingActionRef === pendingActionRef);
   }
@@ -2166,7 +2170,7 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
   }
 
   private listReservationDrafts(): ReservationDraftWorkflowRef[] {
-    return this.listStoredReservationDrafts().map((draft) => reservationDraftRefFromStored(draft));
+    return this.listStoredReservationDrafts().map((draft) => reservationDraftRefFromStored(draft, [], { includeDraftId: true }));
   }
 
   private saveReservationDraft(draft: StoredReservationDraft): void {
@@ -2693,10 +2697,15 @@ function reservationDraftFromRow(row: ReservationDraftRow): StoredReservationDra
   };
 }
 
-function reservationDraftRefFromStored(draft: StoredReservationDraft, auditRefs: readonly ReservationDraftAuditRef[] = []): ReservationDraftWorkflowRef {
+function reservationDraftRefFromStored(
+  draft: StoredReservationDraft,
+  auditRefs: readonly ReservationDraftAuditRef[] = [],
+  options: { includeDraftId?: boolean } = {},
+): ReservationDraftWorkflowRef {
   return {
     workflowType: 'reservation',
-    draftId: draft.draftId,
+    draftRef: reservationDraftRef(draft.draftId),
+    ...(options.includeDraftId ? { draftId: draft.draftId } : {}),
     status: draft.status,
     slots: cloneValue(draft.slots),
     missingSlots: cloneValue(draft.missingSlots),
@@ -2746,7 +2755,7 @@ function reservationDraftNotFoundResponse(request: ReservationDraftUpdateApiRequ
     operation: request.operation,
     status: 'notFound',
     mutationStatus: 'none',
-    errors: [{ code: 'RESERVATION_DRAFT_NOT_FOUND', message: 'Reservation draft was not found.', field: 'draftId' }],
+    errors: [{ code: 'RESERVATION_DRAFT_NOT_FOUND', message: 'Reservation draft was not found.', field: 'draftRef' }],
   };
 }
 
@@ -3097,6 +3106,10 @@ function reservationDraftIdFromClientToken(clientToken: string): string {
   return `draft-${sanitizeSlug(clientToken).slice(0, 48)}-${digest}`;
 }
 
+function reservationDraftRef(draftId: string): string {
+  return createHash('sha256').update(`reservation-draft:${draftId}`).digest('hex').slice(0, 16);
+}
+
 function reservationQuoteRef(draft: StoredReservationDraft): string {
   return reservationDraftDerivedRef('quote', `${draft.draftId}:${stableJsonStringify(draft.slots)}:${stableJsonStringify(draft.evidenceRefs)}`);
 }
@@ -3195,7 +3208,7 @@ function requestModeFromRecord(record: ApiIdempotencyRecord): PmsSandboxIdempote
 
 function requestJsonFromRecord(record: ApiIdempotencyRecord): unknown {
   if (record.response.ok && 'request' in record.response) return record.response.request.fingerprintInput;
-  if (record.response.ok && record.response.mutationStatus === 'draftOnly') return { operation: record.response.operation, draftId: record.response.draft.draftId };
+  if (record.response.ok && record.response.mutationStatus === 'draftOnly') return { operation: record.response.operation, draftRef: record.response.draft.draftRef };
   if (record.response.ok && 'pendingAction' in record.response) return { operation: record.response.operation, pendingActionRef: record.response.pendingAction.pendingActionRef };
   return 'mode' in record.response ? { mode: record.response.mode } : { operation: record.response.operation };
 }
