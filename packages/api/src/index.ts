@@ -797,20 +797,30 @@ function buildPmsCapabilityManifestItems(): readonly PmsCapabilityManifestItem[]
     commandCapability(pmsMaintenanceDoneOperation, 'MAINTENANCE_DONE', '/v1/pms/maintenance/done', 'confirm', ['MaintenanceCompleted'], [{ name: 'roomId', required: true, source: 'user' }, { name: 'ticketId', required: false, source: 'context' }]),
     commandCapability(pmsRestoreSellableOperation, 'RESTORE_SELLABLE', '/v1/pms/maintenance/restore-sellable', 'dryRun', ['RoomSellabilityRestored'], [{ name: 'roomId', required: true, source: 'user' }]),
     commandCapability(pmsRestoreSellableOperation, 'RESTORE_SELLABLE', '/v1/pms/maintenance/restore-sellable', 'confirm', ['RoomSellabilityRestored'], [{ name: 'roomId', required: true, source: 'user' }]),
-    capability({
-      name: pmsOperationRequestCreateOperation,
-      class: 'prepareConfirm',
+    operationRequestSafeIntakeCapability({
+      operation: pmsOperationRequestCreateOperation,
+      path: '/v1/pms/operation-requests/create',
+      requestSchemaRef: 'OperationRequestCreateApiRequest',
+      responseSchemaRef: 'OperationRequestCreateApiResponse',
       customerChatAllowed: true,
       naturalLanguageExecutable: true,
-      confirmationRequired: false,
-      schemaRefs: { request: 'OperationRequestCreateApiRequest', response: 'OperationRequestCreateApiResponse' },
       slots: [{ name: 'action', required: true, source: 'user' }],
-      refs: { readModel: 'OperationRequest' },
       idempotency: { required: true, keyField: 'clientToken', fingerprintRequired: true, replaySafe: true },
-      audit: { auditRequired: true, emitsDomainEvents: false, eventTypes: [] },
-      endpoint: { method: 'POST', path: '/v1/pms/operation-requests/create', operation: pmsOperationRequestCreateOperation, auth: 'bearer-token' },
     }),
-    internalCapability(pmsOperationRequestUpdateOperation, 'POST', '/v1/pms/operation-requests/update', 'OperationRequestUpdateApiRequest', 'OperationRequestUpdateApiResponse'),
+    operationRequestSafeIntakeCapability({
+      operation: pmsOperationRequestUpdateOperation,
+      path: '/v1/pms/operation-requests/update',
+      requestSchemaRef: 'OperationRequestUpdateApiRequest',
+      responseSchemaRef: 'OperationRequestUpdateApiResponse',
+      customerChatAllowed: false,
+      naturalLanguageExecutable: false,
+      slots: [
+        { name: 'operationRequestId', required: false, source: 'context' },
+        { name: 'clientToken', required: false, source: 'context' },
+        { name: 'status', required: false, source: 'system' },
+      ],
+      idempotency: { required: false, fingerprintRequired: false, replaySafe: false },
+    }),
     internalCapability(pmsPendingActionStatusOperation, 'POST', '/v1/pms/pending-actions/status', 'PendingActionStatusApiRequest', 'PendingActionCallbackApiResponse'),
     internalCapability(pmsPendingActionConfirmOperation, 'POST', '/v1/pms/pending-actions/confirm', 'PendingActionConfirmApiRequest', 'PendingActionCallbackApiResponse'),
     internalCapability(pmsPendingActionCancelOperation, 'POST', '/v1/pms/pending-actions/cancel', 'PendingActionCancelApiRequest', 'PendingActionCallbackApiResponse'),
@@ -862,6 +872,31 @@ function readCapability(
     idempotency: { required: false, fingerprintRequired: false, replaySafe: true },
     audit: { auditRequired: false, emitsDomainEvents: false, eventTypes: [] },
     endpoint: { method: 'POST', path, operation, auth: 'bearer-token' },
+  });
+}
+
+function operationRequestSafeIntakeCapability(options: {
+  readonly operation: PmsOperationRequestOperation;
+  readonly path: string;
+  readonly requestSchemaRef: string;
+  readonly responseSchemaRef: string;
+  readonly customerChatAllowed: boolean;
+  readonly naturalLanguageExecutable: boolean;
+  readonly slots: PmsCapabilityManifestItem['slots'];
+  readonly idempotency: PmsCapabilityManifestItem['idempotency'];
+}): PmsCapabilityManifestItem {
+  return capability({
+    name: options.operation,
+    class: 'safeIntake',
+    customerChatAllowed: options.customerChatAllowed,
+    naturalLanguageExecutable: options.naturalLanguageExecutable,
+    confirmationRequired: false,
+    schemaRefs: { request: options.requestSchemaRef, response: options.responseSchemaRef },
+    slots: options.slots,
+    refs: { readModel: 'OperationRequest' },
+    idempotency: options.idempotency,
+    audit: { auditRequired: true, emitsDomainEvents: false, eventTypes: [] },
+    endpoint: { method: 'POST', path: options.path, operation: options.operation, auth: 'bearer-token' },
   });
 }
 

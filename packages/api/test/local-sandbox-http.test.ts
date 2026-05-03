@@ -178,7 +178,8 @@ describe('PMS local durable checkout sandbox HTTP boundary', () => {
     expect(manifestResponse.manifest.capabilities).toEqual(expect.arrayContaining([
       expect.objectContaining({ name: 'pms_check_in.dryRun', class: 'dryRun' }),
       expect.objectContaining({ name: 'pms_check_in.confirm', class: 'confirm', naturalLanguageExecutable: false }),
-      expect.objectContaining({ name: 'pms_operation_request_create', class: 'prepareConfirm' }),
+      expect.objectContaining({ name: 'pms_operation_request_create', class: 'safeIntake' }),
+      expect.objectContaining({ name: 'pms_operation_request_update', class: 'safeIntake', naturalLanguageExecutable: false }),
       expect.objectContaining({ name: 'pms.reservation.draft.create', class: 'draft', naturalLanguageExecutable: true }),
       expect.objectContaining({ name: 'pms.reservation.prepare_confirm', class: 'prepareConfirm', naturalLanguageExecutable: true }),
       expect.objectContaining({ name: 'pms_capabilities_manifest', class: 'internal', naturalLanguageExecutable: false }),
@@ -619,6 +620,12 @@ describe('PMS local durable checkout sandbox HTTP boundary', () => {
       limit: 3,
       requestedAt: '2026-04-26T00:02:00.000Z',
     });
+    const genericDispatch = await authedPost(`${url}/v1/pms/operation-requests/execute`, {
+      operation: 'pms_operation_request_update',
+      clientToken: 'http-form-checkout-room-1001',
+      status: 'confirmed',
+      updatedAt: '2026-04-26T00:03:00.000Z',
+    });
     const after = await authedGet(`${url}/v1/sandbox/readback/room-1001`);
 
     expect(created).toMatchObject({
@@ -640,6 +647,10 @@ describe('PMS local durable checkout sandbox HTTP boundary', () => {
       filter: { status: 'awaitingConfirmation', roomId: 'room-1001', limit: 3 },
       requests: [{ clientToken: 'http-form-checkout-room-1001', status: 'awaitingConfirmation', roomId: 'room-1001' }],
     });
+    expect(genericDispatch).toMatchObject({ ok: false, error: { code: 'PMS_LOCAL_ROUTE_NOT_FOUND' } });
+    expect(after.operationRequests).toEqual([
+      expect.objectContaining({ clientToken: 'http-form-checkout-room-1001', status: 'awaitingConfirmation' }),
+    ]);
     expect(after.rooms).toEqual(before.rooms);
     expect(after.housekeepingTasks).toEqual([]);
     expect(after.maintenanceTickets).toEqual([]);

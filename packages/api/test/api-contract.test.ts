@@ -336,9 +336,24 @@ describe('API checkout contract skeleton', () => {
       audit: { auditRequired: true, emitsDomainEvents: true },
     });
     expect(byName.get('pms_operation_request_create')).toMatchObject({
-      class: 'prepareConfirm',
+      class: 'safeIntake',
       customerChatAllowed: true,
       naturalLanguageExecutable: true,
+      confirmationRequired: false,
+      schemaRefs: { request: 'OperationRequestCreateApiRequest', response: 'OperationRequestCreateApiResponse' },
+      endpoint: { method: 'POST', path: '/v1/pms/operation-requests/create', auth: 'bearer-token' },
+      refs: { readModel: 'OperationRequest' },
+      audit: { auditRequired: true, emitsDomainEvents: false, eventTypes: [] },
+    });
+    expect(byName.get('pms_operation_request_update')).toMatchObject({
+      class: 'safeIntake',
+      customerChatAllowed: false,
+      naturalLanguageExecutable: false,
+      confirmationRequired: false,
+      schemaRefs: { request: 'OperationRequestUpdateApiRequest', response: 'OperationRequestUpdateApiResponse' },
+      endpoint: { method: 'POST', path: '/v1/pms/operation-requests/update', auth: 'bearer-token' },
+      refs: { readModel: 'OperationRequest' },
+      audit: { auditRequired: true, emitsDomainEvents: false, eventTypes: [] },
     });
     expect(byName.get('pms_availability_search')).toMatchObject({
       class: 'read',
@@ -400,6 +415,7 @@ describe('API checkout contract skeleton', () => {
 
     expect(projection.capabilities.some((capability) => capability.class === 'confirm')).toBe(false);
     expect(projection.capabilities.some((capability) => capability.class === 'internal')).toBe(false);
+    expect(projection.capabilities.some((capability) => capability.name === 'pms_operation_request_update')).toBe(false);
     expect(projection.capabilities.map((capability) => capability.name)).toEqual(expect.arrayContaining([
       'pms_get_room',
       'pms_check_out.dryRun',
@@ -410,6 +426,24 @@ describe('API checkout contract skeleton', () => {
     ]));
     expect(JSON.stringify(projection)).not.toContain('/v1/pms/');
     expect(JSON.stringify(projection)).not.toContain('bearer-token');
+
+    const r1FixedEndpointMatrix = [
+      ['pms_dashboard', 'DashboardApiRequest', 'DashboardApiResponse', '/v1/pms/dashboard'],
+      ['pms_get_room', 'GetRoomApiRequest', 'GetRoomApiResponse', '/v1/pms/room'],
+      ['pms_reservation_get', 'ReservationGetApiRequest', 'ReservationGetApiResponse', '/v1/pms/reservations/get'],
+      ['pms_today_arrivals', 'TodayReservationsApiRequest', 'TodayReservationsApiResponse', '/v1/pms/reservations/today-arrivals'],
+      ['pms_today_departures', 'TodayReservationsApiRequest', 'TodayReservationsApiResponse', '/v1/pms/reservations/today-departures'],
+      ['pms_availability_search', 'AvailabilitySearchApiRequest', 'AvailabilitySearchApiResponse', '/v1/pms/availability/search'],
+      ['pms_operation_request_create', 'OperationRequestCreateApiRequest', 'OperationRequestCreateApiResponse', '/v1/pms/operation-requests/create'],
+      ['pms_operation_request_get', 'OperationRequestGetApiRequest', 'OperationRequestGetApiResponse', '/v1/pms/operation-requests/get'],
+      ['pms_operation_request_list', 'OperationRequestListApiRequest', 'OperationRequestListApiResponse', '/v1/pms/operation-requests/list'],
+      ['pms_operation_request_update', 'OperationRequestUpdateApiRequest', 'OperationRequestUpdateApiResponse', '/v1/pms/operation-requests/update'],
+    ] as const;
+    for (const [name, request, response, path] of r1FixedEndpointMatrix) {
+      const capability = byName.get(name);
+      expect(capability).toMatchObject({ schemaRefs: { request, response }, endpoint: { method: 'POST', path, operation: name, auth: 'bearer-token' } });
+      expect(path).not.toMatch(/[:{}*]/);
+    }
   });
 
   it('defines pms_get_room and pms_dashboard read-model responses at the API boundary', () => {

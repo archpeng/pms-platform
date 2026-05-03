@@ -88,7 +88,7 @@ export function isOperationRequestStatus(value: string): value is OperationReque
   return (operationRequestStatuses as readonly string[]).includes(value);
 }
 
-export type PmsCapabilityClass = 'read' | 'dryRun' | 'draft' | 'prepareConfirm' | 'confirm' | 'internal';
+export type PmsCapabilityClass = 'read' | 'dryRun' | 'safeIntake' | 'draft' | 'prepareConfirm' | 'confirm' | 'internal';
 
 export interface PmsCapabilitySchemaRefs {
   readonly request?: string;
