@@ -12,6 +12,7 @@ import type {
   InventorySummaryDayType,
   MaintenanceTicket,
   OperationRequest,
+  ProjectionOutboxEntry,
   ReservationReadModel,
   RoomReservationContextReadModel,
   StayReadModel,
@@ -193,6 +194,7 @@ export interface PmsSandboxReadback {
   readonly maintenanceTickets: readonly MaintenanceTicket[];
   readonly audits: readonly AuditEntry[];
   readonly domainEvents: readonly DomainEvent[];
+  readonly projectionOutbox: readonly ProjectionOutboxEntry[];
   readonly idempotencyRecords: readonly PmsSandboxIdempotencyReadback[];
 }
 

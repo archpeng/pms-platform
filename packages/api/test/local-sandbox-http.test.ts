@@ -228,6 +228,9 @@ describe('PMS local durable checkout sandbox HTTP boundary', () => {
       requestFingerprint: 'sha256:prompt-injection-stays-dry-run',
       ok: true,
     });
+    expect(afterDryRun.projectionOutbox).toEqual([
+      expect.objectContaining({ sourceType: 'apiIdempotency', projectionKind: 'dryRunReadback', status: 'skipped', truthOwner: 'pms-platform' }),
+    ]);
 
     const confirm = await authedPost(`${url}/v1/pms/check-out`, confirmRequest);
     expect(confirm).toMatchObject({ ok: true, operation: 'pms_check_out', mode: 'confirm' });
@@ -247,6 +250,10 @@ describe('PMS local durable checkout sandbox HTTP boundary', () => {
       'RoomCheckedOut',
       'HousekeepingTaskCreated',
     ]);
+    expect(afterConfirm.projectionOutbox).toEqual(expect.arrayContaining([
+      expect.objectContaining({ sourceType: 'domainEvent', projectionKind: 'roomLedger', status: 'pending', deliveryOwner: 'adapter' }),
+      expect.objectContaining({ sourceType: 'domainEvent', projectionKind: 'housekeepingTask', status: 'pending', deliveryOwner: 'adapter' }),
+    ]));
     expect(afterConfirm.idempotencyRecords).toContainEqual({
       operation: 'pms_check_out',
       mode: 'confirm',

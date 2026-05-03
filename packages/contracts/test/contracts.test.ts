@@ -6,6 +6,7 @@ import {
   checkoutContractFixtures,
   checkoutNextStatus,
   deferredPmsCommandStubs,
+  pmsProjectionOutboxSchemaVersion,
   pmsProjectionSchemaVersion,
   type CheckInCommand,
   type CheckInDryRunPlan,
@@ -29,6 +30,7 @@ import {
   type OperationRequest,
   type PmsCapabilityManifest,
   type PmsCommandDryRunPlan,
+  type ProjectionOutboxEntry,
   reservationDraftCreateOperationName,
   reservationDraftWorkflowOperations,
   type ReservationDraftWorkflowRef,
@@ -335,6 +337,36 @@ describe('PMS command contracts', () => {
     expect(dashboardReadModel.counts.dueOut).toBe(1);
     expect(projection.roomLedger.status.occupancy).toBe('vacant');
     expect(projection.operationLog.commandType).toBe('CHECK_OUT');
+  });
+
+  it('defines PMS-owned projection outbox readback entries for adapter transport delivery', () => {
+    const entry: ProjectionOutboxEntry = {
+      schemaVersion: pmsProjectionOutboxSchemaVersion,
+      outboxEntryId: 'projection-outbox:domainEvent:sha256-event-1',
+      owner: 'pms-platform',
+      targetFamily: 'pms-base-projection',
+      projectionKind: 'roomLedger',
+      sourceType: 'domainEvent',
+      sourceRef: 'event-room-checked-out-1',
+      aggregateRef: 'room-1001',
+      correlationId: validMeta.correlationId,
+      idempotencyKeyHash: 'sha256:contract-idempotency',
+      status: 'pending',
+      attemptCount: 0,
+      generatedAt: validMeta.requestedAt,
+      updatedAt: validMeta.requestedAt,
+      deliveryOwner: 'adapter',
+      truthOwner: 'pms-platform',
+    };
+
+    expect(entry).toMatchObject({
+      owner: 'pms-platform',
+      targetFamily: 'pms-base-projection',
+      deliveryOwner: 'adapter',
+      truthOwner: 'pms-platform',
+      status: 'pending',
+    });
+    expect(JSON.stringify(entry)).not.toMatch(/appToken|tableId|callbackUrl|authorization|secret/);
   });
 
   it('defines PMS-owned inventory calendar read-model contracts', () => {

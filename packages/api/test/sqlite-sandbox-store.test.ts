@@ -339,6 +339,18 @@ describe('SQLite local sandbox store', () => {
       requestFingerprint: dryRunRequest.requestFingerprint,
       ok: true,
     });
+    expect(readback.projectionOutbox).toEqual([
+      expect.objectContaining({
+        owner: 'pms-platform',
+        deliveryOwner: 'adapter',
+        truthOwner: 'pms-platform',
+        sourceType: 'apiIdempotency',
+        projectionKind: 'dryRunReadback',
+        status: 'skipped',
+        attemptCount: 0,
+      }),
+    ]);
+    expect(JSON.stringify(readback.projectionOutbox)).not.toContain(dryRunRequest.idempotencyKey);
     store.close();
   });
 
@@ -504,6 +516,10 @@ describe('SQLite local sandbox store', () => {
     expect(readback.housekeepingTasks).toHaveLength(1);
     expect(readback.audits).toHaveLength(1);
     expect(readback.domainEvents.map((event) => event.type)).toEqual(['RoomCheckedOut', 'HousekeepingTaskCreated']);
+    expect(readback.projectionOutbox).toEqual(expect.arrayContaining([
+      expect.objectContaining({ sourceType: 'domainEvent', projectionKind: 'roomLedger', status: 'pending', deliveryOwner: 'adapter', truthOwner: 'pms-platform' }),
+      expect.objectContaining({ sourceType: 'domainEvent', projectionKind: 'housekeepingTask', status: 'pending', deliveryOwner: 'adapter', truthOwner: 'pms-platform' }),
+    ]));
 
     const duplicate = restarted.runInTransaction(() =>
       executeCheckOutApiRequest(confirmRequest, restarted.ports, {
@@ -751,9 +767,18 @@ describe('SQLite local sandbox store', () => {
       filter: { status: 'awaitingConfirmation', roomId: 'room-1001', limit: 1 },
       requests: [{ clientToken: 'form-checkout-room-1001', status: 'awaitingConfirmation', roomId: 'room-1001' }],
     });
+    store.updateOperationRequest({
+      clientToken: 'form-checkout-room-1001',
+      status: 'failed',
+      result: { errorCode: 'adapter_delivery_failed' },
+      updatedAt: '2026-04-28T00:03:00.000Z',
+    });
 
     const readback = store.readback('room-1001');
-    expect(readback.operationRequests).toHaveLength(1);
+    expect(readback.operationRequests).toEqual([expect.objectContaining({ status: 'failed', resultJson: '{"errorCode":"adapter_delivery_failed"}' })]);
+    expect(readback.projectionOutbox).toEqual(expect.arrayContaining([
+      expect.objectContaining({ sourceType: 'operationRequest', projectionKind: 'operationRequestStatus', status: 'retryable', nextAttemptAt: '2026-04-28T00:03:00.000Z', redactedError: 'operation-request-status:failed' }),
+    ]));
     expect(readback.rooms).toEqual([dueOutRoom]);
     expect(readback.housekeepingTasks).toEqual([]);
     expect(readback.maintenanceTickets).toEqual([]);
@@ -770,8 +795,11 @@ describe('SQLite local sandbox store', () => {
     });
     expect(restarted.getOperationRequest({ clientToken: 'form-checkout-room-1001' }).request).toMatchObject({
       clientToken: 'form-checkout-room-1001',
-      status: 'awaitingConfirmation',
+      status: 'failed',
     });
+    expect(restarted.readback('room-1001').projectionOutbox).toEqual(expect.arrayContaining([
+      expect.objectContaining({ sourceType: 'operationRequest', status: 'retryable' }),
+    ]));
     expect(restarted.readback('room-1001').rooms).toEqual([dueOutRoom]);
     restarted.close();
   });
@@ -1074,6 +1102,13 @@ describe('SQLite local sandbox store', () => {
       expect.objectContaining({ operation: pmsPendingActionConfirmOperation, mode: 'confirm', ok: true }),
       expect.objectContaining({ operation: pmsPendingActionCancelOperation, mode: 'confirm', ok: true }),
     ]));
+    expect(readback.projectionOutbox).toEqual(expect.arrayContaining([
+      expect.objectContaining({ sourceType: 'reservationDraftAudit', projectionKind: 'reservationWorkflow', status: 'pending', deliveryOwner: 'adapter', truthOwner: 'pms-platform' }),
+    ]));
+    const exposedOutboxSurface = JSON.stringify(readback.projectionOutbox);
+    expect(exposedOutboxSurface).not.toContain(pendingActionRef);
+    expect(exposedOutboxSurface).not.toContain(cardPayloadRef);
+    expect(exposedOutboxSurface).not.toContain(confirmRequest.clientToken);
     expect(readback.reservations).toEqual([]);
     expect(readback.operationRequests).toEqual([]);
     expect(readback.audits).toEqual([]);

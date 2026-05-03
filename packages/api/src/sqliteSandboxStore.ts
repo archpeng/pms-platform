@@ -6,6 +6,7 @@ import {
   isOperationRequestSource,
   isOperationRequestStatus,
   isSupportedOperationRequestAction,
+  pmsProjectionOutboxSchemaVersion,
   type AuditEntry,
   type DomainEvent,
   type HousekeepingTask,
@@ -21,6 +22,7 @@ import {
   type InventorySummaryDayType,
   type MaintenanceTicket,
   type OperationRequest,
+  type ProjectionOutboxEntry,
   type ReservationDraftAuditRef,
   type ReservationDraftEvidenceRef,
   type ReservationDraftMissingSlot,
@@ -163,6 +165,20 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
     const operationRequests = roomId ? this.listOperationRequestsByRoomIds(roomIds) : this.listOperationRequestRecords();
     const audits = roomId ? this.listAuditsByRoomIds(roomIds) : this.listAudits();
     const domainEvents = roomId ? this.listDomainEventsByRoomIds(roomIds) : this.listDomainEvents();
+    const idempotencyRecords = this.listApiIdempotencyRecords().map((record) => ({
+      operation: requestOperationFromRecord(record),
+      mode: requestModeFromRecord(record),
+      idempotencyKey: record.idempotencyKey,
+      requestFingerprint: record.requestFingerprint,
+      ok: record.response.ok,
+    }));
+    const projectionOutbox = deriveProjectionOutboxEntries({
+      domainEvents,
+      reservationDraftAudits,
+      operationRequests,
+      idempotencyRecords,
+      generatedAt: this.now(),
+    });
 
     return {
       ok: true,
@@ -188,13 +204,8 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
       maintenanceTickets: cloneValue(maintenanceTickets),
       audits: cloneValue(audits),
       domainEvents: cloneValue(domainEvents),
-      idempotencyRecords: this.listApiIdempotencyRecords().map((record) => ({
-        operation: requestOperationFromRecord(record),
-        mode: requestModeFromRecord(record),
-        idempotencyKey: record.idempotencyKey,
-        requestFingerprint: record.requestFingerprint,
-        ok: record.response.ok,
-      })),
+      projectionOutbox: cloneValue(projectionOutbox),
+      idempotencyRecords: cloneValue(idempotencyRecords),
     };
   }
 
@@ -2949,6 +2960,108 @@ function isPendingActionCallbackResponse(response: ApiIdempotencyRecord['respons
 
 function pendingActionFallbackOperation(request: PendingActionCallbackApiRequest): typeof pmsPendingActionStatusOperation | typeof pmsPendingActionConfirmOperation | typeof pmsPendingActionCancelOperation {
   return request.operation ?? ('reason' in request ? pmsPendingActionCancelOperation : pmsPendingActionStatusOperation);
+}
+
+function deriveProjectionOutboxEntries(input: {
+  domainEvents: readonly DomainEvent[];
+  reservationDraftAudits: readonly ReservationDraftAuditRef[];
+  operationRequests: readonly OperationRequest[];
+  idempotencyRecords: readonly PmsSandboxIdempotencyReadback[];
+  generatedAt: string;
+}): ProjectionOutboxEntry[] {
+  const entries: ProjectionOutboxEntry[] = [];
+  for (const event of input.domainEvents) {
+    entries.push(projectionOutboxEntry({
+      sourceType: 'domainEvent',
+      sourceRef: event.eventId,
+      projectionKind: projectionKindFromDomainEvent(event),
+      aggregateRef: event.aggregateId,
+      correlationId: event.correlationId,
+      idempotencyKey: event.idempotencyKey,
+      generatedAt: event.occurredAt,
+      updatedAt: event.occurredAt,
+      status: 'pending',
+    }));
+  }
+  for (const audit of input.reservationDraftAudits) {
+    entries.push(projectionOutboxEntry({
+      sourceType: 'reservationDraftAudit',
+      sourceRef: audit.auditId,
+      projectionKind: 'reservationWorkflow',
+      aggregateRef: audit.auditId,
+      generatedAt: audit.occurredAt,
+      updatedAt: audit.occurredAt,
+      status: 'pending',
+    }));
+  }
+  for (const request of input.operationRequests) {
+    entries.push(projectionOutboxEntry({
+      sourceType: 'operationRequest',
+      sourceRef: request.operationRequestId,
+      projectionKind: 'operationRequestStatus',
+      aggregateRef: request.operationRequestId,
+      generatedAt: request.createdAt,
+      updatedAt: request.updatedAt,
+      status: retryableOperationRequestStatuses.has(request.status) ? 'retryable' : 'pending',
+      redactedError: retryableOperationRequestStatuses.has(request.status) ? `operation-request-status:${request.status}` : undefined,
+    }));
+  }
+  for (const record of input.idempotencyRecords) {
+    if (record.mode !== 'dryRun' || !record.ok) continue;
+    entries.push(projectionOutboxEntry({
+      sourceType: 'apiIdempotency',
+      sourceRef: stableRefHash(`${record.operation}:${record.idempotencyKey}`),
+      projectionKind: 'dryRunReadback',
+      aggregateRef: record.operation,
+      idempotencyKey: record.idempotencyKey,
+      generatedAt: input.generatedAt,
+      updatedAt: input.generatedAt,
+      status: 'skipped',
+    }));
+  }
+  return entries.sort((left, right) => left.generatedAt.localeCompare(right.generatedAt) || left.outboxEntryId.localeCompare(right.outboxEntryId));
+}
+
+const retryableOperationRequestStatuses = new Set(['failed', 'needsManualReview']);
+
+function projectionKindFromDomainEvent(event: DomainEvent): ProjectionOutboxEntry['projectionKind'] {
+  if (event.type === 'HousekeepingTaskCreated' || event.type.startsWith('Housekeeping')) return 'housekeepingTask';
+  if (event.type === 'MaintenanceReported' || event.type === 'MaintenanceCompleted') return 'maintenanceTicket';
+  return 'roomLedger';
+}
+
+function projectionOutboxEntry(input: {
+  sourceType: ProjectionOutboxEntry['sourceType'];
+  sourceRef: string;
+  projectionKind: ProjectionOutboxEntry['projectionKind'];
+  aggregateRef?: string;
+  correlationId?: string;
+  idempotencyKey?: string;
+  status: ProjectionOutboxEntry['status'];
+  redactedError?: string;
+  generatedAt: string;
+  updatedAt: string;
+}): ProjectionOutboxEntry {
+  return {
+    schemaVersion: pmsProjectionOutboxSchemaVersion,
+    outboxEntryId: `projection-outbox:${input.sourceType}:${stableRefHash(input.sourceRef)}`,
+    owner: 'pms-platform',
+    targetFamily: 'pms-base-projection',
+    projectionKind: input.projectionKind,
+    sourceType: input.sourceType,
+    sourceRef: input.sourceRef,
+    ...(input.aggregateRef ? { aggregateRef: input.aggregateRef } : {}),
+    ...(input.correlationId ? { correlationId: input.correlationId } : {}),
+    ...(input.idempotencyKey ? { idempotencyKeyHash: stableRefHash(input.idempotencyKey) } : {}),
+    status: input.status,
+    attemptCount: 0,
+    ...(input.status === 'retryable' ? { nextAttemptAt: input.updatedAt } : {}),
+    ...(input.redactedError ? { redactedError: input.redactedError } : {}),
+    generatedAt: input.generatedAt,
+    updatedAt: input.updatedAt,
+    deliveryOwner: 'adapter',
+    truthOwner: 'pms-platform',
+  };
 }
 
 function redactedPendingActionAuditPayload(request: PendingActionCallbackApiRequest): Record<string, unknown> {
