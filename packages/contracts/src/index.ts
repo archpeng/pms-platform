@@ -648,6 +648,9 @@ export const reservationDraftUpdateOperationName = 'pms.reservation.draft.update
 export const reservationQuoteOperationName = 'pms.reservation.quote';
 export const reservationPrepareConfirmOperationName = 'pms.reservation.prepare_confirm';
 export const reservationDraftCancelOperationName = 'pms.reservation.draft.cancel';
+export const pendingActionStatusOperationName = 'pms.pending_action.status';
+export const pendingActionConfirmOperationName = 'pms.pending_action.confirm';
+export const pendingActionCancelOperationName = 'pms.pending_action.cancel';
 export const reservationDraftWorkflowOperations = [
   reservationDraftCreateOperationName,
   reservationDraftUpdateOperationName,
@@ -655,8 +658,14 @@ export const reservationDraftWorkflowOperations = [
   reservationPrepareConfirmOperationName,
   reservationDraftCancelOperationName,
 ] as const;
+export const pendingActionCallbackOperations = [
+  pendingActionStatusOperationName,
+  pendingActionConfirmOperationName,
+  pendingActionCancelOperationName,
+] as const;
 
 export type ReservationDraftWorkflowOperation = typeof reservationDraftWorkflowOperations[number];
+export type PendingActionCallbackOperation = typeof pendingActionCallbackOperations[number];
 export type ReservationDraftStatus = 'collectingSlots' | 'quoteReady' | 'awaitingConfirmation' | 'cancelled' | 'expired';
 export type ReservationDraftMissingSlot = 'guest' | 'stayDates' | 'roomType' | 'candidateSelection';
 export type ReservationDraftEvidenceSource = 'availabilitySearch' | 'userTurn' | 'platformReadModel' | 'system';
@@ -680,17 +689,78 @@ export interface ReservationDraftSlots {
   readonly note?: string;
 }
 
+export interface ReservationDraftAuditRef {
+  readonly auditId: string;
+  readonly action: 'created' | 'updated' | 'quoted' | 'prepared' | 'cancelled' | 'expired' | 'replayed' | 'rejected' | 'pendingActionStatusRead' | 'pendingActionConfirmed' | 'pendingActionCancelled' | 'pendingActionExpired';
+  readonly occurredAt: string;
+}
+
+export interface ReservationDraftQuoteRef {
+  readonly quoteRef: string;
+  readonly status: 'pricingUnsupported';
+  readonly generatedAt: string;
+  readonly capabilityGap: {
+    readonly code: 'RESERVATION_QUOTE_PRICING_UNSUPPORTED';
+    readonly owner: 'pms-platform';
+    readonly message: string;
+  };
+}
+
+export type PendingActionStatus = 'awaitingConfirmation' | 'confirmed' | 'cancelled' | 'expired';
+export type PendingActionMutationStatus = 'none' | 'deferred';
+
+export interface PendingActionScopeRef {
+  readonly propertyId: string;
+  readonly channel: 'typed_card' | 'test';
+  readonly tenantIdHash?: string;
+  readonly chatIdHash?: string;
+  readonly userIdHash?: string;
+}
+
+export interface ReservationDraftPendingActionRef {
+  readonly pendingActionRef: string;
+  readonly cardPayloadRef: string;
+  readonly quoteRef: string;
+  readonly generatedAt: string;
+  readonly updatedAt: string;
+  readonly expiresAt?: string;
+  readonly status: PendingActionStatus;
+  readonly confirmationMode: 'typedCardOnly';
+  readonly mutationStatus: PendingActionMutationStatus;
+}
+
+export interface PendingActionReadModel {
+  readonly pendingActionRef: string;
+  readonly workflowType: 'reservation';
+  readonly draftId: string;
+  readonly quoteRef: string;
+  readonly cardPayloadRef: string;
+  readonly status: PendingActionStatus;
+  readonly confirmationMode: 'typedCardOnly';
+  readonly mutationStatus: PendingActionMutationStatus;
+  readonly generatedAt: string;
+  readonly updatedAt: string;
+  readonly expiresAt?: string;
+  readonly auditRefs?: readonly ReservationDraftAuditRef[];
+}
+
+export type PendingActionCallbackIdempotencyStatus = 'statusRead' | 'confirmed' | 'cancelled' | 'replayed';
+
 export interface ReservationDraftWorkflowRef {
   readonly workflowType: 'reservation';
   readonly draftId?: string;
   readonly status: ReservationDraftStatus;
+  readonly slots?: ReservationDraftSlots;
   readonly missingSlots: readonly ReservationDraftMissingSlot[];
   readonly evidenceRefs: readonly ReservationDraftEvidenceRef[];
   readonly expiresAt?: string;
+  readonly quote?: ReservationDraftQuoteRef;
+  readonly pendingAction?: ReservationDraftPendingActionRef;
+  readonly auditRefs?: readonly ReservationDraftAuditRef[];
 }
 
 export interface ReservationDraftWorkflowSafeGap {
-  readonly code: 'RESERVATION_DRAFT_WORKFLOW_NOT_IMPLEMENTED';
+  readonly code: 'RESERVATION_DRAFT_WORKFLOW_NOT_IMPLEMENTED' | 'RESERVATION_QUOTE_PRICING_UNSUPPORTED';
   readonly owner: 'pms-platform';
   readonly mutationStatus: 'none';
   readonly message: string;

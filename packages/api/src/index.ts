@@ -16,6 +16,10 @@ import type {
   OperationRequest,
   OperationRequestSource,
   OperationRequestStatus,
+  PendingActionCallbackIdempotencyStatus,
+  PendingActionCallbackOperation,
+  PendingActionReadModel,
+  PendingActionScopeRef,
   PmsCapabilityClass,
   ReservationDraftEvidenceRef,
   ReservationDraftMissingSlot,
@@ -41,6 +45,9 @@ import {
   reservationDraftUpdateOperationName,
   reservationPrepareConfirmOperationName,
   reservationQuoteOperationName,
+  pendingActionCancelOperationName,
+  pendingActionConfirmOperationName,
+  pendingActionStatusOperationName,
 } from '@pms-platform/contracts';
 import {
   checkIn,
@@ -87,6 +94,9 @@ export const pmsReservationDraftUpdateOperation = reservationDraftUpdateOperatio
 export const pmsReservationQuoteOperation = reservationQuoteOperationName;
 export const pmsReservationPrepareConfirmOperation = reservationPrepareConfirmOperationName;
 export const pmsReservationDraftCancelOperation = reservationDraftCancelOperationName;
+export const pmsPendingActionStatusOperation = pendingActionStatusOperationName;
+export const pmsPendingActionConfirmOperation = pendingActionConfirmOperationName;
+export const pmsPendingActionCancelOperation = pendingActionCancelOperationName;
 export const pmsOperationRequestCreateOperation = 'pms_operation_request_create';
 export const pmsOperationRequestGetOperation = 'pms_operation_request_get';
 export const pmsOperationRequestListOperation = 'pms_operation_request_list';
@@ -115,6 +125,7 @@ export type PmsReadModelOperation =
 export type PmsApiMode = 'dryRun' | 'confirm';
 export type CheckOutApiMode = PmsApiMode;
 export type PmsReservationDraftWorkflowOperation = ReservationDraftWorkflowOperation;
+export type PmsPendingActionOperation = PendingActionCallbackOperation;
 export type PmsOperationRequestOperation =
   | typeof pmsOperationRequestCreateOperation
   | typeof pmsOperationRequestGetOperation
@@ -122,12 +133,25 @@ export type PmsOperationRequestOperation =
   | typeof pmsOperationRequestUpdateOperation;
 export type ApiBoundaryErrorCode =
   | 'IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_FINGERPRINT'
+  | 'RESERVATION_DRAFT_TOKEN_REUSED_WITH_DIFFERENT_FINGERPRINT'
+  | 'RESERVATION_DRAFT_NOT_FOUND'
+  | 'RESERVATION_DRAFT_MISSING_REQUIRED_SLOTS'
+  | 'RESERVATION_DRAFT_NOT_ACTIVE'
+  | 'RESERVATION_DRAFT_EXPIRED'
+  | 'RESERVATION_DRAFT_QUOTE_REQUIRED'
+  | 'RESERVATION_DRAFT_QUOTE_MISMATCH'
   | 'RESERVATION_DRAFT_WORKFLOW_NOT_IMPLEMENTED'
+  | 'RESERVATION_QUOTE_PRICING_UNSUPPORTED'
   | 'OPERATION_REQUEST_TOKEN_REUSED_WITH_DIFFERENT_FINGERPRINT'
   | 'OPERATION_REQUEST_UNSUPPORTED_ACTION'
   | 'OPERATION_REQUEST_UNSUPPORTED_SOURCE'
   | 'OPERATION_REQUEST_NOT_FOUND'
-  | 'OPERATION_REQUEST_INVALID_STATUS';
+  | 'OPERATION_REQUEST_INVALID_STATUS'
+  | 'PENDING_ACTION_TOKEN_REUSED_WITH_DIFFERENT_FINGERPRINT'
+  | 'PENDING_ACTION_NOT_FOUND'
+  | 'PENDING_ACTION_CARD_PAYLOAD_MISMATCH'
+  | 'PENDING_ACTION_NOT_ACTIVE'
+  | 'PENDING_ACTION_EXPIRED';
 export type ApiErrorCode = DomainError['code'] | ApiBoundaryErrorCode;
 
 export interface ApiError {
@@ -463,6 +487,17 @@ export type ReservationDraftWorkflowApiRequest =
   | ReservationPrepareConfirmApiRequest
   | ReservationDraftCancelApiRequest;
 
+export type ReservationDraftIdempotencyStatus = 'created' | 'updated' | 'quoted' | 'prepared' | 'cancelled' | 'replayed';
+
+export interface ReservationDraftWorkflowSuccessApiResponse {
+  readonly ok: true;
+  readonly operation: PmsReservationDraftWorkflowOperation;
+  readonly status: 'ok';
+  readonly mutationStatus: 'draftOnly';
+  readonly idempotencyStatus: ReservationDraftIdempotencyStatus;
+  readonly draft: ReservationDraftWorkflowRef;
+}
+
 export interface ReservationDraftWorkflowSafeGapApiResponse {
   readonly ok: false;
   readonly operation: PmsReservationDraftWorkflowOperation;
@@ -473,7 +508,31 @@ export interface ReservationDraftWorkflowSafeGapApiResponse {
   readonly errors: readonly ApiError[];
 }
 
-export type ReservationDraftWorkflowApiResponse = ReservationDraftWorkflowSafeGapApiResponse;
+export interface ReservationDraftWorkflowErrorApiResponse {
+  readonly ok: false;
+  readonly operation: PmsReservationDraftWorkflowOperation;
+  readonly status: 'rejected' | 'notFound';
+  readonly mutationStatus: 'none';
+  readonly draft?: ReservationDraftWorkflowRef;
+  readonly errors: readonly ApiError[];
+}
+
+export type ReservationDraftWorkflowApiResponse =
+  | ReservationDraftWorkflowSuccessApiResponse
+  | ReservationDraftWorkflowSafeGapApiResponse
+  | ReservationDraftWorkflowErrorApiResponse;
+
+export interface ReservationDraftLifecycleStore {
+  createReservationDraft(request: ReservationDraftCreateApiRequest): ReservationDraftWorkflowApiResponse;
+  updateReservationDraft(request: ReservationDraftUpdateApiRequest): ReservationDraftWorkflowApiResponse;
+  quoteReservationDraft(request: ReservationQuoteApiRequest): ReservationDraftWorkflowApiResponse;
+  prepareConfirmReservationDraft(request: ReservationPrepareConfirmApiRequest): ReservationDraftWorkflowApiResponse;
+  cancelReservationDraft(request: ReservationDraftCancelApiRequest): ReservationDraftWorkflowApiResponse;
+}
+
+export interface ExecuteReservationDraftWorkflowApiOptions {
+  readonly drafts?: ReservationDraftLifecycleStore;
+}
 
 export type PmsReadModelApiRequest =
   | GetRoomApiRequest
@@ -493,6 +552,59 @@ export type PmsReadModelApiResponse =
   | InventoryIntervalsApiResponse
   | InventorySummaryApiResponse
   | AvailabilitySearchApiResponse;
+
+export interface PendingActionCallbackApiRequestBase {
+  readonly operation?: PmsPendingActionOperation;
+  readonly pendingActionRef: string;
+  readonly actor: Actor;
+  readonly scope: PendingActionScopeRef;
+  readonly clientToken: string;
+  readonly requestFingerprint: string;
+  readonly correlationId: string;
+  readonly requestedAt: string;
+  readonly cardPayloadRef?: string;
+}
+
+export interface PendingActionStatusApiRequest extends PendingActionCallbackApiRequestBase {
+  readonly operation?: typeof pmsPendingActionStatusOperation;
+}
+
+export interface PendingActionConfirmApiRequest extends PendingActionCallbackApiRequestBase {
+  readonly operation?: typeof pmsPendingActionConfirmOperation;
+}
+
+export interface PendingActionCancelApiRequest extends PendingActionCallbackApiRequestBase {
+  readonly operation?: typeof pmsPendingActionCancelOperation;
+  readonly reason: string;
+}
+
+export type PendingActionCallbackApiRequest = PendingActionStatusApiRequest | PendingActionConfirmApiRequest | PendingActionCancelApiRequest;
+
+export interface PendingActionCallbackSuccessApiResponse {
+  readonly ok: true;
+  readonly operation: PmsPendingActionOperation;
+  readonly status: 'ok';
+  readonly mutationStatus: 'none' | 'deferred';
+  readonly idempotencyStatus: PendingActionCallbackIdempotencyStatus;
+  readonly pendingAction: PendingActionReadModel;
+}
+
+export interface PendingActionCallbackErrorApiResponse {
+  readonly ok: false;
+  readonly operation: PmsPendingActionOperation;
+  readonly status: 'notFound' | 'rejected';
+  readonly mutationStatus: 'none';
+  readonly pendingAction?: PendingActionReadModel;
+  readonly errors: readonly ApiError[];
+}
+
+export type PendingActionCallbackApiResponse = PendingActionCallbackSuccessApiResponse | PendingActionCallbackErrorApiResponse;
+
+export interface PendingActionLifecycleStore {
+  getPendingActionStatus(request: PendingActionStatusApiRequest): PendingActionCallbackApiResponse;
+  confirmPendingAction(request: PendingActionConfirmApiRequest): PendingActionCallbackApiResponse;
+  cancelPendingAction(request: PendingActionCancelApiRequest): PendingActionCallbackApiResponse;
+}
 
 export interface OperationRequestCreateApiRequest {
   readonly operation?: typeof pmsOperationRequestCreateOperation;
@@ -576,7 +688,7 @@ export type OperationRequestUpdateApiResponse = OperationRequestUpdateApiSuccess
 export interface ApiIdempotencyRecord {
   readonly idempotencyKey: string;
   readonly requestFingerprint: string;
-  readonly response: CheckInApiResponse | CheckOutApiResponse | PmsExtendedCommandApiResponse;
+  readonly response: CheckInApiResponse | CheckOutApiResponse | PmsExtendedCommandApiResponse | ReservationDraftWorkflowApiResponse | PendingActionCallbackApiResponse;
 }
 
 export interface ApiIdempotencyRepository {
@@ -699,6 +811,9 @@ function buildPmsCapabilityManifestItems(): readonly PmsCapabilityManifestItem[]
       endpoint: { method: 'POST', path: '/v1/pms/operation-requests/create', operation: pmsOperationRequestCreateOperation, auth: 'bearer-token' },
     }),
     internalCapability(pmsOperationRequestUpdateOperation, 'POST', '/v1/pms/operation-requests/update', 'OperationRequestUpdateApiRequest', 'OperationRequestUpdateApiResponse'),
+    internalCapability(pmsPendingActionStatusOperation, 'POST', '/v1/pms/pending-actions/status', 'PendingActionStatusApiRequest', 'PendingActionCallbackApiResponse'),
+    internalCapability(pmsPendingActionConfirmOperation, 'POST', '/v1/pms/pending-actions/confirm', 'PendingActionConfirmApiRequest', 'PendingActionCallbackApiResponse'),
+    internalCapability(pmsPendingActionCancelOperation, 'POST', '/v1/pms/pending-actions/cancel', 'PendingActionCancelApiRequest', 'PendingActionCallbackApiResponse'),
     internalCapability(pmsCapabilityManifestOperation, 'GET', '/v1/pms/capabilities/manifest', undefined, 'PmsCapabilityManifest'),
     internalCapability('pms_sandbox_readback', 'GET', '/v1/sandbox/readback', undefined, 'PmsSandboxReadback'),
     internalCapability('pms_sandbox_reset', 'POST', '/v1/sandbox/reset', undefined, 'PmsSandboxReadback'),
@@ -1137,7 +1252,24 @@ export function executeDashboardApiRequest(request: DashboardApiRequest, ports: 
 
 export function executeReservationDraftWorkflowApiRequest(
   request: ReservationDraftWorkflowApiRequest,
+  options: ExecuteReservationDraftWorkflowApiOptions = {},
 ): ReservationDraftWorkflowApiResponse {
+  if (options.drafts && request.operation === pmsReservationDraftCreateOperation) {
+    return options.drafts.createReservationDraft(request);
+  }
+  if (options.drafts && request.operation === pmsReservationDraftUpdateOperation) {
+    return options.drafts.updateReservationDraft(request);
+  }
+  if (options.drafts && request.operation === pmsReservationQuoteOperation) {
+    return options.drafts.quoteReservationDraft(request);
+  }
+  if (options.drafts && request.operation === pmsReservationPrepareConfirmOperation) {
+    return options.drafts.prepareConfirmReservationDraft(request);
+  }
+  if (options.drafts && request.operation === pmsReservationDraftCancelOperation) {
+    return options.drafts.cancelReservationDraft(request);
+  }
+
   const gap: ReservationDraftWorkflowSafeGap = {
     code: 'RESERVATION_DRAFT_WORKFLOW_NOT_IMPLEMENTED',
     owner: 'pms-platform',
@@ -1295,6 +1427,9 @@ export function describeApiContractBoundary() {
       pmsReservationQuoteOperation,
       pmsReservationPrepareConfirmOperation,
       pmsReservationDraftCancelOperation,
+      pmsPendingActionStatusOperation,
+      pmsPendingActionConfirmOperation,
+      pmsPendingActionCancelOperation,
       pmsOperationRequestCreateOperation,
       pmsOperationRequestGetOperation,
       pmsOperationRequestListOperation,

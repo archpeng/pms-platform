@@ -7,8 +7,14 @@ import {
   pmsCapabilityManifestOperation,
   pmsCheckInOperation,
   pmsCheckOutOperation,
+  pmsPendingActionCancelOperation,
+  pmsPendingActionConfirmOperation,
+  pmsPendingActionStatusOperation,
+  pmsReservationDraftCancelOperation,
   pmsReservationDraftCreateOperation,
+  pmsReservationDraftUpdateOperation,
   pmsReservationPrepareConfirmOperation,
+  pmsReservationQuoteOperation,
   type CheckInConfirmApiRequest,
   type CheckOutConfirmApiRequest,
   type CheckOutDryRunApiRequest,
@@ -344,11 +350,11 @@ describe('PMS local durable checkout sandbox HTTP boundary', () => {
     expect(reset.idempotencyRecords).toEqual([]);
   });
 
-  it('serves reservation draft route skeletons as safe gaps without mutating PMS state', async () => {
+  it('serves durable reservation draft lifecycle through HTTP without mutating final PMS state', async () => {
     const { url } = await startServer();
 
     const before = await authedGet(`${url}/v1/sandbox/readback/room-1001`);
-    const create = await authedPost(`${url}/v1/pms/reservation-drafts/create`, {
+    const createBody = {
       operation: pmsReservationDraftCreateOperation,
       propertyId: 'property-small-hotel',
       actor: { type: 'human', id: 'frontdesk-1', displayName: 'Front Desk' },
@@ -357,8 +363,56 @@ describe('PMS local durable checkout sandbox HTTP boundary', () => {
       requestFingerprint: 'sha256:http-reservation-draft-create-1',
       correlationId: 'corr-http-reservation-draft-create-1',
       requestedAt: '2026-05-02T00:00:00.000Z',
-      slots: { guestDisplayName: 'Guest Draft', arrivalDate: '2026-05-04', departureDate: '2026-05-05' },
+      slots: { guestDisplayName: 'Guest Draft', arrivalDate: '2026-05-04', departureDate: '2026-05-05', roomTypeKeyword: '花园' },
+      evidenceRefs: [{ source: 'availabilitySearch', refId: 'availability-http-1' }],
+      expiresAt: '2026-05-03T00:00:00.000Z',
+    };
+    const create = await authedPost(`${url}/v1/pms/reservation-drafts/create`, createBody);
+    const duplicate = await authedPost(`${url}/v1/pms/reservation-drafts/create`, createBody);
+    const mismatch = await authedPost(`${url}/v1/pms/reservation-drafts/create`, {
+      ...createBody,
+      requestFingerprint: 'sha256:http-reservation-draft-create-1-different',
     });
+    const draftId = create.draft.draftId;
+    const update = await authedPost(`${url}/v1/pms/reservation-drafts/update`, {
+      ...createBody,
+      operation: pmsReservationDraftUpdateOperation,
+      clientToken: 'http-reservation-draft-update-1',
+      requestFingerprint: 'sha256:http-reservation-draft-update-1',
+      correlationId: 'corr-http-reservation-draft-update-1',
+      requestedAt: '2026-05-02T00:01:00.000Z',
+      draftId,
+      slots: { roomId: 'room-1001', selectedCandidateRef: 'availability-http-1:room-1001' },
+      evidenceRefs: [{ source: 'userTurn', refId: 'turn-http-2' }],
+    });
+    const quote = await authedPost(`${url}/v1/pms/reservation-drafts/quote`, {
+      ...createBody,
+      operation: pmsReservationQuoteOperation,
+      clientToken: 'http-reservation-draft-quote-1',
+      requestFingerprint: 'sha256:http-reservation-draft-quote-1',
+      correlationId: 'corr-http-reservation-draft-quote-1',
+      requestedAt: '2026-05-02T00:02:00.000Z',
+      draftId,
+    });
+    const duplicateQuote = await authedPost(`${url}/v1/pms/reservation-drafts/quote`, {
+      ...createBody,
+      operation: pmsReservationQuoteOperation,
+      clientToken: 'http-reservation-draft-quote-1',
+      requestFingerprint: 'sha256:http-reservation-draft-quote-1',
+      correlationId: 'corr-http-reservation-draft-quote-1',
+      requestedAt: '2026-05-02T00:02:00.000Z',
+      draftId,
+    });
+    const quoteMismatch = await authedPost(`${url}/v1/pms/reservation-drafts/quote`, {
+      ...createBody,
+      operation: pmsReservationQuoteOperation,
+      clientToken: 'http-reservation-draft-quote-1',
+      requestFingerprint: 'sha256:http-reservation-draft-quote-1-different',
+      correlationId: 'corr-http-reservation-draft-quote-1',
+      requestedAt: '2026-05-02T00:02:00.000Z',
+      draftId,
+    });
+    const quoteRef = quote.draft.quote.quoteRef;
     const prepareConfirm = await authedPost(`${url}/v1/pms/reservation-drafts/prepare-confirm`, {
       operation: pmsReservationPrepareConfirmOperation,
       propertyId: 'property-small-hotel',
@@ -367,30 +421,165 @@ describe('PMS local durable checkout sandbox HTTP boundary', () => {
       clientToken: 'http-reservation-prepare-1',
       requestFingerprint: 'sha256:http-reservation-prepare-1',
       correlationId: 'corr-http-reservation-prepare-1',
-      requestedAt: '2026-05-02T00:01:00.000Z',
-      draftId: 'draft-http-1',
-      quoteRef: 'quote-http-1',
+      requestedAt: '2026-05-02T00:03:00.000Z',
+      draftId,
+      quoteRef,
+    });
+    const cancel = await authedPost(`${url}/v1/pms/reservation-drafts/cancel`, {
+      ...createBody,
+      operation: pmsReservationDraftCancelOperation,
+      clientToken: 'http-reservation-draft-cancel-1',
+      requestFingerprint: 'sha256:http-reservation-draft-cancel-1',
+      correlationId: 'corr-http-reservation-draft-cancel-1',
+      requestedAt: '2026-05-02T00:04:00.000Z',
+      draftId,
+      reason: 'guest changed plan',
+    });
+    const cancelledQuote = await authedPost(`${url}/v1/pms/reservation-drafts/quote`, {
+      ...createBody,
+      operation: pmsReservationQuoteOperation,
+      clientToken: 'http-reservation-draft-cancelled-quote-1',
+      requestFingerprint: 'sha256:http-reservation-draft-cancelled-quote-1',
+      correlationId: 'corr-http-reservation-draft-cancelled-quote-1',
+      requestedAt: '2026-05-02T00:05:00.000Z',
+      draftId,
     });
     const after = await authedGet(`${url}/v1/sandbox/readback/room-1001`);
 
     expect(create).toMatchObject({
-      ok: false,
+      ok: true,
       operation: 'pms.reservation.draft.create',
-      status: 'notImplemented',
-      mutationStatus: 'none',
-      gap: { code: 'RESERVATION_DRAFT_WORKFLOW_NOT_IMPLEMENTED', owner: 'pms-platform' },
+      status: 'ok',
+      mutationStatus: 'draftOnly',
+      draft: { draftId, workflowType: 'reservation', status: 'collectingSlots', evidenceRefs: [{ refId: 'availability-http-1' }] },
     });
+    expect(duplicate).toEqual(create);
+    expect(mismatch).toMatchObject({ ok: false, status: 'rejected', errors: [{ code: 'RESERVATION_DRAFT_TOKEN_REUSED_WITH_DIFFERENT_FINGERPRINT' }] });
+    expect(update).toMatchObject({ ok: true, operation: 'pms.reservation.draft.update', draft: { draftId, slots: { roomId: 'room-1001' } } });
+    expect(quote).toMatchObject({
+      ok: true,
+      operation: 'pms.reservation.quote',
+      mutationStatus: 'draftOnly',
+      draft: { draftId, status: 'quoteReady', quote: { status: 'pricingUnsupported', capabilityGap: { code: 'RESERVATION_QUOTE_PRICING_UNSUPPORTED' } } },
+    });
+    expect(duplicateQuote).toEqual(quote);
+    expect(quoteMismatch).toMatchObject({ ok: false, status: 'rejected', errors: [{ code: 'RESERVATION_DRAFT_TOKEN_REUSED_WITH_DIFFERENT_FINGERPRINT' }] });
     expect(prepareConfirm).toMatchObject({
-      ok: false,
+      ok: true,
       operation: 'pms.reservation.prepare_confirm',
-      mutationStatus: 'none',
-      draft: { draftId: 'draft-http-1' },
+      mutationStatus: 'draftOnly',
+      draft: { draftId, status: 'awaitingConfirmation', quote: { quoteRef }, pendingAction: { quoteRef, confirmationMode: 'typedCardOnly', mutationStatus: 'none' } },
     });
+    expect(cancel).toMatchObject({ ok: true, operation: 'pms.reservation.draft.cancel', draft: { draftId, status: 'cancelled' } });
+    expect(cancelledQuote).toMatchObject({ ok: false, status: 'rejected', errors: [{ code: 'RESERVATION_DRAFT_NOT_ACTIVE' }] });
+    expect(after.reservationDrafts).toEqual(expect.arrayContaining([expect.objectContaining({ draftId, status: 'cancelled', quote: expect.objectContaining({ quoteRef }), pendingAction: expect.objectContaining({ quoteRef }) })]));
+    expect(after.reservationDraftAudits.map((audit: { action: string }) => audit.action)).toEqual(['created', 'updated', 'quoted', 'prepared', 'cancelled']);
     expect(after.rooms).toEqual(before.rooms);
     expect(after.reservations).toEqual(before.reservations);
     expect(after.operationRequests).toEqual(before.operationRequests);
     expect(after.audits).toEqual([]);
     expect(after.domainEvents).toEqual([]);
+  });
+
+  it('serves platform pending-action status, confirm, cancel, replay, and conflict through HTTP without final PMS mutation', async () => {
+    const { url } = await startServer();
+    const before = await authedGet(`${url}/v1/sandbox/readback/room-1001`);
+    const actor = { type: 'human', id: 'frontdesk-1', displayName: 'Front Desk' };
+    const scope = { propertyId: 'property-small-hotel', channel: 'typed_card' as const, userIdHash: 'sha256:user-card-1' };
+    const createBase = {
+      operation: pmsReservationDraftCreateOperation,
+      propertyId: 'property-small-hotel',
+      actor,
+      source: 'api',
+      clientToken: 'http-pending-draft-create-1',
+      requestFingerprint: 'sha256:http-pending-draft-create-1',
+      correlationId: 'corr-http-pending-draft-create-1',
+      requestedAt: '2026-05-02T00:00:00.000Z',
+      slots: { guestDisplayName: 'Pending Guest', arrivalDate: '2026-05-04', departureDate: '2026-05-05', roomId: 'room-1001', selectedCandidateRef: 'availability-pending-1:room-1001' },
+      evidenceRefs: [{ source: 'availabilitySearch', refId: 'availability-pending-1' }],
+      expiresAt: '2026-05-03T00:00:00.000Z',
+    };
+    const create = await authedPost(`${url}/v1/pms/reservation-drafts/create`, createBase);
+    const draftId = create.draft.draftId;
+    const quote = await authedPost(`${url}/v1/pms/reservation-drafts/quote`, {
+      ...createBase,
+      operation: pmsReservationQuoteOperation,
+      clientToken: 'http-pending-draft-quote-1',
+      requestFingerprint: 'sha256:http-pending-draft-quote-1',
+      correlationId: 'corr-http-pending-draft-quote-1',
+      requestedAt: '2026-05-02T00:01:00.000Z',
+      draftId,
+    });
+    const prepare = await authedPost(`${url}/v1/pms/reservation-drafts/prepare-confirm`, {
+      ...createBase,
+      operation: pmsReservationPrepareConfirmOperation,
+      clientToken: 'http-pending-draft-prepare-1',
+      requestFingerprint: 'sha256:http-pending-draft-prepare-1',
+      correlationId: 'corr-http-pending-draft-prepare-1',
+      requestedAt: '2026-05-02T00:02:00.000Z',
+      draftId,
+      quoteRef: quote.draft.quote.quoteRef,
+    });
+    const pendingActionRef = prepare.draft.pendingAction.pendingActionRef;
+    const cardPayloadRef = prepare.draft.pendingAction.cardPayloadRef;
+
+    const status = await authedPost(`${url}/v1/pms/pending-actions/status`, {
+      operation: pmsPendingActionStatusOperation,
+      pendingActionRef,
+      actor,
+      scope,
+      clientToken: 'http-pending-action-status-1',
+      requestFingerprint: 'sha256:http-pending-action-status-1',
+      correlationId: 'corr-http-pending-action-status-1',
+      requestedAt: '2026-05-02T00:03:00.000Z',
+      cardPayloadRef,
+    });
+    const confirmRequest = {
+      operation: pmsPendingActionConfirmOperation,
+      pendingActionRef,
+      actor,
+      scope,
+      clientToken: 'http-pending-action-confirm-1',
+      requestFingerprint: 'sha256:http-pending-action-confirm-1',
+      correlationId: 'corr-http-pending-action-confirm-1',
+      requestedAt: '2026-05-02T00:04:00.000Z',
+      cardPayloadRef,
+    };
+    const confirm = await authedPost(`${url}/v1/pms/pending-actions/confirm`, confirmRequest);
+    const replay = await authedPost(`${url}/v1/pms/pending-actions/confirm`, confirmRequest);
+    const conflict = await authedPost(`${url}/v1/pms/pending-actions/confirm`, { ...confirmRequest, requestFingerprint: 'sha256:http-pending-action-confirm-different' });
+    const after = await authedGet(`${url}/v1/sandbox/readback/room-1001`);
+
+    expect(status).toMatchObject({ ok: true, operation: 'pms.pending_action.status', mutationStatus: 'none', pendingAction: { pendingActionRef, status: 'awaitingConfirmation', cardPayloadRef } });
+    expect(confirm).toMatchObject({ ok: true, operation: 'pms.pending_action.confirm', mutationStatus: 'deferred', pendingAction: { pendingActionRef, status: 'confirmed', mutationStatus: 'deferred' } });
+    expect(replay).toEqual(confirm);
+    expect(conflict).toMatchObject({ ok: false, status: 'rejected', errors: [{ code: 'PENDING_ACTION_TOKEN_REUSED_WITH_DIFFERENT_FINGERPRINT' }] });
+    expect(JSON.stringify(confirm)).not.toContain('frontdesk-1');
+    expect(after.reservationDrafts).toEqual(expect.arrayContaining([expect.objectContaining({ draftId, status: 'awaitingConfirmation', pendingAction: expect.objectContaining({ pendingActionRef, status: 'confirmed', mutationStatus: 'deferred' }) })]));
+    expect(after.reservationDraftAudits.map((audit: { action: string }) => audit.action)).toEqual(expect.arrayContaining(['pendingActionStatusRead', 'pendingActionConfirmed']));
+    expect(after.rooms).toEqual(before.rooms);
+    expect(after.reservations).toEqual(before.reservations);
+    expect(after.operationRequests).toEqual(before.operationRequests);
+    expect(after.audits).toEqual([]);
+    expect(after.domainEvents).toEqual([]);
+
+    const createCancel = await authedPost(`${url}/v1/pms/reservation-drafts/create`, { ...createBase, clientToken: 'http-pending-cancel-create-1', requestFingerprint: 'sha256:http-pending-cancel-create-1', correlationId: 'corr-http-pending-cancel-create-1' });
+    const cancelDraftId = createCancel.draft.draftId;
+    const quoteCancel = await authedPost(`${url}/v1/pms/reservation-drafts/quote`, { ...createBase, operation: pmsReservationQuoteOperation, clientToken: 'http-pending-cancel-quote-1', requestFingerprint: 'sha256:http-pending-cancel-quote-1', correlationId: 'corr-http-pending-cancel-quote-1', draftId: cancelDraftId });
+    const prepareCancel = await authedPost(`${url}/v1/pms/reservation-drafts/prepare-confirm`, { ...createBase, operation: pmsReservationPrepareConfirmOperation, clientToken: 'http-pending-cancel-prepare-1', requestFingerprint: 'sha256:http-pending-cancel-prepare-1', correlationId: 'corr-http-pending-cancel-prepare-1', draftId: cancelDraftId, quoteRef: quoteCancel.draft.quote.quoteRef });
+    const cancel = await authedPost(`${url}/v1/pms/pending-actions/cancel`, {
+      operation: pmsPendingActionCancelOperation,
+      pendingActionRef: prepareCancel.draft.pendingAction.pendingActionRef,
+      actor,
+      scope,
+      clientToken: 'http-pending-action-cancel-1',
+      requestFingerprint: 'sha256:http-pending-action-cancel-1',
+      correlationId: 'corr-http-pending-action-cancel-1',
+      requestedAt: '2026-05-02T00:05:00.000Z',
+      cardPayloadRef: prepareCancel.draft.pendingAction.cardPayloadRef,
+      reason: 'guest cancelled typed card action',
+    });
+    expect(cancel).toMatchObject({ ok: true, operation: 'pms.pending_action.cancel', mutationStatus: 'none', pendingAction: { status: 'cancelled', mutationStatus: 'none' } });
   });
 
   it('creates, reads, and updates operation requests through HTTP without mutating PMS state', async () => {

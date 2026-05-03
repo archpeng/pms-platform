@@ -35,6 +35,9 @@ import {
   pmsOperationRequestGetOperation,
   pmsOperationRequestListOperation,
   pmsOperationRequestUpdateOperation,
+  pmsPendingActionCancelOperation,
+  pmsPendingActionConfirmOperation,
+  pmsPendingActionStatusOperation,
   pmsReportMaintenanceOperation,
   pmsReservationDraftCancelOperation,
   pmsReservationDraftCreateOperation,
@@ -190,6 +193,9 @@ describe('API checkout contract skeleton', () => {
         'pms.reservation.quote',
         'pms.reservation.prepare_confirm',
         'pms.reservation.draft.cancel',
+        'pms.pending_action.status',
+        'pms.pending_action.confirm',
+        'pms.pending_action.cancel',
         'pms_operation_request_create',
         'pms_operation_request_get',
         'pms_operation_request_list',
@@ -255,6 +261,9 @@ describe('API checkout contract skeleton', () => {
     expect(pmsOperationRequestGetOperation).toBe('pms_operation_request_get');
     expect(pmsOperationRequestListOperation).toBe('pms_operation_request_list');
     expect(pmsOperationRequestUpdateOperation).toBe('pms_operation_request_update');
+    expect(pmsPendingActionStatusOperation).toBe('pms.pending_action.status');
+    expect(pmsPendingActionConfirmOperation).toBe('pms.pending_action.confirm');
+    expect(pmsPendingActionCancelOperation).toBe('pms.pending_action.cancel');
     expect(pmsCapabilityManifestOperation).toBe('pms_capabilities_manifest');
   });
 
@@ -357,6 +366,25 @@ describe('API checkout contract skeleton', () => {
       confirmationRequired: false,
       schemaRefs: { request: 'ReservationPrepareConfirmApiRequest', response: 'ReservationDraftWorkflowApiResponse' },
       endpoint: { method: 'POST', path: '/v1/pms/reservation-drafts/prepare-confirm', auth: 'bearer-token' },
+    });
+    expect(byName.get('pms.pending_action.status')).toMatchObject({
+      class: 'internal',
+      customerChatAllowed: false,
+      naturalLanguageExecutable: false,
+      schemaRefs: { request: 'PendingActionStatusApiRequest', response: 'PendingActionCallbackApiResponse' },
+      endpoint: { method: 'POST', path: '/v1/pms/pending-actions/status' },
+    });
+    expect(byName.get('pms.pending_action.confirm')).toMatchObject({
+      class: 'internal',
+      customerChatAllowed: false,
+      naturalLanguageExecutable: false,
+      endpoint: { method: 'POST', path: '/v1/pms/pending-actions/confirm' },
+    });
+    expect(byName.get('pms.pending_action.cancel')).toMatchObject({
+      class: 'internal',
+      customerChatAllowed: false,
+      naturalLanguageExecutable: false,
+      endpoint: { method: 'POST', path: '/v1/pms/pending-actions/cancel' },
     });
     expect(byName.get('pms_capabilities_manifest')).toMatchObject({
       class: 'internal',

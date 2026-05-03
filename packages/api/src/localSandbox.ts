@@ -49,6 +49,9 @@ import {
   pmsOperationRequestGetOperation,
   pmsOperationRequestListOperation,
   pmsOperationRequestUpdateOperation,
+  pmsPendingActionCancelOperation,
+  pmsPendingActionConfirmOperation,
+  pmsPendingActionStatusOperation,
   pmsReservationGetOperation,
   pmsReportMaintenanceOperation,
   pmsReservationDraftCancelOperation,
@@ -73,7 +76,12 @@ import {
   type OperationRequestListApiResponse,
   type OperationRequestUpdateApiRequest,
   type OperationRequestUpdateApiResponse,
+  type PendingActionCancelApiRequest,
+  type PendingActionCallbackApiResponse,
+  type PendingActionConfirmApiRequest,
+  type PendingActionStatusApiRequest,
   type PmsExtendedCommandApiRequest,
+  type ReservationDraftLifecycleStore,
   type ReservationDraftWorkflowApiRequest,
   type PmsReadModelApiRequest,
 } from './index.js';
@@ -178,6 +186,8 @@ export interface PmsSandboxReadback {
   readonly inventoryDayRooms: readonly InventoryDayRoom[];
   readonly inventoryIntervalProjection: readonly InventoryIntervalProjection[];
   readonly inventorySummaryDayType: readonly InventorySummaryDayType[];
+  readonly reservationDrafts: readonly import('@pms-platform/contracts').ReservationDraftWorkflowRef[];
+  readonly reservationDraftAudits: readonly import('@pms-platform/contracts').ReservationDraftAuditRef[];
   readonly operationRequests: readonly OperationRequest[];
   readonly housekeepingTasks: readonly HousekeepingTask[];
   readonly maintenanceTickets: readonly MaintenanceTicket[];
@@ -187,14 +197,14 @@ export interface PmsSandboxReadback {
 }
 
 export interface PmsSandboxIdempotencyReadback {
-  readonly operation: typeof pmsCheckInOperation | typeof pmsCheckOutOperation | PmsExtendedCommandApiRequest['operation'] | 'unknown';
-  readonly mode: CheckInApiRequest['mode'] | CheckOutApiRequest['mode'] | PmsExtendedCommandApiRequest['mode'] | 'unknown';
+  readonly operation: typeof pmsCheckInOperation | typeof pmsCheckOutOperation | PmsExtendedCommandApiRequest['operation'] | ReservationDraftWorkflowApiRequest['operation'] | typeof pmsPendingActionStatusOperation | typeof pmsPendingActionConfirmOperation | typeof pmsPendingActionCancelOperation | 'unknown';
+  readonly mode: CheckInApiRequest['mode'] | CheckOutApiRequest['mode'] | PmsExtendedCommandApiRequest['mode'] | 'draft' | 'unknown';
   readonly idempotencyKey: string;
   readonly requestFingerprint: string;
   readonly ok: boolean;
 }
 
-export interface PmsLocalSandboxStore {
+export interface PmsLocalSandboxStore extends ReservationDraftLifecycleStore {
   readonly ports: CorePorts;
   readonly apiIdempotency: ApiIdempotencyRepository;
   readonly storage: PmsLocalStorageMetadata;
@@ -212,6 +222,9 @@ export interface PmsLocalSandboxStore {
   getOperationRequest(request: OperationRequestGetApiRequest): OperationRequestGetApiResponse;
   listOperationRequests(request: OperationRequestListApiRequest): OperationRequestListApiResponse;
   updateOperationRequest(request: OperationRequestUpdateApiRequest): OperationRequestUpdateApiResponse;
+  getPendingActionStatus(request: PendingActionStatusApiRequest): PendingActionCallbackApiResponse;
+  confirmPendingAction(request: PendingActionConfirmApiRequest): PendingActionCallbackApiResponse;
+  cancelPendingAction(request: PendingActionCancelApiRequest): PendingActionCallbackApiResponse;
   recordCheckInStay?(request: CheckInConfirmApiRequest, result: CoreCheckInConfirmResult): PmsSandboxStayReadback | undefined;
   recordCheckOutStay?(request: CheckOutConfirmApiRequest, result: CoreCheckOutConfirmResult): PmsSandboxStayReadback | undefined;
   runInTransaction?<TValue>(operation: () => TValue): TValue;
@@ -280,6 +293,9 @@ export function createPmsLocalHttpHandler(options: PmsLocalHttpHandlerOptions) {
             pmsOperationRequestGetOperation,
             pmsOperationRequestListOperation,
             pmsOperationRequestUpdateOperation,
+            pmsPendingActionStatusOperation,
+            pmsPendingActionConfirmOperation,
+            pmsPendingActionCancelOperation,
             pmsCapabilityManifestOperation,
           ],
           storage: options.store.storage,
@@ -461,11 +477,11 @@ export function createPmsLocalHttpHandler(options: PmsLocalHttpHandlerOptions) {
       const reservationDraftRoute = reservationDraftOperationForPath(url.pathname);
       if (request.method === 'POST' && reservationDraftRoute) {
         const body = await readJsonBody(request);
-        const result = executeReservationDraftWorkflowApiRequest({
+        const result = executeWithStoreTransaction(options.store, () => executeReservationDraftWorkflowApiRequest({
           ...(body as Record<string, unknown>),
           operation: reservationDraftRoute,
-        } as ReservationDraftWorkflowApiRequest);
-        writeJson(response, 501, result);
+        } as ReservationDraftWorkflowApiRequest, { drafts: options.store }));
+        writeJson(response, result.ok ? 200 : result.status === 'notImplemented' ? 501 : 400, result);
         return;
       }
 
@@ -492,6 +508,27 @@ export function createPmsLocalHttpHandler(options: PmsLocalHttpHandlerOptions) {
         const body = await readJsonBody(request) as OperationRequestUpdateApiRequest;
         const result = options.store.updateOperationRequest({ ...body, operation: pmsOperationRequestUpdateOperation });
         writeJson(response, result.ok ? 200 : 404, result);
+        return;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/v1/pms/pending-actions/status') {
+        const body = await readJsonBody(request) as PendingActionStatusApiRequest;
+        const result = options.store.getPendingActionStatus({ ...body, operation: pmsPendingActionStatusOperation });
+        writeJson(response, result.ok ? 200 : result.status === 'notFound' ? 404 : 400, result);
+        return;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/v1/pms/pending-actions/confirm') {
+        const body = await readJsonBody(request) as PendingActionConfirmApiRequest;
+        const result = options.store.confirmPendingAction({ ...body, operation: pmsPendingActionConfirmOperation });
+        writeJson(response, result.ok ? 200 : result.status === 'notFound' ? 404 : 400, result);
+        return;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/v1/pms/pending-actions/cancel') {
+        const body = await readJsonBody(request) as PendingActionCancelApiRequest;
+        const result = options.store.cancelPendingAction({ ...body, operation: pmsPendingActionCancelOperation });
+        writeJson(response, result.ok ? 200 : result.status === 'notFound' ? 404 : 400, result);
         return;
       }
 

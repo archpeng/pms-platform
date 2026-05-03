@@ -212,9 +212,28 @@ describe('PMS command contracts', () => {
       workflowType: 'reservation',
       draftId: 'draft-contract-1',
       status: 'collectingSlots',
-      missingSlots: ['guest', 'stayDates', 'roomType'],
+      slots: { guestDisplayName: 'Guest Contract', arrivalDate: '2026-05-04' },
+      missingSlots: ['stayDates', 'roomType'],
       evidenceRefs: [{ source: 'availabilitySearch', refId: 'availability-1', generatedAt: validMeta.requestedAt }],
       expiresAt: '2026-05-03T00:00:00.000Z',
+      quote: {
+        quoteRef: 'quote-contract-1',
+        status: 'pricingUnsupported',
+        generatedAt: validMeta.requestedAt,
+        capabilityGap: { code: 'RESERVATION_QUOTE_PRICING_UNSUPPORTED', owner: 'pms-platform', message: 'No pricing truth.' },
+      },
+      pendingAction: {
+        pendingActionRef: 'pending-contract-1',
+        cardPayloadRef: 'card-payload-contract-1',
+        quoteRef: 'quote-contract-1',
+        generatedAt: validMeta.requestedAt,
+        updatedAt: validMeta.requestedAt,
+        expiresAt: '2026-05-03T00:00:00.000Z',
+        status: 'awaitingConfirmation',
+        confirmationMode: 'typedCardOnly',
+        mutationStatus: 'none',
+      },
+      auditRefs: [{ auditId: 'draft-audit-1', action: 'quoted', occurredAt: validMeta.requestedAt }],
     };
     const safeGap: ReservationDraftWorkflowSafeGap = {
       code: 'RESERVATION_DRAFT_WORKFLOW_NOT_IMPLEMENTED',
@@ -231,7 +250,15 @@ describe('PMS command contracts', () => {
       'pms.reservation.prepare_confirm',
       'pms.reservation.draft.cancel',
     ]);
-    expect(draftRef).toMatchObject({ workflowType: 'reservation', status: 'collectingSlots', missingSlots: ['guest', 'stayDates', 'roomType'] });
+    expect(draftRef).toMatchObject({
+      workflowType: 'reservation',
+      status: 'collectingSlots',
+      slots: { guestDisplayName: 'Guest Contract' },
+      missingSlots: ['stayDates', 'roomType'],
+      quote: { quoteRef: 'quote-contract-1', status: 'pricingUnsupported' },
+      pendingAction: { pendingActionRef: 'pending-contract-1', cardPayloadRef: 'card-payload-contract-1', status: 'awaitingConfirmation', confirmationMode: 'typedCardOnly' },
+      auditRefs: [{ action: 'quoted' }],
+    });
     expect(safeGap).toMatchObject({ owner: 'pms-platform', mutationStatus: 'none' });
   });
 

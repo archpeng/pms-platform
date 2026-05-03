@@ -21,6 +21,15 @@ import {
   type InventorySummaryDayType,
   type MaintenanceTicket,
   type OperationRequest,
+  type ReservationDraftAuditRef,
+  type ReservationDraftEvidenceRef,
+  type ReservationDraftMissingSlot,
+  type PendingActionReadModel,
+  type ReservationDraftPendingActionRef,
+  type ReservationDraftQuoteRef,
+  type ReservationDraftSlots,
+  type ReservationDraftStatus,
+  type ReservationDraftWorkflowRef,
   type ReservationReadModel,
   type RoomReservationContextReadModel,
   type StayStatus,
@@ -46,6 +55,9 @@ import {
   pmsOperationRequestGetOperation,
   pmsOperationRequestListOperation,
   pmsOperationRequestUpdateOperation,
+  pmsPendingActionCancelOperation,
+  pmsPendingActionConfirmOperation,
+  pmsPendingActionStatusOperation,
   pmsReportMaintenanceOperation,
   pmsRestoreSellableOperation,
   type ApiErrorCode,
@@ -61,8 +73,24 @@ import {
   type OperationRequestGetApiResponse,
   type OperationRequestListApiRequest,
   type OperationRequestListApiResponse,
+  pmsReservationDraftCancelOperation,
+  pmsReservationDraftCreateOperation,
+  pmsReservationDraftUpdateOperation,
+  pmsReservationPrepareConfirmOperation,
+  pmsReservationQuoteOperation,
   type OperationRequestUpdateApiRequest,
   type OperationRequestUpdateApiResponse,
+  type PendingActionCallbackApiRequest,
+  type PendingActionCallbackApiResponse,
+  type PendingActionCancelApiRequest,
+  type PendingActionConfirmApiRequest,
+  type PendingActionStatusApiRequest,
+  type ReservationDraftCancelApiRequest,
+  type ReservationDraftCreateApiRequest,
+  type ReservationDraftUpdateApiRequest,
+  type ReservationPrepareConfirmApiRequest,
+  type ReservationQuoteApiRequest,
+  type ReservationDraftWorkflowApiResponse,
 } from './index.js';
 import {
   type PmsSandboxPropertyReadback,
@@ -130,6 +158,8 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
     const stays = roomId ? this.listStaysByRoomIds(roomIds) : this.listStays();
     const housekeepingTasks = roomId ? this.listHousekeepingTasksByRoomIds(roomIds) : this.listHousekeepingTasks();
     const maintenanceTickets = roomId ? this.listMaintenanceTicketsByRoomIds(roomIds) : this.listMaintenanceTickets();
+    const reservationDrafts = this.listReservationDrafts();
+    const reservationDraftAudits = this.listReservationDraftAudits();
     const operationRequests = roomId ? this.listOperationRequestsByRoomIds(roomIds) : this.listOperationRequestRecords();
     const audits = roomId ? this.listAuditsByRoomIds(roomIds) : this.listAudits();
     const domainEvents = roomId ? this.listDomainEventsByRoomIds(roomIds) : this.listDomainEvents();
@@ -151,6 +181,8 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
       inventoryDayRooms: cloneValue(horizon.dayRooms),
       inventoryIntervalProjection: cloneValue(horizon.intervals),
       inventorySummaryDayType: cloneValue(horizon.summaries),
+      reservationDrafts: cloneValue(reservationDrafts),
+      reservationDraftAudits: cloneValue(reservationDraftAudits),
       operationRequests: cloneValue(operationRequests),
       housekeepingTasks: cloneValue(housekeepingTasks),
       maintenanceTickets: cloneValue(maintenanceTickets),
@@ -243,6 +275,38 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
 
   updateOperationRequest(request: OperationRequestUpdateApiRequest): OperationRequestUpdateApiResponse {
     return this.runInTransaction(() => this.updateOperationRequestRecord(request));
+  }
+
+  getPendingActionStatus(request: PendingActionStatusApiRequest): PendingActionCallbackApiResponse {
+    return this.runInTransaction(() => this.readPendingActionRecord(request));
+  }
+
+  confirmPendingAction(request: PendingActionConfirmApiRequest): PendingActionCallbackApiResponse {
+    return this.runInTransaction(() => this.transitionPendingActionRecord(request, 'confirmed'));
+  }
+
+  cancelPendingAction(request: PendingActionCancelApiRequest): PendingActionCallbackApiResponse {
+    return this.runInTransaction(() => this.transitionPendingActionRecord(request, 'cancelled'));
+  }
+
+  createReservationDraft(request: ReservationDraftCreateApiRequest): ReservationDraftWorkflowApiResponse {
+    return this.runInTransaction(() => this.createReservationDraftRecord(request));
+  }
+
+  updateReservationDraft(request: ReservationDraftUpdateApiRequest): ReservationDraftWorkflowApiResponse {
+    return this.runInTransaction(() => this.updateReservationDraftRecord(request));
+  }
+
+  quoteReservationDraft(request: ReservationQuoteApiRequest): ReservationDraftWorkflowApiResponse {
+    return this.runInTransaction(() => this.quoteReservationDraftRecord(request));
+  }
+
+  prepareConfirmReservationDraft(request: ReservationPrepareConfirmApiRequest): ReservationDraftWorkflowApiResponse {
+    return this.runInTransaction(() => this.prepareConfirmReservationDraftRecord(request));
+  }
+
+  cancelReservationDraft(request: ReservationDraftCancelApiRequest): ReservationDraftWorkflowApiResponse {
+    return this.runInTransaction(() => this.cancelReservationDraftRecord(request));
   }
 
   recordCheckInStay(request: CheckInConfirmApiRequest, result: CoreCheckInConfirmResult): PmsSandboxStayReadback | undefined {
@@ -384,6 +448,31 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
         FOREIGN KEY (reservation_id) REFERENCES reservations(reservation_id) ON DELETE CASCADE
       );
 
+      CREATE TABLE IF NOT EXISTS reservation_drafts (
+        draft_id TEXT PRIMARY KEY,
+        property_id TEXT NOT NULL,
+        client_token TEXT NOT NULL UNIQUE,
+        request_fingerprint TEXT NOT NULL,
+        status TEXT NOT NULL,
+        slots_json TEXT NOT NULL,
+        missing_slots_json TEXT NOT NULL,
+        evidence_refs_json TEXT NOT NULL,
+        quote_json TEXT,
+        pending_action_json TEXT,
+        expires_at TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS reservation_draft_audits (
+        audit_id TEXT PRIMARY KEY,
+        draft_id TEXT NOT NULL,
+        action TEXT NOT NULL,
+        occurred_at TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        FOREIGN KEY (draft_id) REFERENCES reservation_drafts(draft_id) ON DELETE CASCADE
+      );
+
       CREATE TABLE IF NOT EXISTS stays (
         stay_id TEXT PRIMARY KEY,
         reservation_id TEXT NOT NULL,
@@ -522,6 +611,9 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
       CREATE INDEX IF NOT EXISTS idx_reservations_arrival_date ON reservations(arrival_date);
       CREATE INDEX IF NOT EXISTS idx_reservations_departure_date ON reservations(departure_date);
       CREATE INDEX IF NOT EXISTS idx_reservation_allocations_room_id ON reservation_room_allocations(room_id);
+      CREATE INDEX IF NOT EXISTS idx_reservation_drafts_client_token ON reservation_drafts(client_token);
+      CREATE INDEX IF NOT EXISTS idx_reservation_drafts_status ON reservation_drafts(status);
+      CREATE INDEX IF NOT EXISTS idx_reservation_draft_audits_draft_id ON reservation_draft_audits(draft_id);
       CREATE INDEX IF NOT EXISTS idx_stays_room_id ON stays(room_id);
       CREATE INDEX IF NOT EXISTS idx_inventory_blocks_room_id ON inventory_blocks(room_id);
       CREATE INDEX IF NOT EXISTS idx_inventory_blocks_source ON inventory_blocks(source_type, source_id);
@@ -580,6 +672,7 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
             (SELECT COUNT(*) FROM room_types) +
             (SELECT COUNT(*) FROM rooms) +
             (SELECT COUNT(*) FROM reservations) +
+            (SELECT COUNT(*) FROM reservation_drafts) +
             (SELECT COUNT(*) FROM housekeeping_tasks) +
             (SELECT COUNT(*) FROM maintenance_tickets) +
             (SELECT COUNT(*) FROM audits) +
@@ -604,6 +697,8 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
       DELETE FROM inventory_interval_projection;
       DELETE FROM inventory_day_room;
       DELETE FROM inventory_blocks;
+      DELETE FROM reservation_draft_audits;
+      DELETE FROM reservation_drafts;
       DELETE FROM stays;
       DELETE FROM reservation_room_allocations;
       DELETE FROM reservations;
@@ -667,6 +762,158 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
       save: (record) => this.saveApiIdempotency(record),
       list: () => cloneValue(this.listApiIdempotencyRecords()),
     };
+  }
+
+  private createReservationDraftRecord(request: ReservationDraftCreateApiRequest): ReservationDraftWorkflowApiResponse {
+    const replay = this.reservationDraftReplayOrConflict(request);
+    if (replay) return replay;
+
+    const createdAt = nonEmptyString(request.requestedAt, this.now());
+    const expiresAt = nonEmptyString(request.expiresAt, addHoursIso(createdAt, 24));
+    const slots = cloneValue(request.slots ?? {});
+    const missingSlots = deriveMissingSlots(slots);
+    const status = draftStatusFromMissingSlots(missingSlots, expiresAt, createdAt);
+    const draft: StoredReservationDraft = {
+      draftId: reservationDraftIdFromClientToken(request.clientToken),
+      propertyId: nonEmptyString(request.propertyId, 'property-unknown'),
+      clientToken: request.clientToken,
+      requestFingerprint: request.requestFingerprint,
+      status,
+      slots,
+      missingSlots,
+      evidenceRefs: cloneValue(request.evidenceRefs ?? []),
+      expiresAt,
+      createdAt,
+      updatedAt: createdAt,
+    };
+    this.saveReservationDraft(draft);
+    const auditRef = this.appendReservationDraftAudit(draft.draftId, status === 'expired' ? 'expired' : 'created', createdAt, { request });
+    const response = reservationDraftSuccessResponse(request.operation, 'created', draft, [auditRef]);
+    this.saveApiIdempotency({ idempotencyKey: request.clientToken, requestFingerprint: request.requestFingerprint, response });
+    return response;
+  }
+
+  private updateReservationDraftRecord(request: ReservationDraftUpdateApiRequest): ReservationDraftWorkflowApiResponse {
+    const replay = this.reservationDraftReplayOrConflict(request);
+    if (replay) return replay;
+
+    const existing = this.getReservationDraftById(request.draftId);
+    if (!existing) return reservationDraftNotFoundResponse(request);
+    const updatedAt = nonEmptyString(request.requestedAt, this.now());
+    const slots = { ...existing.slots, ...(request.slots ?? {}) };
+    const evidenceRefs = mergeEvidenceRefs(existing.evidenceRefs, request.evidenceRefs ?? []);
+    const missingSlots = cloneValue(request.missingSlots ?? deriveMissingSlots(slots));
+    const status = existing.status === 'cancelled' ? 'cancelled' : draftStatusFromMissingSlots(missingSlots, existing.expiresAt, updatedAt);
+    const draft: StoredReservationDraft = {
+      ...existing,
+      clientToken: request.clientToken,
+      requestFingerprint: request.requestFingerprint,
+      status,
+      slots,
+      missingSlots,
+      evidenceRefs,
+      quote: status === 'cancelled' ? existing.quote : undefined,
+      pendingAction: status === 'cancelled' ? existing.pendingAction : undefined,
+      updatedAt,
+    };
+    this.saveReservationDraft(draft);
+    const auditRef = this.appendReservationDraftAudit(draft.draftId, status === 'expired' ? 'expired' : 'updated', updatedAt, { request });
+    const response = reservationDraftSuccessResponse(request.operation, 'updated', draft, [auditRef]);
+    this.saveApiIdempotency({ idempotencyKey: request.clientToken, requestFingerprint: request.requestFingerprint, response });
+    return response;
+  }
+
+  private quoteReservationDraftRecord(request: ReservationQuoteApiRequest): ReservationDraftWorkflowApiResponse {
+    const replay = this.reservationDraftReplayOrConflict(request);
+    if (replay) return replay;
+
+    if (!request.draftId) return reservationDraftNotFoundResponse(request);
+    const existing = this.getReservationDraftById(request.draftId);
+    if (!existing) return reservationDraftNotFoundResponse(request);
+
+    const quotedAt = nonEmptyString(request.requestedAt, this.now());
+    const inactive = reservationDraftInactiveResponse(request, existing, quotedAt);
+    if (inactive) return inactive;
+    if (existing.missingSlots.length > 0) return reservationDraftMissingSlotsResponse(request, existing);
+
+    const quote = reservationDraftQuote(existing, quotedAt);
+    const draft: StoredReservationDraft = {
+      ...existing,
+      clientToken: request.clientToken,
+      requestFingerprint: request.requestFingerprint,
+      status: 'quoteReady',
+      quote,
+      updatedAt: quotedAt,
+    };
+    this.saveReservationDraft(draft);
+    const auditRef = this.appendReservationDraftAudit(draft.draftId, 'quoted', quotedAt, { request, quoteRef: quote.quoteRef });
+    const response = reservationDraftSuccessResponse(request.operation, 'quoted', draft, [auditRef]);
+    this.saveApiIdempotency({ idempotencyKey: request.clientToken, requestFingerprint: request.requestFingerprint, response });
+    return response;
+  }
+
+  private prepareConfirmReservationDraftRecord(request: ReservationPrepareConfirmApiRequest): ReservationDraftWorkflowApiResponse {
+    const replay = this.reservationDraftReplayOrConflict(request);
+    if (replay) return replay;
+
+    const existing = this.getReservationDraftById(request.draftId);
+    if (!existing) return reservationDraftNotFoundResponse(request);
+
+    const preparedAt = nonEmptyString(request.requestedAt, this.now());
+    const inactive = reservationDraftInactiveResponse(request, existing, preparedAt);
+    if (inactive) return inactive;
+    if (existing.missingSlots.length > 0) return reservationDraftMissingSlotsResponse(request, existing);
+    if (!existing.quote) return reservationDraftQuoteRequiredResponse(request, existing);
+    if (request.quoteRef && request.quoteRef !== existing.quote.quoteRef) return reservationDraftQuoteMismatchResponse(request, existing);
+
+    const pendingAction = reservationDraftPendingAction(existing, existing.quote.quoteRef, preparedAt);
+    const draft: StoredReservationDraft = {
+      ...existing,
+      clientToken: request.clientToken,
+      requestFingerprint: request.requestFingerprint,
+      status: 'awaitingConfirmation',
+      pendingAction,
+      updatedAt: preparedAt,
+    };
+    this.saveReservationDraft(draft);
+    const auditRef = this.appendReservationDraftAudit(draft.draftId, 'prepared', preparedAt, {
+      request,
+      pendingActionRef: pendingAction.pendingActionRef,
+      cardPayloadRef: pendingAction.cardPayloadRef,
+    });
+    const response = reservationDraftSuccessResponse(request.operation, 'prepared', draft, [auditRef]);
+    this.saveApiIdempotency({ idempotencyKey: request.clientToken, requestFingerprint: request.requestFingerprint, response });
+    return response;
+  }
+
+  private cancelReservationDraftRecord(request: ReservationDraftCancelApiRequest): ReservationDraftWorkflowApiResponse {
+    const replay = this.reservationDraftReplayOrConflict(request);
+    if (replay) return replay;
+
+    const existing = this.getReservationDraftById(request.draftId);
+    if (!existing) return reservationDraftNotFoundResponse(request);
+    const updatedAt = nonEmptyString(request.requestedAt, this.now());
+    const draft: StoredReservationDraft = {
+      ...existing,
+      clientToken: request.clientToken,
+      requestFingerprint: request.requestFingerprint,
+      status: 'cancelled',
+      updatedAt,
+    };
+    this.saveReservationDraft(draft);
+    const auditRef = this.appendReservationDraftAudit(draft.draftId, 'cancelled', updatedAt, { request, reason: request.reason });
+    const response = reservationDraftSuccessResponse(request.operation, 'cancelled', draft, [auditRef]);
+    this.saveApiIdempotency({ idempotencyKey: request.clientToken, requestFingerprint: request.requestFingerprint, response });
+    return response;
+  }
+
+  private reservationDraftReplayOrConflict(request: ReservationDraftCreateApiRequest | ReservationDraftUpdateApiRequest | ReservationQuoteApiRequest | ReservationPrepareConfirmApiRequest | ReservationDraftCancelApiRequest): ReservationDraftWorkflowApiResponse | undefined {
+    const existing = this.getApiIdempotency(request.clientToken);
+    if (!existing) return undefined;
+    if (existing.requestFingerprint !== request.requestFingerprint) {
+      return reservationDraftTokenConflictResponse(request);
+    }
+    return cloneValue(existing.response) as ReservationDraftWorkflowApiResponse;
   }
 
   private createOperationRequestRecord(request: OperationRequestCreateApiRequest): OperationRequestCreateApiResponse {
@@ -763,6 +1010,106 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
       operation: pmsOperationRequestUpdateOperation,
       request: cloneValue(updated),
     };
+  }
+
+  private readPendingActionRecord(request: PendingActionStatusApiRequest): PendingActionCallbackApiResponse {
+    const replay = this.pendingActionReplayOrConflict(request);
+    if (replay) return replay;
+
+    const draft = this.getReservationDraftByPendingActionRef(request.pendingActionRef);
+    if (!draft || !draft.pendingAction) return pendingActionNotFoundResponse(request);
+
+    const requestedAt = nonEmptyString(request.requestedAt, this.now());
+    const expired = this.expirePendingActionIfNeeded(request, draft, requestedAt);
+    if (expired) return expired;
+    const auditRef = this.appendReservationDraftAudit(draft.draftId, 'pendingActionStatusRead', requestedAt, redactedPendingActionAuditPayload(request));
+    const response = pendingActionSuccessResponse(request.operation ?? pmsPendingActionStatusOperation, 'statusRead', 'none', draft, [auditRef]);
+    this.saveApiIdempotency({ idempotencyKey: request.clientToken, requestFingerprint: request.requestFingerprint, response });
+    return response;
+  }
+
+  private transitionPendingActionRecord(
+    request: PendingActionConfirmApiRequest | PendingActionCancelApiRequest,
+    transition: 'confirmed' | 'cancelled',
+  ): PendingActionCallbackApiResponse {
+    const replay = this.pendingActionReplayOrConflict(request);
+    if (replay) return replay;
+
+    const draft = this.getReservationDraftByPendingActionRef(request.pendingActionRef);
+    if (!draft || !draft.pendingAction) return pendingActionNotFoundResponse(request);
+
+    const requestedAt = nonEmptyString(request.requestedAt, this.now());
+    const expired = this.expirePendingActionIfNeeded(request, draft, requestedAt);
+    if (expired) return expired;
+    if (request.cardPayloadRef && request.cardPayloadRef !== draft.pendingAction.cardPayloadRef) return pendingActionCardPayloadMismatchResponse(request, draft);
+    if (draft.pendingAction.status !== 'awaitingConfirmation' || draft.status !== 'awaitingConfirmation') return pendingActionInactiveResponse(request, draft);
+
+    const pendingAction: ReservationDraftPendingActionRef = {
+      ...draft.pendingAction,
+      status: transition,
+      mutationStatus: transition === 'confirmed' ? 'deferred' : 'none',
+      updatedAt: requestedAt,
+    };
+    const updated: StoredReservationDraft = {
+      ...draft,
+      clientToken: request.clientToken,
+      requestFingerprint: request.requestFingerprint,
+      status: transition === 'cancelled' ? 'cancelled' : draft.status,
+      pendingAction,
+      updatedAt: requestedAt,
+    };
+    this.saveReservationDraft(updated);
+    const auditRef = this.appendReservationDraftAudit(
+      updated.draftId,
+      transition === 'confirmed' ? 'pendingActionConfirmed' : 'pendingActionCancelled',
+      requestedAt,
+      redactedPendingActionAuditPayload(request),
+    );
+    const response = pendingActionSuccessResponse(
+      request.operation ?? (transition === 'confirmed' ? pmsPendingActionConfirmOperation : pmsPendingActionCancelOperation),
+      transition,
+      transition === 'confirmed' ? 'deferred' : 'none',
+      updated,
+      [auditRef],
+    );
+    this.saveApiIdempotency({ idempotencyKey: request.clientToken, requestFingerprint: request.requestFingerprint, response });
+    return response;
+  }
+
+  private pendingActionReplayOrConflict(request: PendingActionCallbackApiRequest): PendingActionCallbackApiResponse | undefined {
+    const existing = this.getApiIdempotency(request.clientToken);
+    if (!existing) return undefined;
+    if (existing.requestFingerprint !== request.requestFingerprint || !isPendingActionCallbackResponse(existing.response)) {
+      return pendingActionTokenConflictResponse(request);
+    }
+    return cloneValue(existing.response);
+  }
+
+  private expirePendingActionIfNeeded(
+    request: PendingActionCallbackApiRequest,
+    draft: StoredReservationDraft,
+    requestedAt: string,
+  ): PendingActionCallbackApiResponse | undefined {
+    if (!draft.pendingAction || draft.pendingAction.status !== 'awaitingConfirmation') return undefined;
+    const expiresAt = draft.pendingAction.expiresAt ?? draft.expiresAt;
+    if (expiresAt > requestedAt) return undefined;
+    const pendingAction: ReservationDraftPendingActionRef = {
+      ...draft.pendingAction,
+      status: 'expired',
+      mutationStatus: 'none',
+      updatedAt: requestedAt,
+    };
+    const expired: StoredReservationDraft = {
+      ...draft,
+      clientToken: request.clientToken,
+      requestFingerprint: request.requestFingerprint,
+      status: 'expired',
+      pendingAction,
+      updatedAt: requestedAt,
+    };
+    this.saveReservationDraft(expired);
+    const auditRef = this.appendReservationDraftAudit(expired.draftId, 'pendingActionExpired', requestedAt, redactedPendingActionAuditPayload(request));
+    return pendingActionExpiredResponse(request, expired, [auditRef]);
   }
 
   private findOperationRequest(request: OperationRequestGetApiRequest | OperationRequestUpdateApiRequest): OperationRequest | undefined {
@@ -1791,6 +2138,98 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
     this.inventoryDirty = true;
   }
 
+  private getReservationDraftById(draftId: string): StoredReservationDraft | undefined {
+    const row = this.db.prepare('SELECT * FROM reservation_drafts WHERE draft_id = ?').get(draftId) as ReservationDraftRow | undefined;
+    return row ? reservationDraftFromRow(row) : undefined;
+  }
+
+  private getReservationDraftByPendingActionRef(pendingActionRef: string): StoredReservationDraft | undefined {
+    return this.listStoredReservationDrafts().find((draft) => draft.pendingAction?.pendingActionRef === pendingActionRef);
+  }
+
+  private listStoredReservationDrafts(): StoredReservationDraft[] {
+    const rows = this.db
+      .prepare('SELECT * FROM reservation_drafts ORDER BY created_at, draft_id')
+      .all() as unknown as ReservationDraftRow[];
+    return rows.map(reservationDraftFromRow);
+  }
+
+  private listReservationDrafts(): ReservationDraftWorkflowRef[] {
+    return this.listStoredReservationDrafts().map((draft) => reservationDraftRefFromStored(draft));
+  }
+
+  private saveReservationDraft(draft: StoredReservationDraft): void {
+    this.db
+      .prepare(
+        `
+          INSERT INTO reservation_drafts (
+            draft_id, property_id, client_token, request_fingerprint, status, slots_json,
+            missing_slots_json, evidence_refs_json, quote_json, pending_action_json, expires_at, created_at, updated_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(draft_id) DO UPDATE SET
+            client_token = excluded.client_token,
+            request_fingerprint = excluded.request_fingerprint,
+            status = excluded.status,
+            slots_json = excluded.slots_json,
+            missing_slots_json = excluded.missing_slots_json,
+            evidence_refs_json = excluded.evidence_refs_json,
+            quote_json = excluded.quote_json,
+            pending_action_json = excluded.pending_action_json,
+            expires_at = excluded.expires_at,
+            updated_at = excluded.updated_at
+        `,
+      )
+      .run(
+        draft.draftId,
+        draft.propertyId,
+        draft.clientToken,
+        draft.requestFingerprint,
+        draft.status,
+        JSON.stringify(draft.slots),
+        JSON.stringify(draft.missingSlots),
+        JSON.stringify(draft.evidenceRefs),
+        draft.quote ? JSON.stringify(draft.quote) : null,
+        draft.pendingAction ? JSON.stringify(draft.pendingAction) : null,
+        draft.expiresAt,
+        draft.createdAt,
+        draft.updatedAt,
+      );
+  }
+
+  private appendReservationDraftAudit(
+    draftId: string,
+    action: ReservationDraftAuditRef['action'],
+    occurredAt: string,
+    payload: unknown,
+  ): ReservationDraftAuditRef {
+    const auditRef: ReservationDraftAuditRef = {
+      auditId: reservationDraftAuditId(draftId, action, occurredAt, this.listReservationDraftAudits().length + 1),
+      action,
+      occurredAt,
+    };
+    this.db
+      .prepare(
+        `
+          INSERT INTO reservation_draft_audits (audit_id, draft_id, action, occurred_at, payload_json)
+          VALUES (?, ?, ?, ?, ?)
+        `,
+      )
+      .run(auditRef.auditId, draftId, action, occurredAt, JSON.stringify(payload));
+    return auditRef;
+  }
+
+  private listReservationDraftAudits(): ReservationDraftAuditRef[] {
+    const rows = this.db
+      .prepare('SELECT audit_id, action, occurred_at FROM reservation_draft_audits ORDER BY occurred_at, audit_id')
+      .all() as unknown as ReservationDraftAuditRow[];
+    return rows.map((row) => ({
+      auditId: row.audit_id,
+      action: row.action,
+      occurredAt: row.occurred_at,
+    }));
+  }
+
   private getOperationRequestById(operationRequestId: string): OperationRequest | undefined {
     const row = this.db.prepare('SELECT * FROM operation_requests WHERE operation_request_id = ?').get(operationRequestId) as OperationRequestRow | undefined;
     return row ? operationRequestFromRow(row) : undefined;
@@ -1998,6 +2437,44 @@ interface ApiIdempotencyRow {
   readonly response_json: string;
 }
 
+interface ReservationDraftRow {
+  readonly draft_id: string;
+  readonly property_id: string;
+  readonly client_token: string;
+  readonly request_fingerprint: string;
+  readonly status: ReservationDraftStatus;
+  readonly slots_json: string;
+  readonly missing_slots_json: string;
+  readonly evidence_refs_json: string;
+  readonly quote_json?: string | null;
+  readonly pending_action_json?: string | null;
+  readonly expires_at: string;
+  readonly created_at: string;
+  readonly updated_at: string;
+}
+
+interface ReservationDraftAuditRow {
+  readonly audit_id: string;
+  readonly action: ReservationDraftAuditRef['action'];
+  readonly occurred_at: string;
+}
+
+interface StoredReservationDraft {
+  readonly draftId: string;
+  readonly propertyId: string;
+  readonly clientToken: string;
+  readonly requestFingerprint: string;
+  readonly status: ReservationDraftStatus;
+  readonly slots: ReservationDraftSlots;
+  readonly missingSlots: readonly ReservationDraftMissingSlot[];
+  readonly evidenceRefs: readonly ReservationDraftEvidenceRef[];
+  readonly quote?: ReservationDraftQuoteRef;
+  readonly pendingAction?: ReservationDraftPendingActionRef;
+  readonly expiresAt: string;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
 interface OperationRequestRow {
   readonly operation_request_id: string;
   readonly property_id: string;
@@ -2187,6 +2664,340 @@ function apiIdempotencyFromRow(row: ApiIdempotencyRow): ApiIdempotencyRecord {
   };
 }
 
+function reservationDraftFromRow(row: ReservationDraftRow): StoredReservationDraft {
+  return {
+    draftId: row.draft_id,
+    propertyId: row.property_id,
+    clientToken: row.client_token,
+    requestFingerprint: row.request_fingerprint,
+    status: row.status,
+    slots: parseJson<ReservationDraftSlots>(row.slots_json),
+    missingSlots: parseJson<ReservationDraftMissingSlot[]>(row.missing_slots_json),
+    evidenceRefs: parseJson<ReservationDraftEvidenceRef[]>(row.evidence_refs_json),
+    ...(row.quote_json ? { quote: parseJson<ReservationDraftQuoteRef>(row.quote_json) } : {}),
+    ...(row.pending_action_json ? { pendingAction: parseJson<ReservationDraftPendingActionRef>(row.pending_action_json) } : {}),
+    expiresAt: row.expires_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function reservationDraftRefFromStored(draft: StoredReservationDraft, auditRefs: readonly ReservationDraftAuditRef[] = []): ReservationDraftWorkflowRef {
+  return {
+    workflowType: 'reservation',
+    draftId: draft.draftId,
+    status: draft.status,
+    slots: cloneValue(draft.slots),
+    missingSlots: cloneValue(draft.missingSlots),
+    evidenceRefs: cloneValue(draft.evidenceRefs),
+    expiresAt: draft.expiresAt,
+    ...(draft.quote ? { quote: cloneValue(draft.quote) } : {}),
+    ...(draft.pendingAction ? { pendingAction: cloneValue(draft.pendingAction) } : {}),
+    ...(auditRefs.length > 0 ? { auditRefs: cloneValue(auditRefs) } : {}),
+  };
+}
+
+function reservationDraftSuccessResponse(
+  operation: typeof pmsReservationDraftCreateOperation | typeof pmsReservationDraftUpdateOperation | typeof pmsReservationQuoteOperation | typeof pmsReservationPrepareConfirmOperation | typeof pmsReservationDraftCancelOperation,
+  idempotencyStatus: 'created' | 'updated' | 'quoted' | 'prepared' | 'cancelled',
+  draft: StoredReservationDraft,
+  auditRefs: readonly ReservationDraftAuditRef[],
+): ReservationDraftWorkflowApiResponse {
+  return {
+    ok: true,
+    operation,
+    status: 'ok',
+    mutationStatus: 'draftOnly',
+    idempotencyStatus,
+    draft: reservationDraftRefFromStored(draft, auditRefs),
+  };
+}
+
+function reservationDraftTokenConflictResponse(
+  request: ReservationDraftCreateApiRequest | ReservationDraftUpdateApiRequest | ReservationQuoteApiRequest | ReservationPrepareConfirmApiRequest | ReservationDraftCancelApiRequest,
+): ReservationDraftWorkflowApiResponse {
+  return {
+    ok: false,
+    operation: request.operation,
+    status: 'rejected',
+    mutationStatus: 'none',
+    errors: [{
+      code: 'RESERVATION_DRAFT_TOKEN_REUSED_WITH_DIFFERENT_FINGERPRINT',
+      message: 'The reservation draft client token was reused with a different request fingerprint.',
+      field: 'requestFingerprint',
+    }],
+  };
+}
+
+function reservationDraftNotFoundResponse(request: ReservationDraftUpdateApiRequest | ReservationQuoteApiRequest | ReservationPrepareConfirmApiRequest | ReservationDraftCancelApiRequest): ReservationDraftWorkflowApiResponse {
+  return {
+    ok: false,
+    operation: request.operation,
+    status: 'notFound',
+    mutationStatus: 'none',
+    errors: [{ code: 'RESERVATION_DRAFT_NOT_FOUND', message: 'Reservation draft was not found.', field: 'draftId' }],
+  };
+}
+
+function reservationDraftInactiveResponse(
+  request: ReservationQuoteApiRequest | ReservationPrepareConfirmApiRequest,
+  draft: StoredReservationDraft,
+  requestedAt: string,
+): ReservationDraftWorkflowApiResponse | undefined {
+  if (draft.status === 'cancelled') {
+    return reservationDraftRejectedResponse(request, draft, 'RESERVATION_DRAFT_NOT_ACTIVE', 'Reservation draft is cancelled and cannot be quoted or prepared.', 'status');
+  }
+  if (draft.status === 'expired' || draft.expiresAt <= requestedAt) {
+    return reservationDraftRejectedResponse(request, { ...draft, status: 'expired' }, 'RESERVATION_DRAFT_EXPIRED', 'Reservation draft is expired and cannot be quoted or prepared.', 'expiresAt');
+  }
+  return undefined;
+}
+
+function reservationDraftMissingSlotsResponse(
+  request: ReservationQuoteApiRequest | ReservationPrepareConfirmApiRequest,
+  draft: StoredReservationDraft,
+): ReservationDraftWorkflowApiResponse {
+  return reservationDraftRejectedResponse(request, draft, 'RESERVATION_DRAFT_MISSING_REQUIRED_SLOTS', 'Reservation draft is missing required slots.', 'missingSlots');
+}
+
+function reservationDraftQuoteRequiredResponse(
+  request: ReservationPrepareConfirmApiRequest,
+  draft: StoredReservationDraft,
+): ReservationDraftWorkflowApiResponse {
+  return reservationDraftRejectedResponse(request, draft, 'RESERVATION_DRAFT_QUOTE_REQUIRED', 'Reservation draft must be quoted before prepareConfirm can create pending-action refs.', 'quoteRef');
+}
+
+function reservationDraftQuoteMismatchResponse(
+  request: ReservationPrepareConfirmApiRequest,
+  draft: StoredReservationDraft,
+): ReservationDraftWorkflowApiResponse {
+  return reservationDraftRejectedResponse(request, draft, 'RESERVATION_DRAFT_QUOTE_MISMATCH', 'Reservation prepareConfirm quoteRef does not match the draft quote.', 'quoteRef');
+}
+
+function reservationDraftRejectedResponse(
+  request: ReservationQuoteApiRequest | ReservationPrepareConfirmApiRequest,
+  draft: StoredReservationDraft,
+  code: 'RESERVATION_DRAFT_MISSING_REQUIRED_SLOTS' | 'RESERVATION_DRAFT_NOT_ACTIVE' | 'RESERVATION_DRAFT_EXPIRED' | 'RESERVATION_DRAFT_QUOTE_REQUIRED' | 'RESERVATION_DRAFT_QUOTE_MISMATCH',
+  message: string,
+  field: string,
+): ReservationDraftWorkflowApiResponse {
+  return {
+    ok: false,
+    operation: request.operation,
+    status: 'rejected',
+    mutationStatus: 'none',
+    draft: reservationDraftRefFromStored(draft),
+    errors: [{ code, message, field }],
+  };
+}
+
+function deriveMissingSlots(slots: ReservationDraftSlots): readonly ReservationDraftMissingSlot[] {
+  const missing: ReservationDraftMissingSlot[] = [];
+  if (!slots.guestDisplayName) missing.push('guest');
+  if (!slots.arrivalDate || !slots.departureDate) missing.push('stayDates');
+  if (!slots.roomTypeId && !slots.roomTypeKeyword && !slots.roomId) missing.push('roomType');
+  if (!slots.roomId && !slots.selectedCandidateRef) missing.push('candidateSelection');
+  return missing;
+}
+
+function draftStatusFromMissingSlots(
+  missingSlots: readonly ReservationDraftMissingSlot[],
+  expiresAt: string,
+  requestedAt: string,
+): ReservationDraftStatus {
+  if (expiresAt <= requestedAt) return 'expired';
+  return missingSlots.length > 0 ? 'collectingSlots' : 'quoteReady';
+}
+
+function mergeEvidenceRefs(
+  existing: readonly ReservationDraftEvidenceRef[],
+  next: readonly ReservationDraftEvidenceRef[],
+): readonly ReservationDraftEvidenceRef[] {
+  const byKey = new Map<string, ReservationDraftEvidenceRef>();
+  for (const ref of [...existing, ...next]) {
+    byKey.set(`${ref.source}:${ref.refId}`, ref);
+  }
+  return Array.from(byKey.values());
+}
+
+function reservationDraftQuote(draft: StoredReservationDraft, generatedAt: string): ReservationDraftQuoteRef {
+  return {
+    quoteRef: reservationQuoteRef(draft),
+    status: 'pricingUnsupported',
+    generatedAt,
+    capabilityGap: {
+      code: 'RESERVATION_QUOTE_PRICING_UNSUPPORTED',
+      owner: 'pms-platform',
+      message: 'Reservation draft pricing/rate truth is not available in the local platform sandbox; no price was invented.',
+    },
+  };
+}
+
+function reservationDraftPendingAction(draft: StoredReservationDraft, quoteRef: string, generatedAt: string): ReservationDraftPendingActionRef {
+  return {
+    pendingActionRef: reservationDraftDerivedRef('pending-action', `${draft.draftId}:${quoteRef}`),
+    cardPayloadRef: reservationDraftDerivedRef('card-payload', `${draft.draftId}:${quoteRef}`),
+    quoteRef,
+    generatedAt,
+    updatedAt: generatedAt,
+    expiresAt: draft.expiresAt,
+    status: 'awaitingConfirmation',
+    confirmationMode: 'typedCardOnly',
+    mutationStatus: 'none',
+  };
+}
+
+function pendingActionReadModelFromDraft(draft: StoredReservationDraft, auditRefs: readonly ReservationDraftAuditRef[] = []): PendingActionReadModel {
+  const pendingAction = draft.pendingAction!;
+  return {
+    pendingActionRef: pendingAction.pendingActionRef,
+    workflowType: 'reservation',
+    draftId: draft.draftId,
+    quoteRef: pendingAction.quoteRef,
+    cardPayloadRef: pendingAction.cardPayloadRef,
+    status: pendingAction.status,
+    confirmationMode: pendingAction.confirmationMode,
+    mutationStatus: pendingAction.mutationStatus,
+    generatedAt: pendingAction.generatedAt,
+    updatedAt: pendingAction.updatedAt,
+    ...(pendingAction.expiresAt ? { expiresAt: pendingAction.expiresAt } : {}),
+    ...(auditRefs.length > 0 ? { auditRefs: cloneValue(auditRefs) } : {}),
+  };
+}
+
+function pendingActionSuccessResponse(
+  operation: typeof pmsPendingActionStatusOperation | typeof pmsPendingActionConfirmOperation | typeof pmsPendingActionCancelOperation,
+  idempotencyStatus: 'statusRead' | 'confirmed' | 'cancelled',
+  mutationStatus: 'none' | 'deferred',
+  draft: StoredReservationDraft,
+  auditRefs: readonly ReservationDraftAuditRef[],
+): PendingActionCallbackApiResponse {
+  return {
+    ok: true,
+    operation,
+    status: 'ok',
+    mutationStatus,
+    idempotencyStatus,
+    pendingAction: pendingActionReadModelFromDraft(draft, auditRefs),
+  };
+}
+
+function pendingActionTokenConflictResponse(request: PendingActionCallbackApiRequest): PendingActionCallbackApiResponse {
+  return {
+    ok: false,
+    operation: request.operation ?? pendingActionFallbackOperation(request),
+    status: 'rejected',
+    mutationStatus: 'none',
+    errors: [{
+      code: 'PENDING_ACTION_TOKEN_REUSED_WITH_DIFFERENT_FINGERPRINT',
+      message: 'The pending action client token was reused with a different request fingerprint.',
+      field: 'requestFingerprint',
+    }],
+  };
+}
+
+function pendingActionNotFoundResponse(request: PendingActionCallbackApiRequest): PendingActionCallbackApiResponse {
+  return {
+    ok: false,
+    operation: request.operation ?? pendingActionFallbackOperation(request),
+    status: 'notFound',
+    mutationStatus: 'none',
+    errors: [{ code: 'PENDING_ACTION_NOT_FOUND', message: 'Pending action was not found.', field: 'pendingActionRef' }],
+  };
+}
+
+function pendingActionCardPayloadMismatchResponse(request: PendingActionCallbackApiRequest, draft: StoredReservationDraft): PendingActionCallbackApiResponse {
+  return {
+    ok: false,
+    operation: request.operation ?? pendingActionFallbackOperation(request),
+    status: 'rejected',
+    mutationStatus: 'none',
+    pendingAction: pendingActionReadModelFromDraft(draft),
+    errors: [{ code: 'PENDING_ACTION_CARD_PAYLOAD_MISMATCH', message: 'Card payload ref does not match the pending action.', field: 'cardPayloadRef' }],
+  };
+}
+
+function pendingActionInactiveResponse(request: PendingActionCallbackApiRequest, draft: StoredReservationDraft): PendingActionCallbackApiResponse {
+  return {
+    ok: false,
+    operation: request.operation ?? pendingActionFallbackOperation(request),
+    status: 'rejected',
+    mutationStatus: 'none',
+    pendingAction: pendingActionReadModelFromDraft(draft),
+    errors: [{ code: 'PENDING_ACTION_NOT_ACTIVE', message: 'Pending action is no longer awaiting typed-card confirmation.', field: 'status' }],
+  };
+}
+
+function pendingActionExpiredResponse(request: PendingActionCallbackApiRequest, draft: StoredReservationDraft, auditRefs: readonly ReservationDraftAuditRef[]): PendingActionCallbackApiResponse {
+  return {
+    ok: false,
+    operation: request.operation ?? pendingActionFallbackOperation(request),
+    status: 'rejected',
+    mutationStatus: 'none',
+    pendingAction: pendingActionReadModelFromDraft(draft, auditRefs),
+    errors: [{ code: 'PENDING_ACTION_EXPIRED', message: 'Pending action is expired and cannot be confirmed or cancelled.', field: 'expiresAt' }],
+  };
+}
+
+function isPendingActionCallbackResponse(response: ApiIdempotencyRecord['response']): response is PendingActionCallbackApiResponse {
+  return 'operation' in response && (
+    response.operation === pmsPendingActionStatusOperation ||
+    response.operation === pmsPendingActionConfirmOperation ||
+    response.operation === pmsPendingActionCancelOperation
+  );
+}
+
+function pendingActionFallbackOperation(request: PendingActionCallbackApiRequest): typeof pmsPendingActionStatusOperation | typeof pmsPendingActionConfirmOperation | typeof pmsPendingActionCancelOperation {
+  return request.operation ?? ('reason' in request ? pmsPendingActionCancelOperation : pmsPendingActionStatusOperation);
+}
+
+function redactedPendingActionAuditPayload(request: PendingActionCallbackApiRequest): Record<string, unknown> {
+  return {
+    operation: request.operation ?? pendingActionFallbackOperation(request),
+    pendingActionRef: request.pendingActionRef,
+    cardPayloadRef: request.cardPayloadRef,
+    actor: { type: request.actor.type, id: stableRefHash(request.actor.id) },
+    scope: {
+      propertyId: request.scope.propertyId,
+      channel: request.scope.channel,
+      ...(request.scope.tenantIdHash ? { tenantIdHash: request.scope.tenantIdHash } : {}),
+      ...(request.scope.chatIdHash ? { chatIdHash: request.scope.chatIdHash } : {}),
+      ...(request.scope.userIdHash ? { userIdHash: request.scope.userIdHash } : {}),
+    },
+    correlationId: request.correlationId,
+    requestedAt: request.requestedAt,
+    clientTokenHash: stableRefHash(request.clientToken),
+    requestFingerprint: request.requestFingerprint,
+  };
+}
+
+function stableRefHash(value: string): string {
+  return `sha256:${createHash('sha256').update(value).digest('hex').slice(0, 16)}`;
+}
+
+function addHoursIso(timestamp: string, hours: number): string {
+  return new Date(new Date(timestamp).getTime() + hours * 60 * 60 * 1000).toISOString();
+}
+
+function reservationDraftIdFromClientToken(clientToken: string): string {
+  const digest = createHash('sha256').update(clientToken).digest('hex').slice(0, 12);
+  return `draft-${sanitizeSlug(clientToken).slice(0, 48)}-${digest}`;
+}
+
+function reservationQuoteRef(draft: StoredReservationDraft): string {
+  return reservationDraftDerivedRef('quote', `${draft.draftId}:${stableJsonStringify(draft.slots)}:${stableJsonStringify(draft.evidenceRefs)}`);
+}
+
+function reservationDraftDerivedRef(prefix: string, input: string): string {
+  const digest = createHash('sha256').update(input).digest('hex').slice(0, 12);
+  return `${prefix}-${sanitizeSlug(input).slice(0, 48)}-${digest}`;
+}
+
+function reservationDraftAuditId(draftId: string, action: string, occurredAt: string, sequence: number): string {
+  const digest = createHash('sha256').update(`${draftId}:${action}:${occurredAt}:${sequence}`).digest('hex').slice(0, 12);
+  return `audit-${sanitizeSlug(action).slice(0, 24)}-${digest}`;
+}
+
 function operationRequestFromRow(row: OperationRequestRow): OperationRequest {
   return {
     operationRequestId: row.operation_request_id,
@@ -2248,18 +3059,32 @@ function requestOperationFromRecord(record: ApiIdempotencyRecord): PmsSandboxIde
     record.response.operation === pmsHousekeepingReworkOperation ||
     record.response.operation === pmsReportMaintenanceOperation ||
     record.response.operation === pmsMaintenanceDoneOperation ||
-    record.response.operation === pmsRestoreSellableOperation
+    record.response.operation === pmsRestoreSellableOperation ||
+    record.response.operation === pmsReservationDraftCreateOperation ||
+    record.response.operation === pmsReservationDraftUpdateOperation ||
+    record.response.operation === pmsReservationQuoteOperation ||
+    record.response.operation === pmsReservationPrepareConfirmOperation ||
+    record.response.operation === pmsReservationDraftCancelOperation ||
+    record.response.operation === pmsPendingActionStatusOperation ||
+    record.response.operation === pmsPendingActionConfirmOperation ||
+    record.response.operation === pmsPendingActionCancelOperation
   )
     ? record.response.operation
     : 'unknown';
 }
 
-function requestModeFromRecord(record: ApiIdempotencyRecord): CheckInApiRequest['mode'] | CheckOutApiRequest['mode'] | 'unknown' {
-  return record.response.ok ? record.response.mode : record.response.mode === 'dryRun' || record.response.mode === 'confirm' ? record.response.mode : 'unknown';
+function requestModeFromRecord(record: ApiIdempotencyRecord): PmsSandboxIdempotencyReadback['mode'] {
+  if (record.response.ok && 'mode' in record.response) return record.response.mode;
+  if (record.response.ok && record.response.mutationStatus === 'draftOnly') return 'draft';
+  if (record.response.ok && 'pendingAction' in record.response) return 'confirm';
+  return 'mode' in record.response && (record.response.mode === 'dryRun' || record.response.mode === 'confirm') ? record.response.mode : 'unknown';
 }
 
 function requestJsonFromRecord(record: ApiIdempotencyRecord): unknown {
-  return record.response.ok ? record.response.request.fingerprintInput : { mode: record.response.mode };
+  if (record.response.ok && 'request' in record.response) return record.response.request.fingerprintInput;
+  if (record.response.ok && record.response.mutationStatus === 'draftOnly') return { operation: record.response.operation, draftId: record.response.draft.draftId };
+  if (record.response.ok && 'pendingAction' in record.response) return { operation: record.response.operation, pendingActionRef: record.response.pendingAction.pendingActionRef };
+  return 'mode' in record.response ? { mode: record.response.mode } : { operation: record.response.operation };
 }
 
 function createProjectionFreshness(
