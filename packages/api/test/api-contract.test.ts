@@ -28,6 +28,8 @@ import {
   pmsDashboardOperation,
   pmsGetRoomOperation,
   pmsHousekeepingDoneOperation,
+  pmsHousekeepingInspectionOperation,
+  pmsHousekeepingReworkOperation,
   pmsInventoryIntervalsOperation,
   pmsInventorySummaryOperation,
   pmsMaintenanceDoneOperation,
@@ -427,22 +429,44 @@ describe('API checkout contract skeleton', () => {
     expect(JSON.stringify(projection)).not.toContain('/v1/pms/');
     expect(JSON.stringify(projection)).not.toContain('bearer-token');
 
-    const r1FixedEndpointMatrix = [
-      ['pms_dashboard', 'DashboardApiRequest', 'DashboardApiResponse', '/v1/pms/dashboard'],
-      ['pms_get_room', 'GetRoomApiRequest', 'GetRoomApiResponse', '/v1/pms/room'],
-      ['pms_reservation_get', 'ReservationGetApiRequest', 'ReservationGetApiResponse', '/v1/pms/reservations/get'],
-      ['pms_today_arrivals', 'TodayReservationsApiRequest', 'TodayReservationsApiResponse', '/v1/pms/reservations/today-arrivals'],
-      ['pms_today_departures', 'TodayReservationsApiRequest', 'TodayReservationsApiResponse', '/v1/pms/reservations/today-departures'],
-      ['pms_availability_search', 'AvailabilitySearchApiRequest', 'AvailabilitySearchApiResponse', '/v1/pms/availability/search'],
-      ['pms_operation_request_create', 'OperationRequestCreateApiRequest', 'OperationRequestCreateApiResponse', '/v1/pms/operation-requests/create'],
-      ['pms_operation_request_get', 'OperationRequestGetApiRequest', 'OperationRequestGetApiResponse', '/v1/pms/operation-requests/get'],
-      ['pms_operation_request_list', 'OperationRequestListApiRequest', 'OperationRequestListApiResponse', '/v1/pms/operation-requests/list'],
-      ['pms_operation_request_update', 'OperationRequestUpdateApiRequest', 'OperationRequestUpdateApiResponse', '/v1/pms/operation-requests/update'],
+    const fixedEndpointMatrix = [
+      { name: 'pms_dashboard', request: 'DashboardApiRequest', response: 'DashboardApiResponse', path: '/v1/pms/dashboard', operation: 'pms_dashboard', class: 'read', naturalLanguageExecutable: true },
+      { name: 'pms_get_room', request: 'GetRoomApiRequest', response: 'GetRoomApiResponse', path: '/v1/pms/room', operation: 'pms_get_room', class: 'read', naturalLanguageExecutable: true },
+      { name: 'pms_reservation_get', request: 'ReservationGetApiRequest', response: 'ReservationGetApiResponse', path: '/v1/pms/reservations/get', operation: 'pms_reservation_get', class: 'read', naturalLanguageExecutable: true },
+      { name: 'pms_today_arrivals', request: 'TodayReservationsApiRequest', response: 'TodayReservationsApiResponse', path: '/v1/pms/reservations/today-arrivals', operation: 'pms_today_arrivals', class: 'read', naturalLanguageExecutable: true },
+      { name: 'pms_today_departures', request: 'TodayReservationsApiRequest', response: 'TodayReservationsApiResponse', path: '/v1/pms/reservations/today-departures', operation: 'pms_today_departures', class: 'read', naturalLanguageExecutable: true },
+      { name: 'pms_availability_search', request: 'AvailabilitySearchApiRequest', response: 'AvailabilitySearchApiResponse', path: '/v1/pms/availability/search', operation: 'pms_availability_search', class: 'read', naturalLanguageExecutable: true },
+      { name: 'pms_operation_request_create', request: 'OperationRequestCreateApiRequest', response: 'OperationRequestCreateApiResponse', path: '/v1/pms/operation-requests/create', operation: 'pms_operation_request_create', class: 'safeIntake', naturalLanguageExecutable: true },
+      { name: 'pms_operation_request_get', request: 'OperationRequestGetApiRequest', response: 'OperationRequestGetApiResponse', path: '/v1/pms/operation-requests/get', operation: 'pms_operation_request_get', class: 'read', naturalLanguageExecutable: true },
+      { name: 'pms_operation_request_list', request: 'OperationRequestListApiRequest', response: 'OperationRequestListApiResponse', path: '/v1/pms/operation-requests/list', operation: 'pms_operation_request_list', class: 'read', naturalLanguageExecutable: true },
+      { name: 'pms_operation_request_update', request: 'OperationRequestUpdateApiRequest', response: 'OperationRequestUpdateApiResponse', path: '/v1/pms/operation-requests/update', operation: 'pms_operation_request_update', class: 'safeIntake', naturalLanguageExecutable: false },
+      { name: 'pms_check_in.dryRun', request: 'CheckInDryRunApiRequest', response: 'CheckInApiResponse', path: '/v1/pms/check-in', operation: pmsCheckInOperation, class: 'dryRun', naturalLanguageExecutable: true, mode: 'dryRun' },
+      { name: 'pms_check_out.dryRun', request: 'CheckOutDryRunApiRequest', response: 'CheckOutApiResponse', path: '/v1/pms/check-out', operation: pmsCheckOutOperation, class: 'dryRun', naturalLanguageExecutable: true, mode: 'dryRun' },
+      { name: 'pms_housekeeping_done.dryRun', request: 'HousekeepingDoneDryRunApiRequest', response: 'HousekeepingDoneApiResponse', path: '/v1/pms/housekeeping/done', operation: pmsHousekeepingDoneOperation, class: 'dryRun', naturalLanguageExecutable: true, mode: 'dryRun' },
+      { name: 'pms_housekeeping_inspection.dryRun', request: 'HousekeepingInspectionDryRunApiRequest', response: 'HousekeepingInspectionApiResponse', path: '/v1/pms/housekeeping/inspection', operation: pmsHousekeepingInspectionOperation, class: 'dryRun', naturalLanguageExecutable: true, mode: 'dryRun' },
+      { name: 'pms_housekeeping_rework.dryRun', request: 'HousekeepingReworkDryRunApiRequest', response: 'HousekeepingReworkApiResponse', path: '/v1/pms/housekeeping/rework', operation: pmsHousekeepingReworkOperation, class: 'dryRun', naturalLanguageExecutable: true, mode: 'dryRun' },
+      { name: 'pms_report_maintenance.dryRun', request: 'ReportMaintenanceDryRunApiRequest', response: 'ReportMaintenanceApiResponse', path: '/v1/pms/maintenance/report', operation: pmsReportMaintenanceOperation, class: 'dryRun', naturalLanguageExecutable: true, mode: 'dryRun' },
+      { name: 'pms_maintenance_done.dryRun', request: 'MaintenanceDoneDryRunApiRequest', response: 'MaintenanceDoneApiResponse', path: '/v1/pms/maintenance/done', operation: pmsMaintenanceDoneOperation, class: 'dryRun', naturalLanguageExecutable: true, mode: 'dryRun' },
+      { name: 'pms_restore_sellable.dryRun', request: 'RestoreSellableDryRunApiRequest', response: 'RestoreSellableApiResponse', path: '/v1/pms/maintenance/restore-sellable', operation: pmsRestoreSellableOperation, class: 'dryRun', naturalLanguageExecutable: true, mode: 'dryRun' },
+      { name: 'pms.reservation.draft.create', request: 'ReservationDraftCreateApiRequest', response: 'ReservationDraftWorkflowApiResponse', path: '/v1/pms/reservation-drafts/create', operation: pmsReservationDraftCreateOperation, class: 'draft', naturalLanguageExecutable: true },
+      { name: 'pms.reservation.draft.update', request: 'ReservationDraftUpdateApiRequest', response: 'ReservationDraftWorkflowApiResponse', path: '/v1/pms/reservation-drafts/update', operation: pmsReservationDraftUpdateOperation, class: 'draft', naturalLanguageExecutable: true },
+      { name: 'pms.reservation.quote', request: 'ReservationQuoteApiRequest', response: 'ReservationDraftWorkflowApiResponse', path: '/v1/pms/reservation-drafts/quote', operation: pmsReservationQuoteOperation, class: 'draft', naturalLanguageExecutable: true },
+      { name: 'pms.reservation.prepare_confirm', request: 'ReservationPrepareConfirmApiRequest', response: 'ReservationDraftWorkflowApiResponse', path: '/v1/pms/reservation-drafts/prepare-confirm', operation: pmsReservationPrepareConfirmOperation, class: 'prepareConfirm', naturalLanguageExecutable: true },
+      { name: 'pms.reservation.draft.cancel', request: 'ReservationDraftCancelApiRequest', response: 'ReservationDraftWorkflowApiResponse', path: '/v1/pms/reservation-drafts/cancel', operation: pmsReservationDraftCancelOperation, class: 'draft', naturalLanguageExecutable: true },
+      { name: 'pms.pending_action.status', request: 'PendingActionStatusApiRequest', response: 'PendingActionCallbackApiResponse', path: '/v1/pms/pending-actions/status', operation: pmsPendingActionStatusOperation, class: 'internal', naturalLanguageExecutable: false },
+      { name: 'pms.pending_action.confirm', request: 'PendingActionConfirmApiRequest', response: 'PendingActionCallbackApiResponse', path: '/v1/pms/pending-actions/confirm', operation: pmsPendingActionConfirmOperation, class: 'internal', naturalLanguageExecutable: false },
+      { name: 'pms.pending_action.cancel', request: 'PendingActionCancelApiRequest', response: 'PendingActionCallbackApiResponse', path: '/v1/pms/pending-actions/cancel', operation: pmsPendingActionCancelOperation, class: 'internal', naturalLanguageExecutable: false },
     ] as const;
-    for (const [name, request, response, path] of r1FixedEndpointMatrix) {
-      const capability = byName.get(name);
-      expect(capability).toMatchObject({ schemaRefs: { request, response }, endpoint: { method: 'POST', path, operation: name, auth: 'bearer-token' } });
-      expect(path).not.toMatch(/[:{}*]/);
+    for (const item of fixedEndpointMatrix) {
+      const capability = byName.get(item.name);
+      expect(capability).toMatchObject({
+        class: item.class,
+        naturalLanguageExecutable: item.naturalLanguageExecutable,
+        schemaRefs: { request: item.request, response: item.response },
+        endpoint: { method: 'POST', path: item.path, operation: item.operation, auth: 'bearer-token' },
+      });
+      if ('mode' in item) expect(capability).toMatchObject({ endpoint: { mode: item.mode }, audit: { emitsDomainEvents: false, eventTypes: [] } });
+      expect(item.path).not.toMatch(/[:{}*]/);
     }
   });
 

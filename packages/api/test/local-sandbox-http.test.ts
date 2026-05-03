@@ -7,6 +7,8 @@ import {
   pmsCapabilityManifestOperation,
   pmsCheckInOperation,
   pmsCheckOutOperation,
+  pmsHousekeepingDoneOperation,
+  pmsReportMaintenanceOperation,
   pmsPendingActionCancelOperation,
   pmsPendingActionConfirmOperation,
   pmsPendingActionStatusOperation,
@@ -16,8 +18,10 @@ import {
   pmsReservationPrepareConfirmOperation,
   pmsReservationQuoteOperation,
   type CheckInConfirmApiRequest,
+  type CheckInDryRunApiRequest,
   type CheckOutConfirmApiRequest,
   type CheckOutDryRunApiRequest,
+  type PmsExtendedCommandApiRequest,
 } from '../src/index.js';
 import {
   pmsLocalAuthTokenEnvName,
@@ -52,6 +56,13 @@ const vacantCleanRoom: RoomAggregate = {
   occupancyStatus: 'vacant',
   cleaningStatus: 'clean',
   saleStatus: 'sellable',
+};
+const vacantDirtyRoom: RoomAggregate = {
+  ...vacantCleanRoom,
+  roomId: 'room-A3',
+  roomNumber: 'A3',
+  sortKey: 'A3',
+  cleaningStatus: 'dirty',
 };
 
 const dryRunRequest: CheckOutDryRunApiRequest = {
@@ -243,6 +254,72 @@ describe('PMS local durable checkout sandbox HTTP boundary', () => {
       requestFingerprint: 'sha256:live-sandbox-confirm-room-1001',
       ok: true,
     });
+  });
+
+  it('serves check-in, housekeeping, and maintenance dry-run previews through fixed HTTP routes without mutating PMS state', async () => {
+    const { url } = await startServer(undefined, true, [dueOutRoom, vacantCleanRoom, vacantDirtyRoom]);
+    const actor = { type: 'human', id: 'frontdesk-1', displayName: 'Front Desk' } as const;
+
+    const before = await authedGet(`${url}/v1/sandbox/readback`);
+    const checkInDryRun: CheckInDryRunApiRequest = {
+      operation: pmsCheckInOperation,
+      mode: 'dryRun',
+      roomId: 'room-A2',
+      actor,
+      source: 'api',
+      reason: 'Preview check-in only; do not confirm from natural language.',
+      idempotencyKey: 'http-r2-checkin-dry-run',
+      correlationId: 'corr-http-r2-checkin-dry-run',
+      requestedAt: '2026-05-02T00:10:00.000Z',
+      requestFingerprint: 'sha256:http-r2-checkin-dry-run',
+    };
+    const housekeepingDryRun: PmsExtendedCommandApiRequest = {
+      operation: pmsHousekeepingDoneOperation,
+      mode: 'dryRun',
+      roomId: 'room-A3',
+      actor,
+      source: 'api',
+      reason: 'Preview housekeeping completion only.',
+      idempotencyKey: 'http-r2-housekeeping-dry-run',
+      correlationId: 'corr-http-r2-housekeeping-dry-run',
+      requestedAt: '2026-05-02T00:11:00.000Z',
+      requestFingerprint: 'sha256:http-r2-housekeeping-dry-run',
+      inspectionRequired: true,
+    };
+    const maintenanceDryRun: PmsExtendedCommandApiRequest = {
+      operation: pmsReportMaintenanceOperation,
+      mode: 'dryRun',
+      roomId: 'room-A2',
+      actor,
+      source: 'api',
+      reason: 'Preview maintenance report only.',
+      idempotencyKey: 'http-r2-maintenance-dry-run',
+      correlationId: 'corr-http-r2-maintenance-dry-run',
+      requestedAt: '2026-05-02T00:12:00.000Z',
+      requestFingerprint: 'sha256:http-r2-maintenance-dry-run',
+      severity: 'StopSell',
+      stopSellRequested: true,
+      note: '空调故障预览，不执行确认',
+    };
+
+    const checkIn = await authedPost(`${url}/v1/pms/check-in`, checkInDryRun);
+    const housekeeping = await authedPost(`${url}/v1/pms/housekeeping/done`, housekeepingDryRun);
+    const maintenance = await authedPost(`${url}/v1/pms/maintenance/report`, maintenanceDryRun);
+    const after = await authedGet(`${url}/v1/sandbox/readback`);
+
+    expect(checkIn).toMatchObject({ ok: true, operation: 'pms_check_in', mode: 'dryRun', plan: { nextStatus: { occupancy: 'occupied' } } });
+    expect(housekeeping).toMatchObject({ ok: true, operation: 'pms_housekeeping_done', mode: 'dryRun', plan: { nextStatus: { cleaning: 'inspection' }, housekeepingTask: { status: 'inspection' } } });
+    expect(maintenance).toMatchObject({ ok: true, operation: 'pms_report_maintenance', mode: 'dryRun', plan: { nextStatus: { sale: 'outOfOrder' }, maintenanceTicket: { status: 'open', stopSellRequested: true } } });
+    expect(after.rooms).toEqual(before.rooms);
+    expect(after.housekeepingTasks).toEqual([]);
+    expect(after.maintenanceTickets).toEqual([]);
+    expect(after.audits).toEqual([]);
+    expect(after.domainEvents).toEqual([]);
+    expect(after.idempotencyRecords).toEqual(expect.arrayContaining([
+      expect.objectContaining({ operation: 'pms_check_in', mode: 'dryRun', idempotencyKey: 'http-r2-checkin-dry-run', ok: true }),
+      expect.objectContaining({ operation: 'pms_housekeeping_done', mode: 'dryRun', idempotencyKey: 'http-r2-housekeeping-dry-run', ok: true }),
+      expect.objectContaining({ operation: 'pms_report_maintenance', mode: 'dryRun', idempotencyKey: 'http-r2-maintenance-dry-run', ok: true }),
+    ]));
   });
 
   it('records projection-safe stays through HTTP check-in and checkout commands', async () => {
