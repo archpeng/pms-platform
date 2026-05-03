@@ -3115,8 +3115,8 @@ function reservationQuoteRef(draft: StoredReservationDraft): string {
 }
 
 function reservationDraftDerivedRef(prefix: string, input: string): string {
-  const digest = createHash('sha256').update(input).digest('hex').slice(0, 12);
-  return `${prefix}-${sanitizeSlug(input).slice(0, 48)}-${digest}`;
+  const digest = createHash('sha256').update(input).digest('hex').slice(0, 16);
+  return `${prefix}-${digest}`;
 }
 
 function reservationDraftAuditId(draftId: string, action: string, occurredAt: string, sequence: number): string {

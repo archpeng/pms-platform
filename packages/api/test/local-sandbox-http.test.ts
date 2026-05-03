@@ -543,6 +543,7 @@ describe('PMS local durable checkout sandbox HTTP boundary', () => {
     expect(duplicate).toEqual(create);
     expect(mismatch).toMatchObject({ ok: false, status: 'rejected', errors: [{ code: 'RESERVATION_DRAFT_TOKEN_REUSED_WITH_DIFFERENT_FINGERPRINT' }] });
     expect(update).toMatchObject({ ok: true, operation: 'pms.reservation.draft.update', draft: { draftRef, slots: { roomId: 'room-1001' } } });
+    for (const response of [create, update, quote, prepareConfirm, cancel]) expect(response.draft.draftId).toBeUndefined();
     expect(quote).toMatchObject({
       ok: true,
       operation: 'pms.reservation.quote',
@@ -609,6 +610,9 @@ describe('PMS local durable checkout sandbox HTTP boundary', () => {
     });
     const pendingActionRef = prepare.draft.pendingAction.pendingActionRef;
     const cardPayloadRef = prepare.draft.pendingAction.cardPayloadRef;
+    expect(quote.draft.quote.quoteRef).toMatch(/^quote-[a-f0-9]{16}$/);
+    expect(pendingActionRef).toMatch(/^pending-action-[a-f0-9]{16}$/);
+    expect(cardPayloadRef).toMatch(/^card-payload-[a-f0-9]{16}$/);
 
     const status = await authedPost(`${url}/v1/pms/pending-actions/status`, {
       operation: pmsPendingActionStatusOperation,

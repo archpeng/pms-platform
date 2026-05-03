@@ -873,6 +873,7 @@ describe('SQLite local sandbox store', () => {
     expect(replayed).toEqual(created);
     expect(mismatch).toMatchObject({ ok: false, status: 'rejected', errors: [{ code: 'RESERVATION_DRAFT_TOKEN_REUSED_WITH_DIFFERENT_FINGERPRINT' }] });
     expect(updated).toMatchObject({ ok: true, operation: 'pms.reservation.draft.update', draft: { draftRef, slots: { roomId: 'room-1001' } } });
+    for (const response of [created, updated, cancelled]) if (response.ok) expect(response.draft.draftId).toBeUndefined();
     expect(cancelled).toMatchObject({ ok: true, operation: 'pms.reservation.draft.cancel', draft: { draftRef, status: 'cancelled' } });
 
     const expired = store.createReservationDraft({
@@ -946,6 +947,11 @@ describe('SQLite local sandbox store', () => {
     const prepared = store.prepareConfirmReservationDraft(prepareRequest);
     const replayedPrepare = store.prepareConfirmReservationDraft(prepareRequest);
     const prepareMismatch = store.prepareConfirmReservationDraft({ ...prepareRequest, requestFingerprint: 'sha256:draft-sqlite-prepare-1-different' });
+    if (prepared.ok) {
+      expect(quoteRef).toMatch(/^quote-[a-f0-9]{16}$/);
+      expect(prepared.draft.pendingAction?.pendingActionRef).toMatch(/^pending-action-[a-f0-9]{16}$/);
+      expect(prepared.draft.pendingAction?.cardPayloadRef).toMatch(/^card-payload-[a-f0-9]{16}$/);
+    }
 
     const missingSlots = store.createReservationDraft({
       ...baseCreate,
@@ -1006,6 +1012,7 @@ describe('SQLite local sandbox store', () => {
       idempotencyStatus: 'prepared',
       draft: { draftRef, status: 'awaitingConfirmation', quote: { quoteRef }, pendingAction: { quoteRef, confirmationMode: 'typedCardOnly', mutationStatus: 'none' } }
     });
+    for (const response of [created, quoted, prepared]) if (response.ok) expect(response.draft.draftId).toBeUndefined();
     expect(replayedPrepare).toEqual(prepared);
     expect(prepareMismatch).toMatchObject({ ok: false, status: 'rejected', errors: [{ code: 'RESERVATION_DRAFT_TOKEN_REUSED_WITH_DIFFERENT_FINGERPRINT' }] });
     expect(missingSlotsQuote).toMatchObject({ ok: false, status: 'rejected', errors: [{ code: 'RESERVATION_DRAFT_MISSING_REQUIRED_SLOTS' }] });
