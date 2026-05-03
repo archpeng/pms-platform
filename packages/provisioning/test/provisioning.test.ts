@@ -498,7 +498,7 @@ describe('PMS Base provisioning contract and generator', () => {
     const spec = createSmallHotelPmsBaseProvisioningSpec(smallHotelProfileFixture);
     const plan = buildLarkCliProvisioningPlan(spec, {
       mode: 'apply',
-      profile: 'ai-pms-new-bot',
+      profile: 'pms-platform-bot',
       identity: 'bot',
       baseTokenEnv: 'PMS_BASE_PROVISIONING_BASE_TOKEN',
       includeBaseCreate: false,
@@ -513,7 +513,7 @@ describe('PMS Base provisioning contract and generator', () => {
     })).toBe(true);
     expect(plan.operations.every((operation) => {
       const profileIndex = operation.command.indexOf('--profile');
-      return profileIndex > -1 && operation.command[profileIndex + 1] === 'ai-pms-new-bot';
+      return profileIndex > -1 && operation.command[profileIndex + 1] === 'pms-platform-bot';
     })).toBe(true);
   });
 

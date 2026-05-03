@@ -32,7 +32,7 @@ export const supportedOperationRequestActions = [
 ] as const satisfies readonly PmsCommandType[];
 
 export type OperationRequestAction = typeof supportedOperationRequestActions[number];
-export type OperationRequestSource = 'external_form' | 'ai_pms' | 'api' | 'test';
+export type OperationRequestSource = 'external_form' | 'conversation' | 'api' | 'test';
 export type OperationRequestStatus =
   | 'queued'
   | 'dryRunRequested'
@@ -45,7 +45,7 @@ export type OperationRequestStatus =
   | 'duplicateIgnored'
   | 'rejected';
 
-export const operationRequestSources: readonly OperationRequestSource[] = ['external_form', 'ai_pms', 'api', 'test'];
+export const operationRequestSources: readonly OperationRequestSource[] = ['external_form', 'conversation', 'api', 'test'];
 export const operationRequestStatuses: readonly OperationRequestStatus[] = [
   'queued',
   'dryRunRequested',

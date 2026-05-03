@@ -10,7 +10,7 @@ This note records the PMS-owned MCP/tool boundary for Hermes. S2 now also provid
 
 ```text
 Hermes -> pms_check_out MCP tool -> PMS API local handler -> PMS Core checkOut -> PMS result
-Hermes/ai-pms -> PMS local HTTP /v1/pms/check-out -> PMS API local handler -> PMS Core checkOut -> PMS result
+PMS client -> PMS local HTTP /v1/pms/check-out -> PMS API local handler -> PMS Core checkOut -> PMS result
 ```
 
 ## Required request fields

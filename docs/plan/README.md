@@ -1,4 +1,4 @@
-# PMS Platform Plan Control Plane
+# Repo Plan Control Plane
 
 ## Active Pack
 
@@ -10,28 +10,27 @@
 
 ## Intended Handoff
 
-- `plan-creator` for any future pack
+- `plan-creator`
 
 ## Live control-plane state
 
 - active_step: `none`
 - status: `no_active_pack`
 - active_pack: `none`
-- latest_superseded_pack: `pms-r3-api-mcp-hermes-feishu-v1`
-- latest_closeout: `docs/plan/pms-r3-api-mcp-hermes-feishu-v1_CLOSEOUT.md`
-- latest_upstream_closed_pack: `adapter-feishu/docs/archive/plan/ai-pms-core-bootstrap-v1-2026-04-26_CLOSEOUT.md`
-- latest_completed_step: `S4`
-- superseded_step: `S5`
+- latest_platform_cutover: `2026-05-03 platform-only PMS/Feishu path`
 
-## Latest supersession summary
+## Current truth
 
-`pms-r3-api-mcp-hermes-feishu-v1` is superseded as an active lane. S0-S4 remain valid historical PMS API/MCP/Hermes-shaped local smoke evidence, but S5-S9 are not active backlog because the current customer-facing PMS/Feishu path is `adapter-feishu -> ai-conversation -> ai-pms -> pms-platform`, not Hermes as hot-path conversation owner.
+The active customer-facing PMS/Feishu path is:
+
+```text
+adapter-feishu -> ai-conversation -> pms-platform
+```
+
+`pms-platform` owns PMS domain truth, read models, typed workflow APIs, pending-action callbacks, audits, idempotency, and projection-truth semantics. Hermes-era and pre-cutover execution packs are historical only and are not active backlog.
 
 ## Notes
 
-- `docs/plan/*` remains the single-root machine-compatible control plane for this repo.
-- There is currently no active parser-compatible pack in `docs/plan/*`.
-- The adapter-hosted `ai-pms-core-bootstrap-v1` pack is closed and archived under `adapter-feishu/docs/archive/plan/`.
-- Keep PMS business truth in `packages/core`; API/MCP/service layers must call the core rather than reimplementing checkout rules.
-- Current customer-facing PMS/Feishu hot path is owned by `adapter-feishu`, `ai-conversation`, `ai-pms`, and `pms-platform`; Hermes is historical/internal-operator only unless a future explicit architecture decision reopens it.
-- Broader production residuals remain successor work under the `ai-pms` production-readiness control plane, not this superseded Hermes lane.
+- keep `docs/plan/README.md` as the small live control-plane entry
+- there is currently no active parser-compatible pack in `docs/plan/*`
+- PMS-owned implementation files live under this repo; keep `adapter-feishu/src/**` free of PMS domain logic

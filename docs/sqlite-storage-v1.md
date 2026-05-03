@@ -36,7 +36,7 @@ Forbidden:
 
 1. `packages/core` importing `node:sqlite`, SQLite packages, `node:fs`, `node:path`, or HTTP server modules.
 2. `packages/contracts` importing storage, filesystem, or HTTP modules.
-3. `ai-pms` or `adapter-feishu` writing the SQLite database directly.
+3. `ai-conversation` or `adapter-feishu` writing the SQLite database directly.
 4. Feishu Base direct edits becoming PMS mutation input.
 
 ## Transaction Rule

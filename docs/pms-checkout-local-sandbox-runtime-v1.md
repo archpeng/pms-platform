@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This document records the PMS-owned S2 live boundary for the ai-pms product checkout live sandbox. The boundary exposes `pms_check_out(mode=dryRun|confirm)` over a local HTTP server while keeping PMS Core as the canonical owner of checkout state, idempotency, request-fingerprint compatibility, rooms, housekeeping tasks, audits, and domain events.
+This document records the PMS-owned local checkout sandbox boundary. The boundary exposes `pms_check_out(mode=dryRun|confirm)` over a local HTTP server while keeping PMS Core as the canonical owner of checkout state, idempotency, request-fingerprint compatibility, rooms, housekeeping tasks, audits, and domain events.
 
 This is a PMS transport/state surface only. It does not implement Feishu cards, Hermes conversation logic, adapter callbacks, or any credential storage.
 
@@ -152,4 +152,4 @@ The local sandbox test proves:
 
 - PMS Core/contracts stay free of Feishu, Hermes, and adapter imports.
 - The HTTP server calls `executeCheckOutApiRequest`, which calls PMS Core through the existing API/Core boundary.
-- Feishu card rendering, callback pending actions, callback forwarding, and Hermes summaries remain later ai-pms/adapter-feishu slices.
+- Feishu card rendering and callback forwarding belong to `adapter-feishu`; conversation routing belongs to `ai-conversation`.

@@ -18,7 +18,7 @@ This package is PMS-owned. `adapter-feishu` may consume generated registry bindi
 | --- | --- | --- |
 | `pms-platform` | PMS semantic schema, Chinese table/view/form/field display names, field kinds, status options, seed-room profile, provisioning validation, adapter registry template | Real Feishu app/base/table/form IDs, Feishu SDK runtime, customer chat ingress |
 | `adapter-feishu` | Feishu/Lark API seams, `ADAPTER_FEISHU_PMS_BASE_REGISTRY_PATH`, target shielding, schema-drift checks, bounded `pms_base_*` wrappers | PMS business schema, PMS state machine, canonical PMS storage |
-| `ai-pms` | Product orchestration, typed-confirm policy, proof and redacted evidence | Base schema definition, raw Base targets |
+| `ai-conversation` | Product conversation and safe tool routing | Base schema definition, raw Base targets |
 | Feishu Base | Human-facing dashboard/collaboration projection | Canonical PMS database |
 
 ## Chinese table definition
@@ -55,7 +55,7 @@ Hidden canonical ID fields:
 | `入住记录` | `后端ID` | PMS stay ID from backend stay lifecycle truth. |
 | `操作日志` | `后端ID` | PMS audit/log ID. |
 | `库存日历` | `后端ID` | PMS inventory interval projection ID. |
-| `投影状态` | `后端ID` | Projection delivery/freshness business key owned by `ai-pms` projection metadata. |
+| `投影状态` | `后端ID` | Projection delivery/freshness business key owned by platform projection metadata. |
 
 Symbolic linked-record fields:
 
