@@ -539,7 +539,7 @@ describe('API checkout contract skeleton', () => {
           roomTypeId: 'room-type-garden-villa',
           roomType: '花园别墅',
           availabilityStatus: 'available',
-          sourceRefs: [],
+          sourceRefs: [{ sourceType: 'room_status', sourceId: 'room-garden-1', label: 'sellable room' }],
           updatedAt: '2026-05-02T00:00:00.000Z',
         },
         {
@@ -551,6 +551,17 @@ describe('API checkout contract skeleton', () => {
           roomType: '花园套房',
           availabilityStatus: 'reserved',
           sourceRefs: [{ sourceType: 'reservation', sourceId: 'reservation-1', label: 'R-1' }],
+          updatedAt: '2026-05-02T00:00:00.000Z',
+        },
+        {
+          businessDate: '2026-05-04',
+          propertyId: 'property-small-hotel',
+          roomId: 'room-cave-1',
+          roomNumber: 'C1',
+          roomTypeId: 'room-type-cave',
+          roomType: '秘境洞穴',
+          availabilityStatus: 'available',
+          sourceRefs: [{ sourceType: 'room_status', sourceId: 'room-cave-1', label: 'sellable room' }],
           updatedAt: '2026-05-02T00:00:00.000Z',
         },
       ],
@@ -587,13 +598,31 @@ describe('API checkout contract skeleton', () => {
       capacity: 3,
       requestedAt: '2026-05-02T00:00:00.000Z',
     }, inventory);
+    const unsupportedRoomType = executeAvailabilitySearchApiRequest({
+      operation: pmsAvailabilitySearchOperation,
+      startDate: '2026-05-04',
+      roomTypeKeyword: '大床',
+      requestedAt: '2026-05-02T00:00:00.000Z',
+    }, inventory);
+    const caveByRoomTypeId = executeAvailabilitySearchApiRequest({
+      operation: pmsAvailabilitySearchOperation,
+      startDate: '2026-05-04',
+      roomTypeId: 'room-type-cave',
+      requestedAt: '2026-05-02T00:00:00.000Z',
+    }, inventory);
 
     expect(response).toMatchObject({
       ok: true,
       operation: 'pms_availability_search',
       readModel: {
         request: { startDate: '2026-05-04', endDate: '2026-05-05', roomTypeKeyword: '花园', unsupportedFilters: [] },
-        candidates: [{ roomId: 'room-garden-1', roomType: '花园别墅', availableDates: ['2026-05-04'] }],
+        candidates: [{
+          roomId: 'room-garden-1',
+          roomTypeId: 'room-type-garden-villa',
+          roomType: '花园别墅',
+          availableDates: ['2026-05-04'],
+          sourceRefs: [{ sourceType: 'room_status', sourceId: 'room-garden-1', label: 'sellable room' }],
+        }],
         candidateCount: 1,
         truncated: false,
       },
@@ -602,6 +631,17 @@ describe('API checkout contract skeleton', () => {
       request: { unsupportedFilters: ['capacity'] },
       candidates: [],
       candidateCount: 0,
+    });
+    expect(unsupportedRoomType.readModel).toMatchObject({
+      request: { roomTypeKeyword: '大床', unsupportedFilters: [] },
+      candidates: [],
+      candidateCount: 0,
+    });
+    expect(JSON.stringify(unsupportedRoomType)).not.toContain('大床房');
+    expect(caveByRoomTypeId.readModel).toMatchObject({
+      request: { roomTypeId: 'room-type-cave', unsupportedFilters: [] },
+      candidates: [{ roomId: 'room-cave-1', roomTypeId: 'room-type-cave', roomType: '秘境洞穴' }],
+      candidateCount: 1,
     });
   });
 
