@@ -326,14 +326,14 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
       const entries = this.deriveCurrentProjectionOutbox(generatedAt);
       this.ensureProjectionDispatchLedger(entries, generatedAt);
 
-      const dueEntryIds = this.listDueProjectionDispatchLedgerEntryIds(dueAt, limit);
-      const entriesById = new Map(entries.map((entry) => [entry.outboxEntryId, entry]));
       const items: ProjectionDispatchWorkItem[] = [];
-      for (const outboxEntryId of dueEntryIds) {
-        const entry = entriesById.get(outboxEntryId);
-        const ledger = this.getProjectionDispatchLedgerEntry(outboxEntryId);
+      for (const entry of entries) {
+        const ledger = this.getProjectionDispatchLedgerEntry(entry.outboxEntryId);
         if (!entry || !ledger) continue;
+        if (ledger.status !== 'pending' && ledger.status !== 'retryable') continue;
+        if (ledger.nextAttemptAt && ledger.nextAttemptAt > dueAt) continue;
         items.push(this.buildProjectionDispatchWorkItem(entry, ledger));
+        if (items.length >= limit) break;
       }
       return cloneValue(items);
     });
@@ -2810,22 +2810,6 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
         now,
       );
     }
-  }
-
-  private listDueProjectionDispatchLedgerEntryIds(now: string, limit: number): string[] {
-    const rows = this.db
-      .prepare(
-        `
-          SELECT outbox_entry_id
-          FROM projection_dispatch_ledger
-          WHERE status IN ('pending', 'retryable')
-            AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
-          ORDER BY COALESCE(next_attempt_at, created_at), created_at, outbox_entry_id
-          LIMIT ?
-        `,
-      )
-      .all(now, limit) as Array<{ outbox_entry_id: string }>;
-    return rows.map((row) => row.outbox_entry_id);
   }
 
   private getProjectionDispatchLedgerEntry(outboxEntryId: string): ProjectionDispatchLedgerEntry | undefined {

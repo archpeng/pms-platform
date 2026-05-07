@@ -53,6 +53,16 @@ describe('projection dispatcher', () => {
     });
 
     expect(summary).toMatchObject({ failed: 0, retryable: 0 });
+    const workflowBodies = bodies.filter((body) =>
+      JSON.stringify(body).includes('reservationGroup workflow')
+    ) as Array<{ fields: Record<string, unknown> }>;
+    expect(workflowBodies.map((body) => body.fields.status)).toEqual([
+      '处理中',
+      '处理中',
+      '处理中',
+      '待确认',
+      '已完成',
+    ]);
     const confirmedBody = bodies.find((body) =>
       JSON.stringify(body).includes('pendingActionConfirmed')
     ) as { operation: string; clientToken: string; fields: Record<string, unknown> } | undefined;
