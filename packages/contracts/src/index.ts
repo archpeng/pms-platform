@@ -20,6 +20,10 @@ export type PmsCommandType =
   | 'MAINTENANCE_DONE'
   | 'RESTORE_SELLABLE';
 
+export type ReservationWorkflowOperationRequestAction =
+  | 'RESERVATION_WORKFLOW'
+  | 'RESERVATION_GROUP_WORKFLOW';
+
 export const supportedOperationRequestActions = [
   'CHECK_IN',
   'CHECK_OUT',
@@ -31,7 +35,14 @@ export const supportedOperationRequestActions = [
   'RESTORE_SELLABLE',
 ] as const satisfies readonly PmsCommandType[];
 
-export type OperationRequestAction = typeof supportedOperationRequestActions[number];
+export const supportedReservationWorkflowOperationRequestActions = [
+  'RESERVATION_WORKFLOW',
+  'RESERVATION_GROUP_WORKFLOW',
+] as const satisfies readonly ReservationWorkflowOperationRequestAction[];
+
+export type OperationRequestAction =
+  | typeof supportedOperationRequestActions[number]
+  | typeof supportedReservationWorkflowOperationRequestActions[number];
 export type OperationRequestSource = 'external_form' | 'conversation' | 'api' | 'test';
 export type OperationRequestStatus =
   | 'queued'
@@ -42,6 +53,7 @@ export type OperationRequestStatus =
   | 'failed'
   | 'needsManualReview'
   | 'expired'
+  | 'cancelled'
   | 'duplicateIgnored'
   | 'rejected';
 
@@ -55,6 +67,7 @@ export const operationRequestStatuses: readonly OperationRequestStatus[] = [
   'failed',
   'needsManualReview',
   'expired',
+  'cancelled',
   'duplicateIgnored',
   'rejected',
 ];
@@ -77,7 +90,10 @@ export interface OperationRequest {
 }
 
 export function isSupportedOperationRequestAction(value: string): value is OperationRequestAction {
-  return (supportedOperationRequestActions as readonly string[]).includes(value);
+  return (
+    (supportedOperationRequestActions as readonly string[]).includes(value) ||
+    (supportedReservationWorkflowOperationRequestActions as readonly string[]).includes(value)
+  );
 }
 
 export function isOperationRequestSource(value: string): value is OperationRequestSource {

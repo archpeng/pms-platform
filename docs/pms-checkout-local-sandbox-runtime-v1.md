@@ -31,6 +31,13 @@ The script builds TypeScript first and runs the compiled local server. It prints
 | `PMS_PLATFORM_SANDBOX_RESET_ON_START` | Set to `true` to reset to seed room on process start | Safe sandbox reset control |
 | `PMS_PLATFORM_SANDBOX_SEED_ROOM_ID` | Optional seed room id | Fake/sandbox values only |
 | `PMS_PLATFORM_SANDBOX_SEED_ROOM_NUMBER` | Optional seed room number | Fake/sandbox values only |
+| `PMS_PLATFORM_PROJECTION_DISPATCH_ENABLED` | Enables the embedded projection outbox dispatcher | Set to `true` only when adapter `/providers/pms-base` is reachable |
+| `PMS_PLATFORM_ADAPTER_PMS_BASE_URL` | Adapter base URL for projection dispatch | Required when dispatcher is enabled; health exposes only the env name |
+| `PMS_PLATFORM_ADAPTER_PMS_BASE_TOKEN` | Bearer token for adapter `/providers/pms-base` | Required when dispatcher is enabled; never logged |
+| `PMS_PLATFORM_PROJECTION_DISPATCH_INTERVAL_MS` | Dispatcher polling interval | Positive integer; defaults to `5000` |
+| `PMS_PLATFORM_PROJECTION_DISPATCH_BATCH_SIZE` | Dispatcher batch size | Positive integer; defaults to `25` |
+| `PMS_PLATFORM_PROJECTION_DISPATCH_TIMEOUT_MS` | Adapter request timeout | Positive integer; defaults to `5000` |
+| `PMS_PLATFORM_PROJECTION_DISPATCH_MAX_ATTEMPTS` | Retry ceiling before failed ledger status | Positive integer; defaults to `5` |
 
 Do not commit token values or real sensitive identifiers.
 
@@ -59,6 +66,18 @@ Expected shape:
     "envName": "PMS_PLATFORM_LOCAL_AUTH_TOKEN",
     "configured": true,
     "required": true
+  },
+  "projectionDispatcher": {
+    "enabled": true,
+    "configured": true,
+    "adapterBaseUrlEnvName": "PMS_PLATFORM_ADAPTER_PMS_BASE_URL",
+    "tokenEnvName": "PMS_PLATFORM_ADAPTER_PMS_BASE_TOKEN",
+    "intervalMs": 5000,
+    "batchSize": 25,
+    "timeoutMs": 5000,
+    "maxAttempts": 5,
+    "rawAdapterUrlLogged": false,
+    "rawTokenLogged": false
   }
 }
 ```
@@ -94,6 +113,7 @@ Protected readback endpoint for live proof. It returns:
 - housekeeping tasks;
 - audit entries;
 - domain events;
+- projection outbox entries;
 - idempotency/fingerprint records.
 
 This is the S6 evidence surface for before/after proof.
@@ -147,9 +167,20 @@ The local sandbox test proves:
 5. State and idempotency/fingerprint records survive process restart by reopening the same SQLite database.
 6. Duplicate confirm is idempotent, while reused idempotency key with incompatible fingerprint returns `IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_FINGERPRINT`.
 7. Reset safely reseeds the sandbox and clears derived state.
+8. The projection dispatcher health surface exposes only non-sensitive adapter dispatch configuration.
+
+## Projection dispatch
+
+When enabled, the local API process runs an embedded outbox dispatcher. It reads PMS-owned `projectionOutbox` entries, records delivery attempts in the SQLite `projection_dispatch_ledger`, and posts adapter-owned transport requests to:
+
+```text
+POST {PMS_PLATFORM_ADAPTER_PMS_BASE_URL}/providers/pms-base
+```
+
+`projectionKind=reservationWorkflow` maps to adapter operation `pms_base_upsert_operation_request`, so reservation and multi-room reservation group workflow state is projected into the Base table `PMS操作请求`. A confirmed group pending action writes `action=RESERVATION_GROUP_WORKFLOW`, `status=已完成`, the selected room numbers, and redacted workflow summary JSON. The dispatcher never writes Feishu/Base directly and never logs the adapter URL value, token value, `pendingActionRef`, or `cardPayloadRef`.
 
 ## Boundary proof
 
 - PMS Core/contracts stay free of Feishu, Hermes, and adapter imports.
 - The HTTP server calls `executeCheckOutApiRequest`, which calls PMS Core through the existing API/Core boundary.
-- Feishu card rendering and callback forwarding belong to `adapter-feishu`; conversation routing belongs to `ai-conversation`.
+- Feishu card rendering and callback forwarding belong to `adapter-feishu`; conversation routing belongs to `pms-agent-v2`.

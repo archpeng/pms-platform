@@ -5,6 +5,18 @@ import {
   startPmsLocalHttpServer,
   type PmsLocalSandboxStore,
 } from './localSandbox.js';
+import {
+  pmsProjectionDispatchAdapterBaseUrlEnvName,
+  pmsProjectionDispatchAdapterTokenEnvName,
+  pmsProjectionDispatchBatchSizeEnvName,
+  pmsProjectionDispatchEnabledEnvName,
+  pmsProjectionDispatchIntervalMsEnvName,
+  pmsProjectionDispatchMaxAttemptsEnvName,
+  pmsProjectionDispatchTimeoutMsEnvName,
+  startProjectionDispatcher,
+  type PmsProjectionDispatcherOptions,
+  type StartedPmsProjectionDispatcher,
+} from './projectionDispatcher.js';
 import { createSqliteLocalSandboxStore } from './sqliteSandboxStore.js';
 import type { RoomAggregate } from '@pms-platform/core';
 
@@ -26,6 +38,8 @@ export async function main(): Promise<void> {
   const authRequired = process.env[pmsLocalAuthRequiredEnvName] !== 'false';
   const resetOnStart = process.env[pmsSandboxResetOnStartEnvName] === 'true';
   const store = await createLocalSandboxStoreFromEnv(process.env);
+  const projectionDispatcherConfig = resolveProjectionDispatcherConfig(process.env, store);
+  let projectionDispatcher: StartedPmsProjectionDispatcher | undefined;
   const started = await startPmsLocalHttpServer({
     host,
     port,
@@ -34,7 +48,11 @@ export async function main(): Promise<void> {
       envName: pmsLocalAuthTokenEnvName,
       required: authRequired,
     },
+    projectionDispatcher: projectionDispatcherHealthFromConfig(projectionDispatcherConfig),
   });
+  if (projectionDispatcherConfig.enabled) {
+    projectionDispatcher = startProjectionDispatcher(projectionDispatcherConfig.options);
+  }
 
   process.stdout.write(
     `${JSON.stringify({
@@ -47,12 +65,16 @@ export async function main(): Promise<void> {
       authEnvName: pmsLocalAuthTokenEnvName,
       authRequired,
       resetOnStart,
+      projectionDispatcher: projectionDispatcherHealthFromConfig(projectionDispatcherConfig),
     })}\n`,
   );
 
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     process.once(signal, () => {
-      void started.close().finally(() => process.exit(0));
+      void Promise.resolve()
+        .then(() => projectionDispatcher?.stop())
+        .then(() => started.close())
+        .finally(() => process.exit(0));
     });
   }
 }
@@ -104,6 +126,66 @@ function roomTypeIdForRoomType(roomType: string): string {
   if (roomType === '秘境洞穴') return 'room-type-cave';
   if (roomType === '花园套房') return 'room-type-garden-suite';
   return 'room-type-unknown';
+}
+
+interface ProjectionDispatcherRuntimeConfig {
+  readonly enabled: boolean;
+  readonly options: PmsProjectionDispatcherOptions;
+}
+
+function resolveProjectionDispatcherConfig(env: LocalServerEnv, store: PmsLocalSandboxStore): ProjectionDispatcherRuntimeConfig {
+  const enabled = env[pmsProjectionDispatchEnabledEnvName] === 'true';
+  const intervalMs = positiveIntEnv(env, pmsProjectionDispatchIntervalMsEnvName, 5000);
+  const batchSize = positiveIntEnv(env, pmsProjectionDispatchBatchSizeEnvName, 25);
+  const timeoutMs = positiveIntEnv(env, pmsProjectionDispatchTimeoutMsEnvName, 5000);
+  const maxAttempts = positiveIntEnv(env, pmsProjectionDispatchMaxAttemptsEnvName, 5);
+  const adapterBaseUrl = env[pmsProjectionDispatchAdapterBaseUrlEnvName];
+  const adapterToken = env[pmsProjectionDispatchAdapterTokenEnvName];
+
+  if (enabled && !adapterBaseUrl) {
+    throw new Error(`${pmsProjectionDispatchAdapterBaseUrlEnvName} is required when ${pmsProjectionDispatchEnabledEnvName}=true`);
+  }
+  if (enabled && !adapterToken) {
+    throw new Error(`${pmsProjectionDispatchAdapterTokenEnvName} is required when ${pmsProjectionDispatchEnabledEnvName}=true`);
+  }
+
+  return {
+    enabled,
+    options: {
+      store,
+      adapterBaseUrl: adapterBaseUrl ?? 'http://127.0.0.1:8787',
+      adapterToken: adapterToken ?? '',
+      intervalMs,
+      batchSize,
+      timeoutMs,
+      maxAttempts,
+    },
+  };
+}
+
+function projectionDispatcherHealthFromConfig(config: ProjectionDispatcherRuntimeConfig) {
+  return {
+    enabled: config.enabled,
+    configured: config.enabled && Boolean(config.options.adapterBaseUrl && config.options.adapterToken),
+    adapterBaseUrlEnvName: pmsProjectionDispatchAdapterBaseUrlEnvName,
+    tokenEnvName: pmsProjectionDispatchAdapterTokenEnvName,
+    intervalMs: config.options.intervalMs,
+    batchSize: config.options.batchSize,
+    timeoutMs: config.options.timeoutMs,
+    maxAttempts: config.options.maxAttempts,
+    rawAdapterUrlLogged: false as const,
+    rawTokenLogged: false as const,
+  };
+}
+
+function positiveIntEnv(env: LocalServerEnv, envName: string, fallback: number): number {
+  const raw = env[envName];
+  if (!raw) return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error(`${envName} must be a positive integer`);
+  }
+  return parsed;
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

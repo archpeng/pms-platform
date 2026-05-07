@@ -12,6 +12,9 @@ import type {
   InventorySummaryDayType,
   MaintenanceTicket,
   OperationRequest,
+  ReservationDraftAuditRef,
+  ReservationDraftWorkflowRef,
+  ReservationGroupDraftWorkflowRef,
   ProjectionOutboxEntry,
   ReservationReadModel,
   RoomReservationContextReadModel,
@@ -222,6 +225,64 @@ export interface PmsSandboxIdempotencyReadback {
   readonly ok: boolean;
 }
 
+export type ProjectionDispatchStatus = 'pending' | 'delivered' | 'retryable' | 'failed' | 'skipped';
+
+export interface ProjectionDispatchLedgerEntry {
+  readonly outboxEntryId: string;
+  readonly status: ProjectionDispatchStatus;
+  readonly attemptCount: number;
+  readonly adapterOperation?: string;
+  readonly adapterStatusCode?: number;
+  readonly lastAttemptAt?: string;
+  readonly nextAttemptAt?: string;
+  readonly redactedError?: string;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export interface ProjectionDispatchAuditPayload {
+  readonly auditId: string;
+  readonly action: ReservationDraftAuditRef['action'];
+  readonly occurredAt: string;
+  readonly payload: unknown;
+}
+
+export interface ProjectionDispatchWorkflowDraft {
+  readonly workflowType: 'reservation' | 'reservationGroup';
+  readonly propertyId: string;
+  readonly clientToken: string;
+  readonly requestFingerprint: string;
+  readonly draft?: ReservationDraftWorkflowRef;
+  readonly groupDraft?: ReservationGroupDraftWorkflowRef;
+}
+
+export interface ProjectionDispatchWorkItem {
+  readonly entry: ProjectionOutboxEntry;
+  readonly ledger: ProjectionDispatchLedgerEntry;
+  readonly domainEvent?: DomainEvent;
+  readonly room?: RoomAggregate;
+  readonly selectedRooms?: readonly RoomAggregate[];
+  readonly housekeepingTask?: HousekeepingTask;
+  readonly maintenanceTicket?: MaintenanceTicket;
+  readonly operationRequest?: OperationRequest;
+  readonly reservationWorkflow?: ProjectionDispatchWorkflowDraft;
+  readonly audit?: ProjectionDispatchAuditPayload;
+}
+
+export interface ProjectionDispatchListOptions {
+  readonly now?: string;
+  readonly limit?: number;
+}
+
+export interface ProjectionDispatchMarkOptions {
+  readonly outboxEntryId: string;
+  readonly attemptedAt: string;
+  readonly adapterOperation?: string;
+  readonly adapterStatusCode?: number;
+  readonly redactedError?: string;
+  readonly nextAttemptAt?: string;
+}
+
 export interface PmsLocalSandboxStore extends ReservationDraftLifecycleStore, ReservationGroupDraftLifecycleStore {
   readonly ports: CorePorts;
   readonly apiIdempotency: ApiIdempotencyRepository;
@@ -240,6 +301,11 @@ export interface PmsLocalSandboxStore extends ReservationDraftLifecycleStore, Re
   getOperationRequest(request: OperationRequestGetApiRequest): OperationRequestGetApiResponse;
   listOperationRequests(request: OperationRequestListApiRequest): OperationRequestListApiResponse;
   updateOperationRequest(request: OperationRequestUpdateApiRequest): OperationRequestUpdateApiResponse;
+  listProjectionDispatchWork?(options?: ProjectionDispatchListOptions): readonly ProjectionDispatchWorkItem[];
+  markProjectionDispatchDelivered?(options: ProjectionDispatchMarkOptions): void;
+  markProjectionDispatchRetryable?(options: ProjectionDispatchMarkOptions): void;
+  markProjectionDispatchFailed?(options: ProjectionDispatchMarkOptions): void;
+  markProjectionDispatchSkipped?(options: ProjectionDispatchMarkOptions): void;
   getPendingActionStatus(request: PendingActionStatusApiRequest): PendingActionCallbackApiResponse;
   confirmPendingAction(request: PendingActionConfirmApiRequest): PendingActionCallbackApiResponse;
   cancelPendingAction(request: PendingActionCancelApiRequest): PendingActionCallbackApiResponse;
@@ -258,6 +324,7 @@ export interface PmsLocalAuthConfig {
 export interface PmsLocalHttpHandlerOptions {
   readonly store: PmsLocalSandboxStore;
   readonly auth?: PmsLocalAuthConfig;
+  readonly projectionDispatcher?: PmsProjectionDispatcherHealthConfig;
 }
 
 export interface PmsLocalHttpServerOptions extends PmsLocalHttpHandlerOptions {
@@ -269,6 +336,19 @@ export interface StartedPmsLocalHttpServer {
   readonly server: Server;
   readonly url: string;
   close(): Promise<void>;
+}
+
+export interface PmsProjectionDispatcherHealthConfig {
+  readonly enabled: boolean;
+  readonly configured: boolean;
+  readonly adapterBaseUrlEnvName: string;
+  readonly tokenEnvName: string;
+  readonly intervalMs?: number;
+  readonly batchSize?: number;
+  readonly timeoutMs?: number;
+  readonly maxAttempts?: number;
+  readonly rawAdapterUrlLogged: false;
+  readonly rawTokenLogged: false;
 }
 
 export function createPmsLocalHttpHandler(options: PmsLocalHttpHandlerOptions) {
@@ -328,6 +408,7 @@ export function createPmsLocalHttpHandler(options: PmsLocalHttpHandlerOptions) {
             configured: Boolean(auth.token),
             required: auth.required,
           },
+          ...(options.projectionDispatcher ? { projectionDispatcher: options.projectionDispatcher } : {}),
         });
         return;
       }

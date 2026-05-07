@@ -124,6 +124,11 @@ import {
   pmsSqliteDbPathEnvName,
   type PmsLocalSandboxStore,
   type PmsLocalStorageMetadata,
+  type ProjectionDispatchLedgerEntry,
+  type ProjectionDispatchListOptions,
+  type ProjectionDispatchMarkOptions,
+  type ProjectionDispatchStatus,
+  type ProjectionDispatchWorkItem,
   type PmsSandboxIdempotencyReadback,
   type PmsSandboxReadback,
 } from './localSandbox.js';
@@ -311,6 +316,43 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
 
   updateOperationRequest(request: OperationRequestUpdateApiRequest): OperationRequestUpdateApiResponse {
     return this.runInTransaction(() => this.updateOperationRequestRecord(request));
+  }
+
+  listProjectionDispatchWork(options: ProjectionDispatchListOptions = {}): readonly ProjectionDispatchWorkItem[] {
+    return this.runInTransaction(() => {
+      const generatedAt = options.now ?? this.now();
+      const dueAt = options.now ?? generatedAt;
+      const limit = Math.max(1, Math.min(options.limit ?? 25, 100));
+      const entries = this.deriveCurrentProjectionOutbox(generatedAt);
+      this.ensureProjectionDispatchLedger(entries, generatedAt);
+
+      const dueEntryIds = this.listDueProjectionDispatchLedgerEntryIds(dueAt, limit);
+      const entriesById = new Map(entries.map((entry) => [entry.outboxEntryId, entry]));
+      const items: ProjectionDispatchWorkItem[] = [];
+      for (const outboxEntryId of dueEntryIds) {
+        const entry = entriesById.get(outboxEntryId);
+        const ledger = this.getProjectionDispatchLedgerEntry(outboxEntryId);
+        if (!entry || !ledger) continue;
+        items.push(this.buildProjectionDispatchWorkItem(entry, ledger));
+      }
+      return cloneValue(items);
+    });
+  }
+
+  markProjectionDispatchDelivered(options: ProjectionDispatchMarkOptions): void {
+    this.runInTransaction(() => this.updateProjectionDispatchLedger(options, 'delivered'));
+  }
+
+  markProjectionDispatchRetryable(options: ProjectionDispatchMarkOptions): void {
+    this.runInTransaction(() => this.updateProjectionDispatchLedger(options, 'retryable'));
+  }
+
+  markProjectionDispatchFailed(options: ProjectionDispatchMarkOptions): void {
+    this.runInTransaction(() => this.updateProjectionDispatchLedger(options, 'failed'));
+  }
+
+  markProjectionDispatchSkipped(options: ProjectionDispatchMarkOptions): void {
+    this.runInTransaction(() => this.updateProjectionDispatchLedger(options, 'skipped'));
   }
 
   getPendingActionStatus(request: PendingActionStatusApiRequest): PendingActionCallbackApiResponse {
@@ -684,6 +726,19 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
         updated_at TEXT NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS projection_dispatch_ledger (
+        outbox_entry_id TEXT PRIMARY KEY,
+        status TEXT NOT NULL,
+        attempt_count INTEGER NOT NULL,
+        adapter_operation TEXT,
+        adapter_status_code INTEGER,
+        last_attempt_at TEXT,
+        next_attempt_at TEXT,
+        redacted_error TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
       CREATE INDEX IF NOT EXISTS idx_rooms_room_number ON rooms(room_number);
       CREATE INDEX IF NOT EXISTS idx_room_types_property_id ON room_types(property_id);
       CREATE INDEX IF NOT EXISTS idx_housekeeping_tasks_room_id ON housekeeping_tasks(room_id);
@@ -712,6 +767,8 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
       CREATE INDEX IF NOT EXISTS idx_operation_requests_client_token ON operation_requests(client_token);
       CREATE INDEX IF NOT EXISTS idx_operation_requests_room_id ON operation_requests(room_id);
       CREATE INDEX IF NOT EXISTS idx_operation_requests_status ON operation_requests(status);
+      CREATE INDEX IF NOT EXISTS idx_projection_dispatch_status_next_attempt
+        ON projection_dispatch_ledger(status, next_attempt_at);
       CREATE INDEX IF NOT EXISTS idx_domain_events_correlation_id ON domain_events(correlation_id);
       CREATE INDEX IF NOT EXISTS idx_domain_events_idempotency_key ON domain_events(idempotency_key);
 
@@ -772,6 +829,7 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
 
   private clearBusinessTables(): void {
     this.db.exec(`
+      DELETE FROM projection_dispatch_ledger;
       DELETE FROM api_idempotency;
       DELETE FROM core_idempotency;
       DELETE FROM operation_requests;
@@ -2716,6 +2774,180 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
       );
   }
 
+  private deriveCurrentProjectionOutbox(generatedAt: string): ProjectionOutboxEntry[] {
+    const idempotencyRecords = this.listApiIdempotencyRecords().map((record) => ({
+      operation: requestOperationFromRecord(record),
+      mode: requestModeFromRecord(record),
+      idempotencyKey: record.idempotencyKey,
+      requestFingerprint: record.requestFingerprint,
+      ok: record.response.ok,
+    }));
+    return deriveProjectionOutboxEntries({
+      domainEvents: this.listDomainEvents(),
+      reservationDraftAudits: this.listReservationDraftAudits(),
+      reservationGroupDraftAudits: this.listReservationGroupDraftAudits(),
+      operationRequests: this.listOperationRequestRecords(),
+      idempotencyRecords,
+      generatedAt,
+    });
+  }
+
+  private ensureProjectionDispatchLedger(entries: readonly ProjectionOutboxEntry[], now: string): void {
+    const statement = this.db.prepare(`
+      INSERT OR IGNORE INTO projection_dispatch_ledger (
+        outbox_entry_id, status, attempt_count, next_attempt_at, redacted_error, created_at, updated_at
+      )
+      VALUES (?, ?, 0, ?, ?, ?, ?)
+    `);
+    for (const entry of entries) {
+      const status: ProjectionDispatchStatus = entry.status === 'skipped' ? 'skipped' : entry.status === 'retryable' ? 'retryable' : 'pending';
+      statement.run(
+        entry.outboxEntryId,
+        status,
+        entry.nextAttemptAt ?? (status === 'retryable' ? entry.updatedAt : null),
+        entry.redactedError ?? null,
+        now,
+        now,
+      );
+    }
+  }
+
+  private listDueProjectionDispatchLedgerEntryIds(now: string, limit: number): string[] {
+    const rows = this.db
+      .prepare(
+        `
+          SELECT outbox_entry_id
+          FROM projection_dispatch_ledger
+          WHERE status IN ('pending', 'retryable')
+            AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
+          ORDER BY COALESCE(next_attempt_at, created_at), created_at, outbox_entry_id
+          LIMIT ?
+        `,
+      )
+      .all(now, limit) as Array<{ outbox_entry_id: string }>;
+    return rows.map((row) => row.outbox_entry_id);
+  }
+
+  private getProjectionDispatchLedgerEntry(outboxEntryId: string): ProjectionDispatchLedgerEntry | undefined {
+    const row = this.db
+      .prepare('SELECT * FROM projection_dispatch_ledger WHERE outbox_entry_id = ?')
+      .get(outboxEntryId) as ProjectionDispatchLedgerRow | undefined;
+    return row ? projectionDispatchLedgerFromRow(row) : undefined;
+  }
+
+  private updateProjectionDispatchLedger(options: ProjectionDispatchMarkOptions, status: ProjectionDispatchStatus): void {
+    this.db
+      .prepare(
+        `
+          UPDATE projection_dispatch_ledger
+          SET status = ?,
+              attempt_count = attempt_count + 1,
+              adapter_operation = ?,
+              adapter_status_code = ?,
+              last_attempt_at = ?,
+              next_attempt_at = ?,
+              redacted_error = ?,
+              updated_at = ?
+          WHERE outbox_entry_id = ?
+        `,
+      )
+      .run(
+        status,
+        options.adapterOperation ?? null,
+        options.adapterStatusCode ?? null,
+        options.attemptedAt,
+        options.nextAttemptAt ?? null,
+        options.redactedError ?? null,
+        options.attemptedAt,
+        options.outboxEntryId,
+      );
+  }
+
+  private buildProjectionDispatchWorkItem(entry: ProjectionOutboxEntry, ledger: ProjectionDispatchLedgerEntry): ProjectionDispatchWorkItem {
+    if (entry.sourceType === 'domainEvent') {
+      const event = this.listDomainEvents().find((candidate) => candidate.eventId === entry.sourceRef);
+      const roomId = event ? roomIdFromEvent(event) : undefined;
+      const room = roomId ? this.getRoom(roomId) : undefined;
+      const housekeepingTask = event && (event.type === 'HousekeepingTaskCreated' || event.type.startsWith('Housekeeping'))
+        ? this.getHousekeepingTask(housekeepingTaskIdFromEvent(event))
+        : undefined;
+      const maintenanceTicket = event && (event.type === 'MaintenanceReported' || event.type === 'MaintenanceCompleted')
+        ? this.getMaintenanceTicket(event.ticket.ticketId)
+        : undefined;
+      return {
+        entry,
+        ledger,
+        ...(event ? { domainEvent: event } : {}),
+        ...(room ? { room } : {}),
+        ...(housekeepingTask ? { housekeepingTask } : {}),
+        ...(maintenanceTicket ? { maintenanceTicket } : {}),
+      };
+    }
+
+    if (entry.sourceType === 'reservationDraftAudit') {
+      const audit = this.getReservationDraftAuditPayload(entry.sourceRef);
+      const draft = audit ? this.getReservationDraftById(audit.draft_id) : undefined;
+      const selectedRooms = draft?.slots.roomId ? [this.getRoom(draft.slots.roomId)].filter((room): room is RoomAggregate => Boolean(room)) : [];
+      return {
+        entry,
+        ledger,
+        ...(selectedRooms.length > 0 ? { selectedRooms } : {}),
+        ...(audit ? { audit: { auditId: audit.audit_id, action: audit.action, occurredAt: audit.occurred_at, payload: parseJson<unknown>(audit.payload_json) } } : {}),
+        ...(draft ? {
+          reservationWorkflow: {
+            workflowType: 'reservation',
+            propertyId: draft.propertyId,
+            clientToken: draft.clientToken,
+            requestFingerprint: draft.requestFingerprint,
+            draft: reservationDraftRefFromStored(draft, audit ? [{ auditId: audit.audit_id, action: audit.action, occurredAt: audit.occurred_at }] : [], { includeDraftId: true }),
+          },
+        } : {}),
+      };
+    }
+
+    if (entry.sourceType === 'reservationGroupDraftAudit') {
+      const audit = this.getReservationGroupDraftAuditPayload(entry.sourceRef);
+      const draft = audit ? this.getReservationGroupDraftById(audit.group_draft_id) : undefined;
+      const selectedRooms = draft?.slots.selections
+        ?.map((selection) => this.getRoom(selection.roomId))
+        .filter((room): room is RoomAggregate => Boolean(room)) ?? [];
+      return {
+        entry,
+        ledger,
+        ...(selectedRooms.length > 0 ? { selectedRooms } : {}),
+        ...(audit ? { audit: { auditId: audit.audit_id, action: audit.action, occurredAt: audit.occurred_at, payload: parseJson<unknown>(audit.payload_json) } } : {}),
+        ...(draft ? {
+          reservationWorkflow: {
+            workflowType: 'reservationGroup',
+            propertyId: draft.propertyId,
+            clientToken: draft.clientToken,
+            requestFingerprint: draft.requestFingerprint,
+            groupDraft: reservationGroupDraftRefFromStored(draft, audit ? [{ auditId: audit.audit_id, action: audit.action, occurredAt: audit.occurred_at }] : [], { includeGroupDraftId: true }),
+          },
+        } : {}),
+      };
+    }
+
+    if (entry.sourceType === 'operationRequest') {
+      const operationRequest = this.getOperationRequestById(entry.sourceRef);
+      return { entry, ledger, ...(operationRequest ? { operationRequest } : {}) };
+    }
+
+    return { entry, ledger };
+  }
+
+  private getReservationDraftAuditPayload(auditId: string): ReservationDraftAuditPayloadRow | undefined {
+    return this.db
+      .prepare('SELECT audit_id, draft_id, action, occurred_at, payload_json FROM reservation_draft_audits WHERE audit_id = ?')
+      .get(auditId) as ReservationDraftAuditPayloadRow | undefined;
+  }
+
+  private getReservationGroupDraftAuditPayload(auditId: string): ReservationGroupDraftAuditPayloadRow | undefined {
+    return this.db
+      .prepare('SELECT audit_id, group_draft_id, action, occurred_at, payload_json FROM reservation_group_draft_audits WHERE audit_id = ?')
+      .get(auditId) as ReservationGroupDraftAuditPayloadRow | undefined;
+  }
+
   private appendAudit(entry: AuditEntry): void {
     this.db
       .prepare(
@@ -2877,6 +3109,29 @@ interface ReservationDraftAuditRow {
   readonly audit_id: string;
   readonly action: ReservationDraftAuditRef['action'];
   readonly occurred_at: string;
+}
+
+interface ReservationDraftAuditPayloadRow extends ReservationDraftAuditRow {
+  readonly draft_id: string;
+  readonly payload_json: string;
+}
+
+interface ReservationGroupDraftAuditPayloadRow extends ReservationDraftAuditRow {
+  readonly group_draft_id: string;
+  readonly payload_json: string;
+}
+
+interface ProjectionDispatchLedgerRow {
+  readonly outbox_entry_id: string;
+  readonly status: ProjectionDispatchStatus;
+  readonly attempt_count: number;
+  readonly adapter_operation?: string | null;
+  readonly adapter_status_code?: number | null;
+  readonly last_attempt_at?: string | null;
+  readonly next_attempt_at?: string | null;
+  readonly redacted_error?: string | null;
+  readonly created_at: string;
+  readonly updated_at: string;
 }
 
 interface ReservationGroupDraftRow {
@@ -3865,6 +4120,21 @@ function operationRequestFromRow(row: OperationRequestRow): OperationRequest {
   };
 }
 
+function projectionDispatchLedgerFromRow(row: ProjectionDispatchLedgerRow): ProjectionDispatchLedgerEntry {
+  return {
+    outboxEntryId: row.outbox_entry_id,
+    status: row.status,
+    attemptCount: row.attempt_count,
+    ...(row.adapter_operation ? { adapterOperation: row.adapter_operation } : {}),
+    ...(row.adapter_status_code !== null && row.adapter_status_code !== undefined ? { adapterStatusCode: row.adapter_status_code } : {}),
+    ...(row.last_attempt_at ? { lastAttemptAt: row.last_attempt_at } : {}),
+    ...(row.next_attempt_at ? { nextAttemptAt: row.next_attempt_at } : {}),
+    ...(row.redacted_error ? { redactedError: row.redacted_error } : {}),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
 function stayFromRow(row: StayRow): PmsSandboxStayReadback {
   return {
     stayId: row.stay_id,
@@ -3993,6 +4263,19 @@ function roomIdFromEvent(event: DomainEvent): string | undefined {
     return event.task.roomId;
   }
   return event.roomId;
+}
+
+function housekeepingTaskIdFromEvent(event: DomainEvent): string {
+  if (event.type === 'HousekeepingTaskCreated') return event.task.taskId;
+  if (
+    (
+      event.type === 'HousekeepingCompleted' ||
+      event.type === 'HousekeepingInspectionPassed' ||
+      event.type === 'HousekeepingInspectionFailed' ||
+      event.type === 'HousekeepingReworkCompleted'
+    ) && event.task
+  ) return event.task.taskId;
+  return event.aggregateId;
 }
 
 function inventoryDayRoomForStatus(

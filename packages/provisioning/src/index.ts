@@ -1035,8 +1035,8 @@ function operationRequestsTable(profile: HotelProfile): PmsBaseTableSpec {
     fields: [
       hiddenCanonicalIdField(),
       textField('clientToken', '请求令牌'),
-      selectField('action', '操作类型', ['CHECK_IN', 'CHECK_OUT', 'HOUSEKEEPING_DONE', 'HOUSEKEEPING_INSPECTION', 'HOUSEKEEPING_REWORK', 'REPORT_MAINTENANCE', 'MAINTENANCE_DONE', 'RESTORE_SELLABLE']),
-      selectField('status', '操作状态', ['待处理', '待确认', '处理中', '已完成', '失败', '需人工复核', '已过期', '重复忽略']),
+      selectField('action', '操作类型', ['CHECK_IN', 'CHECK_OUT', 'HOUSEKEEPING_DONE', 'HOUSEKEEPING_INSPECTION', 'HOUSEKEEPING_REWORK', 'REPORT_MAINTENANCE', 'MAINTENANCE_DONE', 'RESTORE_SELLABLE', 'RESERVATION_WORKFLOW', 'RESERVATION_GROUP_WORKFLOW']),
+      selectField('status', '操作状态', ['待处理', '待确认', '处理中', '已完成', '失败', '需人工复核', '已过期', '已取消', '重复忽略']),
       textField('roomNumber', '房号'),
       textField('operator', '操作人'),
       textField('reason', '原因'),

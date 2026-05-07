@@ -535,8 +535,10 @@ describe('PMS command contracts', () => {
     expect(operationRequest.action).toBe('CHECK_OUT');
     expect(operationRequest.status).toBe('queued');
     expect(isSupportedOperationRequestAction('RESTORE_SELLABLE')).toBe(true);
+    expect(isSupportedOperationRequestAction('RESERVATION_GROUP_WORKFLOW')).toBe(true);
     expect(isSupportedOperationRequestAction('DELETE_ROOM')).toBe(false);
     expect(isOperationRequestStatus('awaitingConfirmation')).toBe(true);
+    expect(isOperationRequestStatus('cancelled')).toBe(true);
     expect(isOperationRequestStatus('mutatedFromForm')).toBe(false);
   });
 

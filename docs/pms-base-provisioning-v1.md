@@ -18,7 +18,7 @@ This package is PMS-owned. `adapter-feishu` may consume generated registry bindi
 | --- | --- | --- |
 | `pms-platform` | PMS semantic schema, Chinese table/view/form/field display names, field kinds, status options, seed-room profile, provisioning validation, adapter registry template | Real Feishu app/base/table/form IDs, Feishu SDK runtime, customer chat ingress |
 | `adapter-feishu` | Feishu/Lark API seams, `ADAPTER_FEISHU_PMS_BASE_REGISTRY_PATH`, target shielding, schema-drift checks, bounded `pms_base_*` wrappers | PMS business schema, PMS state machine, canonical PMS storage |
-| `ai-conversation` | Product conversation and safe tool routing | Base schema definition, raw Base targets |
+| `pms-agent-v2` | Product conversation and safe tool routing | Base schema definition, raw Base targets |
 | Feishu Base | Human-facing dashboard/collaboration projection | Canonical PMS database |
 
 ## Chinese table definition
@@ -38,6 +38,10 @@ This package is PMS-owned. `adapter-feishu` may consume generated registry bindi
 | `ProjectionStatus` | `投影状态` | Optional operator-visible projection freshness/failure read model. |
 
 The same spec owns Chinese field/display values such as `后端ID`, `房号`, `房型`, `入住状态`, `入住时间`, `离店时间`, `清洁状态`, `可售状态`, `请求令牌`, `操作类型`, `操作状态`, `操作人`, `原因`, `请求时间`, `请求JSON`, `结果JSON`, `关联房间`, `关联操作请求`, `投影名称`, `聚合键`, `状态`, `尝试次数`, `最近投影时间`, `错误摘要`, `投影状态`, and `版本`.
+
+`OperationRequests` includes PMS command actions plus reservation workflow projection actions `RESERVATION_WORKFLOW` and `RESERVATION_GROUP_WORKFLOW`. Its status options include `待处理`, `待确认`, `处理中`, `已完成`, `失败`, `需人工复核`, `已过期`, `已取消`, and `重复忽略`.
+
+`projectionKind=reservationWorkflow` is projected by `pms-platform` through adapter operation `pms_base_upsert_operation_request` into `PMS操作请求`, not into `预订`. The `预订` table remains a PMS reservation read-model projection, while draft/group workflow events remain operator-visible operation workflow rows until a future confirmed reservation materialization contract exists.
 
 ## D4A relationship fields
 

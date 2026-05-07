@@ -65,6 +65,12 @@ describe('PMS Base provisioning contract and generator', () => {
       createOnMissing: true,
       updateAllowedFields: ['操作状态', '结果JSON', '版本'],
     });
+    expect(operationRequests.fields.find((field) => field.logicalName === 'action')).toMatchObject({
+      options: expect.arrayContaining(['RESERVATION_WORKFLOW', 'RESERVATION_GROUP_WORKFLOW']),
+    });
+    expect(operationRequests.fields.find((field) => field.logicalName === 'status')).toMatchObject({
+      options: expect.arrayContaining(['已取消']),
+    });
 
     const roomLedger = requiredTable(spec, 'RoomLedger');
     expect(roomLedger.fields.map((field) => field.displayName)).not.toContain('Floor');

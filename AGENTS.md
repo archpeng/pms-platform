@@ -9,14 +9,14 @@ Active product chain:
 ```text
 Feishu
   -> adapter-feishu
-  -> ai-conversation
+  -> pms-agent-v2
   -> pms-platform
 ```
 
 Ownership split:
 
 - `adapter-feishu`: Feishu transport, message/card delivery, typed-card callback transport, allowlists, dedupe, and managed Base adapter seams.
-- `ai-conversation`: Pi/LLM conversation continuity, LLM semantic routing, safe tool planning, deterministic policy/PlanCompiler gate use, and grounded user replies.
+- `pms-agent-v2`: Pi/LLM conversation continuity, LLM semantic routing, safe tool planning, deterministic policy/PlanCompiler gate use, and grounded user replies.
 - `pms-platform`: PMS domain truth, command semantics, typed workflow/capability execution, persistence, state transitions, read models, audits, idempotency, and business invariants.
 
 ## Boundary law
@@ -39,7 +39,7 @@ Ownership split:
 
 ## Dependency boundary
 
-Do not add `@mariozechner/pi-agent-core`, `@mariozechner/pi-ai`, `@mariozechner/pi-coding-agent`, or Feishu SDK packages such as `@larksuiteoapi/node-sdk` to this repo. Pi/LLM conversation runtime belongs in `ai-conversation`; Feishu runtime belongs in `adapter-feishu`; active PMS workflow/truth APIs belong in `pms-platform`.
+Do not add `@mariozechner/pi-agent-core`, `@mariozechner/pi-ai`, `@mariozechner/pi-coding-agent`, or Feishu SDK packages such as `@larksuiteoapi/node-sdk` to this repo. Pi/LLM conversation runtime belongs in `pms-agent-v2`; Feishu runtime belongs in `adapter-feishu`; active PMS workflow/truth APIs belong in `pms-platform`.
 
 ## Validation
 

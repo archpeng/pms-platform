@@ -69,6 +69,18 @@ describe('PMS local server storage selection', () => {
     const started = await startPmsLocalHttpServer({
       store,
       auth: { required: false },
+      projectionDispatcher: {
+        enabled: true,
+        configured: true,
+        adapterBaseUrlEnvName: 'PMS_PLATFORM_ADAPTER_PMS_BASE_URL',
+        tokenEnvName: 'PMS_PLATFORM_ADAPTER_PMS_BASE_TOKEN',
+        intervalMs: 5000,
+        batchSize: 25,
+        timeoutMs: 5000,
+        maxAttempts: 5,
+        rawAdapterUrlLogged: false,
+        rawTokenLogged: false,
+      },
     });
     try {
       const health = await fetch(`${started.url}/health`);
@@ -80,6 +92,14 @@ describe('PMS local server storage selection', () => {
           envName: pmsSqliteDbPathEnvName,
           driver: 'node:sqlite',
           experimental: true,
+        },
+        projectionDispatcher: {
+          enabled: true,
+          configured: true,
+          adapterBaseUrlEnvName: 'PMS_PLATFORM_ADAPTER_PMS_BASE_URL',
+          tokenEnvName: 'PMS_PLATFORM_ADAPTER_PMS_BASE_TOKEN',
+          rawAdapterUrlLogged: false,
+          rawTokenLogged: false,
         },
       });
     } finally {
