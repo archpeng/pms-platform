@@ -29,6 +29,8 @@ Room-type truth is platform-owned. Availability search derives candidate room ty
 
 Reservation draft workflow APIs are platform-owned. Customer-chat callers may resume draft update, quote, and prepare-confirm with the redacted `draftRef` returned by draft create; raw `draftId` remains platform-internal for sandbox readback/debug only. `ai-conversation` must not persist PMS draft truth, raw draft IDs, raw quote refs, raw pending-action refs, raw card payload refs, guest PII, or raw platform payloads. Final reservation mutation still requires typed card callback transport; natural-language prepare-confirm only creates draft/pending-action state with `mutationStatus=none` or `draftOnly`.
 
+Pending-action `confirm` currently persists the draft or group-draft pending action as `status=confirmed` with `mutationStatus=deferred`; it does not create final reservation records, room allocations, operation requests, audits, or domain events. User-facing adapters must describe this as draft confirmation, not final booking success.
+
 ## Documentation
 
 - `packages/core/README.md` explains the core command behavior, transition matrix, errors, events, audit, and idempotency semantics.
