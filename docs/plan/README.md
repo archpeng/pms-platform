@@ -1,27 +1,18 @@
 # PMS Platform Plan Control Plane
 
-## Active Pack
-
-- `docs/plan/pms-platform-agent-typed-capabilities-v1-2026-05-07_PLAN.md`
-- `docs/plan/pms-platform-agent-typed-capabilities-v1-2026-05-07_STATUS.md`
-- `docs/plan/pms-platform-agent-typed-capabilities-v1-2026-05-07_WORKSET.md`
-
-## Current Active Slice
-
-- `PACK_COMPLETE`
-## Intended Handoff
-
-- `autopilot-closeout`
 ## Status
 
-- Active parser pack: `pms-platform-agent-typed-capabilities-v1-2026-05-07`
-- Current active slice: `PACK_COMPLETE`
-- Current active state: `READY`
-- Current master wave: `PACK_COMPLETE` closeout
-- Next runnable phase: repo-local closeout prompt surface
-- Latest completed slice: `P4`
-- Latest closed pack: `pms-r3-api-mcp-hermes-feishu-v1` archived as superseded historical evidence
+- Active parser pack: `none`
+- Current active slice: `none`
+- Current active state: `none`
+- Current master wave: `none`
+- Next runnable phase: `none`
+- Latest closed pack: `pms-platform-agent-typed-capabilities-v1-2026-05-07`
 - Cold archive root: `docs/plan-archive/`
+
+## Active Pack Files
+
+None.
 
 ## Current Truth
 
@@ -35,17 +26,16 @@ adapter-feishu -> pms-agent-v2 -> pms-platform
 
 ## Parser Scope Contract
 
-`docs/plan/` is the hot autopilot scheduling surface. Keep it small: this README plus one active PLAN/STATUS/WORKSET triplet. Historical packs remain historical and must not be treated as active backlog.
+`docs/plan/` is the hot autopilot scheduling surface. Keep it small: this README plus at most one active PLAN/STATUS/WORKSET triplet. Historical packs remain historical and must not be treated as active backlog.
 
 Read archived pack files under `docs/plan-archive/` only when the user asks for history/evidence or when a new plan explicitly cites them.
 
-## Autopilot Transition Contract
+## Latest Closeout
 
-- If active slice owner/state is `execute-plan` / `READY`, dispatch `execute` for the current active slice.
-- `execute/completed` means implementation evidence is ready for same-slice `review`; it does not advance the active slice by itself.
-- `review/completed` is the accepted-slice writeback point: mark the reviewed slice done, set the next Stage Order item as `Current Active Slice`, and set `Intended Handoff` from that next stage owner.
-- `review/continue` keeps the same active slice and dispatches another bounded `execute` cycle.
-- `needs_replan` dispatches `replan`; `blocked`/`failed` stop.
-- `done` is reserved for full objective completion or `PACK_COMPLETE` closeout.
-- `PACK_COMPLETE` with `Intended Handoff` `autopilot-closeout` is the only terminal parser state.
-- Closeout is forbidden while `Current Active Slice` is any non-`PACK_COMPLETE` stage.
+`pms-platform-agent-typed-capabilities-v1-2026-05-07` is closed and archived under:
+
+```text
+docs/plan-archive/pms-platform-agent-typed-capabilities-v1-2026-05-07/
+```
+
+Final platform-side evidence proved the typed PMS capability contract for successor `pms-agent-v2` wiring without adding Pi/LLM runtime, Feishu transport/runtime, generic customer-chat tooling, or final natural-language mutation in this repo.

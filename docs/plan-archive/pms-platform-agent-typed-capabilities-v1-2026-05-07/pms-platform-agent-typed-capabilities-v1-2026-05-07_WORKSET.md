@@ -16,7 +16,7 @@ Plan ID: `pms-platform-agent-typed-capabilities-v1-2026-05-07`
 ### `PACK_COMPLETE`
 
 - Owner: `autopilot-closeout`
-- State: `READY`
+- State: `DEFERRED`
 - Priority: `terminal`
 
 目标：
@@ -256,21 +256,16 @@ Before any stage is marked done, review must answer:
 - active_step: `PACK_COMPLETE`
 - latest_completed_step: `P4`
 - intended_handoff: `autopilot-closeout`
-- latest_closeout_summary: P4 review accepted; parser truth advanced to PACK_COMPLETE for repo-local closeout.
+- latest_closeout_summary: P4 final audit accepted; parser truth advanced to PACK_COMPLETE.
 - latest_verification:
-  - `Re-read active PLAN/STATUS/WORKSET, AGENTS.md, contract doc, manifest/projection code/tests, local route smoke, and pending-action redaction surfaces`
-  - `docs/pms-agent-v2-typed-capabilities-contract-v1.md lists only pms-agent-v2 successor wiring and keeps Pi/LLM/Feishu/generic tooling out of pms-platform`
-  - `packages/api/test/api-contract.test.ts proves planner projection includes safe typed read/draft/prepare-confirm capabilities and excludes confirm/internal/pending-action routes plus endpoint/auth metadata`
-  - `packages/api/test/local-sandbox-http.test.ts proves availability -> draft create/update -> quote -> prepare-confirm -> pending-action status without final PMS mutation`
-  - `packages/contracts/src/index.ts and packages/api/src/sqliteSandboxStore.ts omit raw draftId from PendingActionReadModel`
-  - `Static dependency/import scan found no forbidden Pi/Feishu/adapter/pms-agent-v2 runtime dependency or import; hits were boundary scripts/tests only`
-  - `npm run verify passed: pms-platform boundary check, build, 11 test files / 98 tests`
-  - `git diff --check passed`
-  - `workspace clean and HEAD == origin/main at 5f0e1a1`
-  - `plan_sync docs/plan parsed after P4 writeback`
+  - `Re-read package skill, plan README/STATUS/WORKSET, AGENTS.md, contract doc, manifest/projection code/tests, local route smoke, and pending-action redaction surfaces.`
+  - `npm run verify passed: boundary check, build, 11 test files / 98 tests; git diff --check passed.`
+  - `Static dependency/import scan found no forbidden runtime imports/deps; workspace clean and HEAD/origin main at 400bc94 after push.`
+  - `plan_sync docs/plan parsed after writeback: STATUS/WORKSET done=5 pending=1.`
   - `docs/plan/README.md`
   - `docs/plan/pms-platform-agent-typed-capabilities-v1-2026-05-07_STATUS.md`
   - `docs/plan/pms-platform-agent-typed-capabilities-v1-2026-05-07_WORKSET.md`
+  - `commit 400bc94 pushed to origin/main`
 ## Notes
 
 - This work intentionally creates the plan in `/home/peng/dt-git/github/pms-platform/docs/plan`.
