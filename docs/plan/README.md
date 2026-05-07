@@ -1,36 +1,53 @@
-# Repo Plan Control Plane
+# PMS Platform Plan Control Plane
 
 ## Active Pack
 
-- none
+- `docs/plan/pms-platform-agent-typed-capabilities-v1-2026-05-07_PLAN.md`
+- `docs/plan/pms-platform-agent-typed-capabilities-v1-2026-05-07_STATUS.md`
+- `docs/plan/pms-platform-agent-typed-capabilities-v1-2026-05-07_WORKSET.md`
 
 ## Current Active Slice
 
-- none
+- `P0`
 
 ## Intended Handoff
 
-- `plan-creator`
+- `execute-plan`
 
-## Live control-plane state
+## Status
 
-- active_step: `none`
-- status: `no_active_pack`
-- active_pack: `none`
-- latest_platform_cutover: `2026-05-03 platform-only PMS/Feishu path`
+- Active parser pack: `pms-platform-agent-typed-capabilities-v1-2026-05-07`
+- Current active slice: `P0`
+- Current active state: `READY`
+- Current master wave: `W1` agent-platform-contract-foundation
+- Next runnable phase: `execute-plan`
+- Latest completed slice: `none`
+- Latest closed pack: `pms-r3-api-mcp-hermes-feishu-v1` archived as superseded historical evidence
+- Cold archive root: `docs/plan-archive/`
 
-## Current truth
+## Current Truth
 
-The active customer-facing PMS/Feishu path is:
+The active cross-repo product direction is:
 
 ```text
-adapter-feishu -> ai-conversation -> pms-platform
+adapter-feishu -> pms-agent-v2 -> pms-platform
 ```
 
-`pms-platform` owns PMS domain truth, read models, typed workflow APIs, pending-action callbacks, audits, idempotency, and projection-truth semantics. Hermes-era and pre-cutover execution packs are historical only and are not active backlog.
+`pms-platform` owns PMS domain truth, typed PMS capability contracts, read models, draft/prepare-confirm workflows, pending-action semantics, audits, idempotency, and local sandbox HTTP truth. It must not own Pi/LLM runtime, Feishu transport, conversation routing, or generic customer-chat tooling.
 
-## Notes
+## Parser Scope Contract
 
-- keep `docs/plan/README.md` as the small live control-plane entry
-- there is currently no active parser-compatible pack in `docs/plan/*`
-- PMS-owned implementation files live under this repo; keep `adapter-feishu/src/**` free of PMS domain logic
+`docs/plan/` is the hot autopilot scheduling surface. Keep it small: this README plus one active PLAN/STATUS/WORKSET triplet. Historical packs remain historical and must not be treated as active backlog.
+
+Read archived pack files under `docs/plan-archive/` only when the user asks for history/evidence or when a new plan explicitly cites them.
+
+## Autopilot Transition Contract
+
+- If active slice owner/state is `execute-plan` / `READY`, dispatch `execute` for the current active slice.
+- `execute/completed` means implementation evidence is ready for same-slice `review`; it does not advance the active slice by itself.
+- `review/completed` is the accepted-slice writeback point: mark the reviewed slice done, set the next Stage Order item as `Current Active Slice`, and set `Intended Handoff` from that next stage owner.
+- `review/continue` keeps the same active slice and dispatches another bounded `execute` cycle.
+- `needs_replan` dispatches `replan`; `blocked`/`failed` stop.
+- `done` is reserved for full objective completion or `PACK_COMPLETE` closeout.
+- `PACK_COMPLETE` with `Intended Handoff` `autopilot-closeout` is the only terminal parser state.
+- Closeout is forbidden while `Current Active Slice` is any non-`PACK_COMPLETE` stage.
