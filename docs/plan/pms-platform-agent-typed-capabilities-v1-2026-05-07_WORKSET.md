@@ -8,75 +8,63 @@ Plan ID: `pms-platform-agent-typed-capabilities-v1-2026-05-07`
 - [x] `P1` capability-manifest-agent-safety-proof
 - [x] `P2` typed-workflow-response-shape-proof
 - [x] `P3` agent-route-sequence-local-smoke
-- [ ] `P4` final-platform-agent-contract-closeout
+- [x] `P4` final-platform-agent-contract-closeout
 - [ ] `PACK_COMPLETE` closeout
 
 ## Active Stage
 
-### `P4`
+### `PACK_COMPLETE`
 
-- Owner: `execution-reality-audit`
-- State: `QUEUED`
-- Priority: `high`
+- Owner: `autopilot-closeout`
+- State: `READY`
+- Priority: `terminal`
 
 目标：
 
-- Audit the platform-side contract, remove residue, and prepare terminal handoff to a successor `pms-agent-v2` implementation pack.
+- Close this platform-side pack after P4 accepted review marks the objective complete.
 
 必须交付：
 
-1. Reality audit comparing P0-P3 docs/tests/code to this plan and current PMS ownership laws.
-2. Static scan evidence for no Pi/Feishu/conversation imports and no generic customer-chat tools.
-3. Residual handoff listing only `pms-agent-v2` successor work: wire typed gated tools to real platform routes and remove synthetic runtime workflow evidence.
-4. Parser truth advanced to `PACK_COMPLETE` only if P0-P3 accepted review evidence exists.
+1. Closeout summary.
+2. Final evidence and successor handoff to `pms-agent-v2`.
+3. Hot/cold plan hygiene update.
 
 done_when:
 
-1. All platform-side implementation slices have accepted review evidence.
-2. No generic broker/workflow/platform abstraction or conversation runtime drift remains.
-3. STATUS/WORKSET can safely move to `PACK_COMPLETE`.
+1. Pack is terminal and no active implementation/review work remains.
 
 stop_boundary:
 
-1. Stop if any Pi/LLM, Feishu SDK, adapter, or `pms-agent-v2` dependency appears in `pms-platform`.
-2. Stop if any platform API permits final mutation from natural-language workflow routes.
-3. Stop if closeout would hide a platform contract gap as successor work.
+1. If any non-terminal slice remains active, hand back to that slice; do not close out.
 
 必须避免：
 
-1. Do not close out with unresolved platform-side route or response-shape bugs.
-2. Do not implement the successor `pms-agent-v2` wiring in this repo.
+1. Do not use closeout to skip P4 final audit.
 ## Current Wave
 
-### `W5` final-audit-and-handoff
+### `PACK_COMPLETE` closeout
 
-- Active stage: `P4`
+- Active stage: `PACK_COMPLETE`
 - Active stage state: `READY`
-- Next handoff: `execution-reality-audit`
-- Dominant owner boundary: final platform-side reality audit and successor handoff without implementing `pms-agent-v2` wiring.
-- Execute ladder: `P4` -> `PACK_COMPLETE`
-- Validation ladder: `npm run verify`, forbidden import/generic-tool static scans, `git diff --check`, and `plan_sync docs/plan`.
+- Next handoff: `autopilot-closeout`
+- Dominant owner boundary: terminal closeout and hot/cold plan hygiene after accepted platform-side audit.
+- Execute ladder: `PACK_COMPLETE` -> terminal closeout
+- Validation ladder: `plan_sync docs/plan`, clean workspace check, and final closeout evidence summary.
 - Current stage doneWhenMet must prove:
-  1. All platform-side implementation slices have accepted review evidence.
-  2. No generic broker/workflow/platform abstraction or conversation runtime drift remains.
-  3. STATUS/WORKSET can safely move to `PACK_COMPLETE`.
+  1. Pack is terminal and no active implementation/review work remains.
 - Current stage stopBoundaryHit must cite one of:
-  1. Stop if any Pi/LLM, Feishu SDK, adapter, or `pms-agent-v2` dependency appears in `pms-platform`.
-  2. Stop if any platform API permits final mutation from natural-language workflow routes.
-  3. Stop if closeout would hide a platform contract gap as successor work.
-- P4 likely code/test surfaces:
-  1. `AGENTS.md` — PMS ownership and dependency boundary law.
-  2. `scripts/check-boundaries.mjs` and `package.json` — boundary validation authority.
-  3. `docs/pms-agent-v2-typed-capabilities-contract-v1.md` — successor handoff truth.
-  4. `packages/api/test/local-sandbox-http.test.ts` and `packages/api/test/api-contract.test.ts` — accepted P1-P3 test evidence.
-  5. Static scans across `packages/` — forbidden import/generic-tool proof.
-- P4 linear execution steps:
-  1. Reality-audit P0-P3 docs/tests/code against PMS ownership law and this plan.
-  2. Static scan for forbidden Pi/Feishu/conversation imports and generic customer-chat tools.
-  3. Remove slice-created redundant docs, comments, compatibility aliases, or unused helpers if found.
-  4. Record successor handoff to `pms-agent-v2` only.
-  5. Move parser truth to `PACK_COMPLETE` only after accepted evidence exists.
-- Execution writeback: keep `P4` active until accepted evidence can move parser truth to `PACK_COMPLETE`.
+  1. If any non-terminal slice remains active, hand back to that slice; do not close out.
+- P4 accepted evidence:
+  1. Reality audit re-read P0-P3 docs/tests/code against AGENTS.md PMS ownership law.
+  2. Static scans found no forbidden Pi/Feishu/adapter/`pms-agent-v2` runtime dependency or import; hits were boundary scripts/tests only.
+  3. `npm run verify` passed: boundary check, build, 11 test files / 98 tests.
+  4. `git diff --check` passed.
+  5. Workspace was clean with `HEAD == origin/main` at `5f0e1a1`.
+- Successor residual for `pms-agent-v2` only:
+  1. Wire typed gated tools to the contracted platform routes.
+  2. Keep route/auth execution authority in gated tool configuration, not LLM planner projection.
+  3. Persist only allowed redacted refs and typed read-model summaries.
+  4. Remove synthetic runtime workflow evidence.
 
 ## Master Wave Ladder
 
@@ -86,7 +74,7 @@ stop_boundary:
 4. `W4/P3` agent-route-sequence-local-smoke: local HTTP route-sequence smoke proves availability -> draft -> quote -> prepare-confirm -> pending-action status; accepted review advances to `P4`.
 5. `W5/P4` final-audit-and-handoff: reality audit plus forbidden-import/generic-tool scans; accepted review advances to `PACK_COMPLETE` only if all platform-side gaps are closed.
 
-Best active wave now: `W5/P4`, because P3 accepted the local route-sequence smoke and the remaining platform-side proof is final audit/handoff.
+Best active wave now: `PACK_COMPLETE`, because P4 accepted the final audit and the remaining work is repo-local closeout.
 
 ## Detailed Execution Queue
 
@@ -177,21 +165,31 @@ Best active wave now: `W5/P4`, because P3 accepted the local route-sequence smok
 
 ### `P4` workset — final-platform-agent-contract-closeout
 
+状态：accepted by review.
+
+已确认：
+
+1. Reality audit compared P0-P3 docs/tests/code to AGENTS.md ownership law and the active plan.
+2. Static scans found no forbidden Pi/Feishu/adapter/`pms-agent-v2` runtime dependency or import; scan hits were boundary scripts/tests only.
+3. `docs/pms-agent-v2-typed-capabilities-contract-v1.md` lists only `pms-agent-v2` successor work and does not implement successor wiring.
+4. `npm run verify` passed: boundary check, build, 11 test files / 98 tests.
+5. `git diff --check` passed and workspace was clean with `HEAD == origin/main` at `5f0e1a1`.
+
+### `PACK_COMPLETE` workset — closeout
+
 执行步骤：
 
-1. Reality-audit P0-P3 docs/tests/code against PMS ownership law and this plan.
-2. Static scan for forbidden Pi/Feishu/conversation imports and generic customer-chat tools.
-3. Remove slice-created redundant docs, comments, compatibility aliases, or unused helpers.
-4. Record successor handoff to `pms-agent-v2` only.
-5. Move parser truth to `PACK_COMPLETE` only after accepted evidence exists.
+1. Produce terminal closeout summary.
+2. Record final evidence and successor handoff to `pms-agent-v2`.
+3. Apply hot/cold plan hygiene if required.
 
 预期：
 
-- Platform-side contract is complete and terminal-ready.
+- Pack is terminal and no active implementation/review work remains.
 
 测试预期：
 
-- `npm run verify`, static scans, `git diff --check`, and plan parser validation pass.
+- `plan_sync docs/plan` parses and workspace remains clean after closeout.
 
 ## Slice Ownership
 
@@ -249,30 +247,27 @@ Before any stage is marked done, review must answer:
 ## Handoff After This Review Turn
 
 - Next skill: `execution-reality-audit`
-- Active stage: `P4`
-- Expected next phase: `review`
-- Review owner for P4 final audit evidence: `execution-reality-audit`
+- Active stage: `PACK_COMPLETE`
+- Expected next phase: `closeout`
+- Closeout owner: repo-local closeout prompt surface
 
 ## Machine Queue
 
-- active_step: `P4`
-- latest_completed_step: `P3`
-- intended_handoff: `execution-reality-audit`
-- latest_closeout_summary: P3 review accepted; parser truth advanced to P4 final audit/handoff.
+- active_step: `PACK_COMPLETE`
+- latest_completed_step: `P4`
+- intended_handoff: `autopilot-closeout`
+- latest_closeout_summary: P4 review accepted; parser truth advanced to PACK_COMPLETE for repo-local closeout.
 - latest_verification:
-  - `Re-read active PLAN/STATUS/WORKSET, AGENTS.md, P0 contract doc, P3 HTTP smoke, localSandbox route authority, and API request/response types`
-  - `packages/api/test/local-sandbox-http.test.ts contains the authenticated P3 smoke: availability/search -> reservation-drafts/create -> update -> quote -> prepare-confirm -> pending-actions/status`
-  - `The smoke asserts operation names, redacted refs, typedCardOnly confirmation, pending-action statusRead, and mutationStatus none/draftOnly before callback`
-  - `The smoke does not call pending-actions/confirm or pending-actions/cancel and asserts rooms/reservations/operationRequests/audits/domainEvents are unchanged before callback`
-  - `docs/pms-agent-v2-typed-capabilities-contract-v1.md links the route-sequence smoke and leaves P4 as the only remaining platform-side proof`
-  - `npm run test -- packages/api/test/local-sandbox-http.test.ts passed: 11 tests`
-  - `P3 execute evidence already recorded npm run verify passed: boundary check, build, and 11 test files / 98 tests`
+  - `Re-read active PLAN/STATUS/WORKSET, AGENTS.md, contract doc, manifest/projection code/tests, local route smoke, and pending-action redaction surfaces`
+  - `docs/pms-agent-v2-typed-capabilities-contract-v1.md lists only pms-agent-v2 successor wiring and keeps Pi/LLM/Feishu/generic tooling out of pms-platform`
+  - `packages/api/test/api-contract.test.ts proves planner projection includes safe typed read/draft/prepare-confirm capabilities and excludes confirm/internal/pending-action routes plus endpoint/auth metadata`
+  - `packages/api/test/local-sandbox-http.test.ts proves availability -> draft create/update -> quote -> prepare-confirm -> pending-action status without final PMS mutation`
+  - `packages/contracts/src/index.ts and packages/api/src/sqliteSandboxStore.ts omit raw draftId from PendingActionReadModel`
+  - `Static dependency/import scan found no forbidden Pi/Feishu/adapter/pms-agent-v2 runtime dependency or import; hits were boundary scripts/tests only`
+  - `npm run verify passed: pms-platform boundary check, build, 11 test files / 98 tests`
   - `git diff --check passed`
-  - `plan_sync docs/plan parsed after review writeback: STATUS/WORKSET done=4 pending=2`
-  - `packages/api/test/local-sandbox-http.test.ts`
-  - `packages/api/src/localSandbox.ts`
-  - `packages/api/src/index.ts`
-  - `docs/pms-agent-v2-typed-capabilities-contract-v1.md`
+  - `workspace clean and HEAD == origin/main at 5f0e1a1`
+  - `plan_sync docs/plan parsed after P4 writeback`
   - `docs/plan/README.md`
   - `docs/plan/pms-platform-agent-typed-capabilities-v1-2026-05-07_STATUS.md`
   - `docs/plan/pms-platform-agent-typed-capabilities-v1-2026-05-07_WORKSET.md`

@@ -8,18 +8,18 @@
 
 ## Current Active Slice
 
-- `P4`
+- `PACK_COMPLETE`
 ## Intended Handoff
 
-- `execution-reality-audit`
+- `autopilot-closeout`
 ## Status
 
 - Active parser pack: `pms-platform-agent-typed-capabilities-v1-2026-05-07`
-- Current active slice: `P4`
+- Current active slice: `PACK_COMPLETE`
 - Current active state: `READY`
-- Current master wave: `W5` final-audit-and-handoff
-- Next runnable phase: `execution-reality-audit`
-- Latest completed slice: `P3`
+- Current master wave: `PACK_COMPLETE` closeout
+- Next runnable phase: repo-local closeout prompt surface
+- Latest completed slice: `P4`
 - Latest closed pack: `pms-r3-api-mcp-hermes-feishu-v1` archived as superseded historical evidence
 - Cold archive root: `docs/plan-archive/`
 
