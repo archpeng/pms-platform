@@ -30,6 +30,7 @@ import {
   type OperationRequest,
   type PmsCapabilityManifest,
   type PmsCommandDryRunPlan,
+  type PendingActionReadModel,
   type ProjectionOutboxEntry,
   reservationDraftCreateOperationName,
   reservationDraftWorkflowOperations,
@@ -261,6 +262,20 @@ describe('PMS command contracts', () => {
       pendingAction: { pendingActionRef: 'pending-contract-1', cardPayloadRef: 'card-payload-contract-1', status: 'awaitingConfirmation', confirmationMode: 'typedCardOnly' },
       auditRefs: [{ action: 'quoted' }],
     });
+    const pendingActionReadModel: PendingActionReadModel = {
+      pendingActionRef: 'pending-contract-1',
+      workflowType: 'reservation',
+      quoteRef: 'quote-contract-1',
+      cardPayloadRef: 'card-payload-contract-1',
+      status: 'awaitingConfirmation',
+      confirmationMode: 'typedCardOnly',
+      mutationStatus: 'none',
+      generatedAt: validMeta.requestedAt,
+      updatedAt: validMeta.requestedAt,
+    };
+
+    expect(pendingActionReadModel).toMatchObject({ pendingActionRef: 'pending-contract-1', workflowType: 'reservation', quoteRef: 'quote-contract-1' });
+    expect(pendingActionReadModel).not.toHaveProperty('draftId');
     expect(safeGap).toMatchObject({ owner: 'pms-platform', mutationStatus: 'none' });
   });
 

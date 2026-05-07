@@ -433,6 +433,32 @@ describe('API checkout contract skeleton', () => {
     expect(JSON.stringify(projection)).not.toContain('/v1/pms/');
     expect(JSON.stringify(projection)).not.toContain('bearer-token');
 
+    const projectedByName = new Map(projection.capabilities.map((capability) => [capability.name, capability]));
+    const expectedAgentSafeCapabilities = [
+      { name: 'pms_availability_search', class: 'read', refs: { readModel: 'AvailabilitySearchReadModel' } },
+      { name: 'pms.reservation.draft.create', class: 'draft', refs: { workflow: 'reservationDraft' } },
+      { name: 'pms.reservation.draft.update', class: 'draft', refs: { workflow: 'reservationDraft' } },
+      { name: 'pms.reservation.quote', class: 'draft', refs: { workflow: 'reservationDraft' } },
+      { name: 'pms.reservation.prepare_confirm', class: 'prepareConfirm', refs: { workflow: 'reservationDraft' } },
+    ] as const;
+    for (const capability of expectedAgentSafeCapabilities) {
+      expect(projectedByName.get(capability.name)).toMatchObject({
+        class: capability.class,
+        customerChatAllowed: true,
+        naturalLanguageExecutable: true,
+        confirmationRequired: false,
+        refs: capability.refs,
+      });
+    }
+    for (const capability of projection.capabilities) expect('endpoint' in capability).toBe(false);
+    const excludedPlannerNames = new Set(projection.capabilities.map((capability) => capability.name));
+    for (const capability of manifest.capabilities.filter((item) => item.class === 'confirm' || item.class === 'internal')) {
+      expect(excludedPlannerNames.has(capability.name)).toBe(false);
+    }
+    expect(excludedPlannerNames.has('pms.pending_action.status')).toBe(false);
+    expect(excludedPlannerNames.has('pms.pending_action.confirm')).toBe(false);
+    expect(excludedPlannerNames.has('pms.pending_action.cancel')).toBe(false);
+
     const fixedEndpointMatrix = [
       { name: 'pms_dashboard', request: 'DashboardApiRequest', response: 'DashboardApiResponse', path: '/v1/pms/dashboard', operation: 'pms_dashboard', class: 'read', naturalLanguageExecutable: true },
       { name: 'pms_get_room', request: 'GetRoomApiRequest', response: 'GetRoomApiResponse', path: '/v1/pms/room', operation: 'pms_get_room', class: 'read', naturalLanguageExecutable: true },

@@ -500,6 +500,8 @@ describe('PMS local durable checkout sandbox HTTP boundary', () => {
       draftRef,
     });
     const quoteRef = quote.draft.quote.quoteRef;
+    expect(quoteRef).toMatch(/^quote-[a-f0-9]{16}$/);
+    expect(quoteRef).not.toContain('http-reservation-draft');
     const prepareConfirm = await authedPost(`${url}/v1/pms/reservation-drafts/prepare-confirm`, {
       operation: pmsReservationPrepareConfirmOperation,
       propertyId: 'property-small-hotel',
@@ -511,6 +513,21 @@ describe('PMS local durable checkout sandbox HTTP boundary', () => {
       requestedAt: '2026-05-02T00:03:00.000Z',
       draftRef,
       quoteRef,
+    });
+    const pendingActionRef = prepareConfirm.draft.pendingAction.pendingActionRef;
+    const cardPayloadRef = prepareConfirm.draft.pendingAction.cardPayloadRef;
+    expect(pendingActionRef).toMatch(/^pending-action-[a-f0-9]{16}$/);
+    expect(cardPayloadRef).toMatch(/^card-payload-[a-f0-9]{16}$/);
+    const pendingActionStatus = await authedPost(`${url}/v1/pms/pending-actions/status`, {
+      operation: pmsPendingActionStatusOperation,
+      pendingActionRef,
+      actor: { type: 'human', id: 'frontdesk-1', displayName: 'Front Desk' },
+      scope: { propertyId: 'property-small-hotel', channel: 'typed_card', userIdHash: 'sha256:user-http-draft-status' },
+      clientToken: 'http-reservation-pending-status-1',
+      requestFingerprint: 'sha256:http-reservation-pending-status-1',
+      correlationId: 'corr-http-reservation-pending-status-1',
+      requestedAt: '2026-05-02T00:03:30.000Z',
+      cardPayloadRef,
     });
     const cancel = await authedPost(`${url}/v1/pms/reservation-drafts/cancel`, {
       ...createBody,
@@ -544,6 +561,8 @@ describe('PMS local durable checkout sandbox HTTP boundary', () => {
     expect(mismatch).toMatchObject({ ok: false, status: 'rejected', errors: [{ code: 'RESERVATION_DRAFT_TOKEN_REUSED_WITH_DIFFERENT_FINGERPRINT' }] });
     expect(update).toMatchObject({ ok: true, operation: 'pms.reservation.draft.update', draft: { draftRef, slots: { roomId: 'room-1001' } } });
     for (const response of [create, update, quote, prepareConfirm, cancel]) expect(response.draft.draftId).toBeUndefined();
+    expect([draftRef, quoteRef, pendingActionRef, cardPayloadRef].join(':')).not.toContain('Guest Draft');
+    expect([draftRef, quoteRef, pendingActionRef, cardPayloadRef].join(':')).not.toContain('http-reservation-draft-create-1');
     expect(quote).toMatchObject({
       ok: true,
       operation: 'pms.reservation.quote',
@@ -556,12 +575,21 @@ describe('PMS local durable checkout sandbox HTTP boundary', () => {
       ok: true,
       operation: 'pms.reservation.prepare_confirm',
       mutationStatus: 'draftOnly',
-      draft: { draftRef, status: 'awaitingConfirmation', quote: { quoteRef }, pendingAction: { quoteRef, confirmationMode: 'typedCardOnly', mutationStatus: 'none' } },
+      draft: { draftRef, status: 'awaitingConfirmation', quote: { quoteRef }, pendingAction: { pendingActionRef, cardPayloadRef, quoteRef, confirmationMode: 'typedCardOnly', mutationStatus: 'none', status: 'awaitingConfirmation' } },
     });
+    expect(pendingActionStatus).toMatchObject({
+      ok: true,
+      operation: 'pms.pending_action.status',
+      mutationStatus: 'none',
+      idempotencyStatus: 'statusRead',
+      pendingAction: { pendingActionRef, quoteRef, cardPayloadRef, status: 'awaitingConfirmation', confirmationMode: 'typedCardOnly', mutationStatus: 'none' },
+    });
+    expect(pendingActionStatus.pendingAction.draftId).toBeUndefined();
+    expect([draftRef, quoteRef, pendingActionRef, cardPayloadRef, JSON.stringify(pendingActionStatus.pendingAction)].join(':')).not.toContain('http-reservation-draft-create-1');
     expect(cancel).toMatchObject({ ok: true, operation: 'pms.reservation.draft.cancel', draft: { draftRef, status: 'cancelled' } });
     expect(cancelledQuote).toMatchObject({ ok: false, status: 'rejected', errors: [{ code: 'RESERVATION_DRAFT_NOT_ACTIVE' }] });
     expect(after.reservationDrafts).toEqual(expect.arrayContaining([expect.objectContaining({ draftRef, status: 'cancelled', quote: expect.objectContaining({ quoteRef }), pendingAction: expect.objectContaining({ quoteRef }) })]));
-    expect(after.reservationDraftAudits.map((audit: { action: string }) => audit.action)).toEqual(['created', 'updated', 'quoted', 'prepared', 'cancelled']);
+    expect(after.reservationDraftAudits.map((audit: { action: string }) => audit.action)).toEqual(['created', 'updated', 'quoted', 'prepared', 'pendingActionStatusRead', 'cancelled']);
     expect(after.rooms).toEqual(before.rooms);
     expect(after.reservations).toEqual(before.reservations);
     expect(after.operationRequests).toEqual(before.operationRequests);
@@ -751,6 +779,109 @@ describe('PMS local durable checkout sandbox HTTP boundary', () => {
     expect(after.rooms).toEqual(before.rooms);
     expect(after.housekeepingTasks).toEqual([]);
     expect(after.maintenanceTickets).toEqual([]);
+    expect(after.audits).toEqual([]);
+    expect(after.domainEvents).toEqual([]);
+  });
+
+  it('serves agent route-sequence smoke with typed HTTP routes and no final PMS mutation', async () => {
+    const { url } = await startServer();
+
+    const before = await authedGet(`${url}/v1/sandbox/readback/room-1001`);
+    const availability = await authedPost(`${url}/v1/pms/availability/search`, {
+      operation: pmsAvailabilitySearchOperation,
+      startDate: '2026-05-04',
+      endDate: '2026-05-05',
+      roomTypeKeyword: '花园',
+      requestedAt: '2026-05-02T01:00:00.000Z',
+      count: 1,
+    });
+    const candidate = availability.readModel.candidates[0];
+    expect(availability).toMatchObject({
+      ok: true,
+      operation: 'pms_availability_search',
+      readModel: { request: { startDate: '2026-05-04', endDate: '2026-05-05', roomTypeKeyword: '花园', count: 1 }, candidateCount: 1 },
+    });
+    expect(candidate).toMatchObject({ roomId: 'room-1001', roomNumber: '1001', availableDates: ['2026-05-04'] });
+
+    const actor = { type: 'human', id: 'frontdesk-1', displayName: 'Front Desk' };
+    const create = await authedPost(`${url}/v1/pms/reservation-drafts/create`, {
+      operation: pmsReservationDraftCreateOperation,
+      propertyId: 'property-small-hotel',
+      actor,
+      source: 'api',
+      clientToken: 'http-agent-sequence-draft-create-1',
+      requestFingerprint: 'sha256:http-agent-sequence-draft-create-1',
+      correlationId: 'corr-http-agent-sequence-draft-create-1',
+      requestedAt: '2026-05-02T01:01:00.000Z',
+      slots: { guestDisplayName: 'Route Sequence Guest', arrivalDate: '2026-05-04', departureDate: '2026-05-05', roomTypeKeyword: '花园' },
+      evidenceRefs: [{ source: 'availabilitySearch', refId: `${availability.readModel.generatedAt}:room-1001` }],
+      expiresAt: '2026-05-03T01:00:00.000Z',
+    });
+    const draftRef = create.draft.draftRef;
+    expect(create).toMatchObject({ ok: true, operation: 'pms.reservation.draft.create', mutationStatus: 'draftOnly', draft: { draftRef, status: 'collectingSlots' } });
+
+    const update = await authedPost(`${url}/v1/pms/reservation-drafts/update`, {
+      operation: pmsReservationDraftUpdateOperation,
+      propertyId: 'property-small-hotel',
+      actor,
+      source: 'api',
+      clientToken: 'http-agent-sequence-draft-update-1',
+      requestFingerprint: 'sha256:http-agent-sequence-draft-update-1',
+      correlationId: 'corr-http-agent-sequence-draft-update-1',
+      requestedAt: '2026-05-02T01:02:00.000Z',
+      draftRef,
+      slots: { roomId: candidate.roomId, selectedCandidateRef: `${availability.readModel.generatedAt}:${candidate.roomId}` },
+      evidenceRefs: [{ source: 'availabilitySearch', refId: `${availability.readModel.generatedAt}:${candidate.roomId}` }],
+    });
+    const quote = await authedPost(`${url}/v1/pms/reservation-drafts/quote`, {
+      operation: pmsReservationQuoteOperation,
+      propertyId: 'property-small-hotel',
+      actor,
+      source: 'api',
+      clientToken: 'http-agent-sequence-draft-quote-1',
+      requestFingerprint: 'sha256:http-agent-sequence-draft-quote-1',
+      correlationId: 'corr-http-agent-sequence-draft-quote-1',
+      requestedAt: '2026-05-02T01:03:00.000Z',
+      draftRef,
+    });
+    const quoteRef = quote.draft.quote.quoteRef;
+    const prepareConfirm = await authedPost(`${url}/v1/pms/reservation-drafts/prepare-confirm`, {
+      operation: pmsReservationPrepareConfirmOperation,
+      propertyId: 'property-small-hotel',
+      actor,
+      source: 'api',
+      clientToken: 'http-agent-sequence-draft-prepare-1',
+      requestFingerprint: 'sha256:http-agent-sequence-draft-prepare-1',
+      correlationId: 'corr-http-agent-sequence-draft-prepare-1',
+      requestedAt: '2026-05-02T01:04:00.000Z',
+      draftRef,
+      quoteRef,
+    });
+    const pendingActionRef = prepareConfirm.draft.pendingAction.pendingActionRef;
+    const cardPayloadRef = prepareConfirm.draft.pendingAction.cardPayloadRef;
+    const status = await authedPost(`${url}/v1/pms/pending-actions/status`, {
+      operation: pmsPendingActionStatusOperation,
+      pendingActionRef,
+      actor,
+      scope: { propertyId: 'property-small-hotel', channel: 'typed_card', userIdHash: 'sha256:user-agent-sequence' },
+      clientToken: 'http-agent-sequence-pending-status-1',
+      requestFingerprint: 'sha256:http-agent-sequence-pending-status-1',
+      correlationId: 'corr-http-agent-sequence-pending-status-1',
+      requestedAt: '2026-05-02T01:05:00.000Z',
+      cardPayloadRef,
+    });
+    const after = await authedGet(`${url}/v1/sandbox/readback/room-1001`);
+
+    expect(update).toMatchObject({ ok: true, operation: 'pms.reservation.draft.update', mutationStatus: 'draftOnly', draft: { draftRef, slots: { roomId: 'room-1001', selectedCandidateRef: `${availability.readModel.generatedAt}:${candidate.roomId}` } } });
+    expect(quote).toMatchObject({ ok: true, operation: 'pms.reservation.quote', mutationStatus: 'draftOnly', draft: { draftRef, status: 'quoteReady', quote: { quoteRef, status: 'pricingUnsupported' } } });
+    expect(prepareConfirm).toMatchObject({ ok: true, operation: 'pms.reservation.prepare_confirm', mutationStatus: 'draftOnly', draft: { draftRef, status: 'awaitingConfirmation', pendingAction: { pendingActionRef, quoteRef, cardPayloadRef, confirmationMode: 'typedCardOnly', mutationStatus: 'none' } } });
+    expect(status).toMatchObject({ ok: true, operation: 'pms.pending_action.status', mutationStatus: 'none', idempotencyStatus: 'statusRead', pendingAction: { pendingActionRef, quoteRef, cardPayloadRef, status: 'awaitingConfirmation', confirmationMode: 'typedCardOnly', mutationStatus: 'none' } });
+    expect(status.pendingAction.draftId).toBeUndefined();
+    expect(after.reservationDraftAudits.map((audit: { action: string }) => audit.action)).toEqual(['created', 'updated', 'quoted', 'prepared', 'pendingActionStatusRead']);
+    expect(after.reservationDrafts).toEqual(expect.arrayContaining([expect.objectContaining({ draftRef, status: 'awaitingConfirmation', pendingAction: expect.objectContaining({ pendingActionRef, status: 'awaitingConfirmation' }) })]));
+    expect(after.rooms).toEqual(before.rooms);
+    expect(after.reservations).toEqual(before.reservations);
+    expect(after.operationRequests).toEqual(before.operationRequests);
     expect(after.audits).toEqual([]);
     expect(after.domainEvents).toEqual([]);
   });

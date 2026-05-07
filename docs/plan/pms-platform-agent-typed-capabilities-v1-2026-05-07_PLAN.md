@@ -264,11 +264,34 @@ stop_boundary:
 
 1. Do not use closeout to skip P4 final audit.
 
+## Master 推进纲领
+
+Repository constraints identified for this pack:
+
+1. `pms-platform` is the PMS truth/read-model owner only; Pi/LLM runtime, Feishu transport, and conversation routing stay outside this repo.
+2. Existing typed API/local-sandbox surfaces already cover the intended agent handoff path; this pack should cite and prove them before adding any route.
+3. Planner projection is advisory for safe natural-language planning; final PMS mutation remains typed pending-action callback behavior.
+4. Validation must stay realistic and local: boundary check for docs/API ownership, targeted API/local sandbox tests for capability behavior, full `npm run verify` after code/test changes, and `git diff --check` after every slice.
+
+Known missing pieces to close through waves:
+
+1. A single platform-owned `pms-agent-v2` consumption contract doc under `docs/`.
+2. Focused proof that manifest/planner projection is agent-safe while hiding endpoint/auth details from planner truth.
+3. Focused proof that draft/quote/prepare-confirm/pending-action responses are stable enough to replace synthetic agent workflow evidence.
+4. A local HTTP route-sequence smoke for availability -> draft -> quote -> prepare-confirm -> pending-action status.
+5. Final audit/handoff proving no platform-side route gap remains before successor `pms-agent-v2` wiring.
+
 ## Wave Ladder
 
-1. `W1` agent-platform-contract-foundation: `P0` -> `P1`.
-2. `W2` typed-workflow-evidence-proof: `P2` -> `P3`.
-3. `W3` final-audit-and-handoff: `P4` -> `PACK_COMPLETE`.
+1. `W1` agent-platform-contract-foundation: execute and review `P0`; output is the platform-owned consumption contract doc and successor handoff.
+2. `W2` capability-manifest-agent-safety-proof: execute and review `P1`; output is manifest/projection test evidence.
+3. `W3` typed-workflow-response-shape-proof: execute and review `P2`; output is stable draft/quote/prepare-confirm/pending-action response evidence.
+4. `W4` agent-route-sequence-local-smoke: execute and review `P3`; output is the end-to-end local sandbox route sequence proof.
+5. `W5` final-audit-and-handoff: execute and review `P4`, then advance to `PACK_COMPLETE` only if P0-P3 have accepted review evidence.
+
+Best first wave now: `W1/P0`, because `pms-agent-v2` cannot safely replace synthetic `prepareReservationConfirm` evidence until the platform contract names the real typed routes, authority boundaries, redaction rules, and non-goals.
+
+Accepted-review progression is strictly one wave at a time: `P0 -> P1 -> P2 -> P3 -> P4 -> PACK_COMPLETE`.
 
 ## Exit Criteria
 

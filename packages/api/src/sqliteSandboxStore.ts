@@ -2872,7 +2872,6 @@ function pendingActionReadModelFromDraft(draft: StoredReservationDraft, auditRef
   return {
     pendingActionRef: pendingAction.pendingActionRef,
     workflowType: 'reservation',
-    draftId: draft.draftId,
     quoteRef: pendingAction.quoteRef,
     cardPayloadRef: pendingAction.cardPayloadRef,
     status: pendingAction.status,

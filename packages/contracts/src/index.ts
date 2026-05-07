@@ -732,7 +732,6 @@ export interface ReservationDraftPendingActionRef {
 export interface PendingActionReadModel {
   readonly pendingActionRef: string;
   readonly workflowType: 'reservation';
-  readonly draftId: string;
   readonly quoteRef: string;
   readonly cardPayloadRef: string;
   readonly status: PendingActionStatus;
