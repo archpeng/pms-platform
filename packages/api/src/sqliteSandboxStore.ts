@@ -32,6 +32,15 @@ import {
   type ReservationDraftSlots,
   type ReservationDraftStatus,
   type ReservationDraftWorkflowRef,
+  type ReservationGroupDraftAuditRef,
+  type ReservationGroupDraftEvidenceRef,
+  type ReservationGroupDraftMissingSlot,
+  type ReservationGroupDraftPendingActionRef,
+  type ReservationGroupDraftQuoteRef,
+  type ReservationGroupDraftSlots,
+  type ReservationGroupDraftStatus,
+  type ReservationGroupDraftWorkflowRef,
+  type ReservationGroupRoomSelection,
   type ReservationReadModel,
   type RoomReservationContextReadModel,
   type StayStatus,
@@ -78,6 +87,11 @@ import {
   pmsReservationDraftCancelOperation,
   pmsReservationDraftCreateOperation,
   pmsReservationDraftUpdateOperation,
+  pmsReservationGroupDraftCancelOperation,
+  pmsReservationGroupDraftCreateOperation,
+  pmsReservationGroupDraftUpdateOperation,
+  pmsReservationGroupPrepareConfirmOperation,
+  pmsReservationGroupQuoteOperation,
   pmsReservationPrepareConfirmOperation,
   pmsReservationQuoteOperation,
   type OperationRequestUpdateApiRequest,
@@ -93,6 +107,12 @@ import {
   type ReservationPrepareConfirmApiRequest,
   type ReservationQuoteApiRequest,
   type ReservationDraftWorkflowApiResponse,
+  type ReservationGroupDraftCancelApiRequest,
+  type ReservationGroupDraftCreateApiRequest,
+  type ReservationGroupDraftUpdateApiRequest,
+  type ReservationGroupDraftWorkflowApiResponse,
+  type ReservationGroupPrepareConfirmApiRequest,
+  type ReservationGroupQuoteApiRequest,
 } from './index.js';
 import {
   type PmsSandboxPropertyReadback,
@@ -161,7 +181,9 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
     const housekeepingTasks = roomId ? this.listHousekeepingTasksByRoomIds(roomIds) : this.listHousekeepingTasks();
     const maintenanceTickets = roomId ? this.listMaintenanceTicketsByRoomIds(roomIds) : this.listMaintenanceTickets();
     const reservationDrafts = this.listReservationDrafts();
+    const reservationGroupDrafts = this.listReservationGroupDrafts();
     const reservationDraftAudits = this.listReservationDraftAudits();
+    const reservationGroupDraftAudits = this.listReservationGroupDraftAudits();
     const operationRequests = roomId ? this.listOperationRequestsByRoomIds(roomIds) : this.listOperationRequestRecords();
     const audits = roomId ? this.listAuditsByRoomIds(roomIds) : this.listAudits();
     const domainEvents = roomId ? this.listDomainEventsByRoomIds(roomIds) : this.listDomainEvents();
@@ -175,6 +197,7 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
     const projectionOutbox = deriveProjectionOutboxEntries({
       domainEvents,
       reservationDraftAudits,
+      reservationGroupDraftAudits,
       operationRequests,
       idempotencyRecords,
       generatedAt: this.now(),
@@ -198,7 +221,9 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
       inventoryIntervalProjection: cloneValue(horizon.intervals),
       inventorySummaryDayType: cloneValue(horizon.summaries),
       reservationDrafts: cloneValue(reservationDrafts),
+      reservationGroupDrafts: cloneValue(reservationGroupDrafts),
       reservationDraftAudits: cloneValue(reservationDraftAudits),
+      reservationGroupDraftAudits: cloneValue(reservationGroupDraftAudits),
       operationRequests: cloneValue(operationRequests),
       housekeepingTasks: cloneValue(housekeepingTasks),
       maintenanceTickets: cloneValue(maintenanceTickets),
@@ -318,6 +343,26 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
 
   cancelReservationDraft(request: ReservationDraftCancelApiRequest): ReservationDraftWorkflowApiResponse {
     return this.runInTransaction(() => this.cancelReservationDraftRecord(request));
+  }
+
+  createReservationGroupDraft(request: ReservationGroupDraftCreateApiRequest): ReservationGroupDraftWorkflowApiResponse {
+    return this.runInTransaction(() => this.createReservationGroupDraftRecord(request));
+  }
+
+  updateReservationGroupDraft(request: ReservationGroupDraftUpdateApiRequest): ReservationGroupDraftWorkflowApiResponse {
+    return this.runInTransaction(() => this.updateReservationGroupDraftRecord(request));
+  }
+
+  quoteReservationGroupDraft(request: ReservationGroupQuoteApiRequest): ReservationGroupDraftWorkflowApiResponse {
+    return this.runInTransaction(() => this.quoteReservationGroupDraftRecord(request));
+  }
+
+  prepareConfirmReservationGroupDraft(request: ReservationGroupPrepareConfirmApiRequest): ReservationGroupDraftWorkflowApiResponse {
+    return this.runInTransaction(() => this.prepareConfirmReservationGroupDraftRecord(request));
+  }
+
+  cancelReservationGroupDraft(request: ReservationGroupDraftCancelApiRequest): ReservationGroupDraftWorkflowApiResponse {
+    return this.runInTransaction(() => this.cancelReservationGroupDraftRecord(request));
   }
 
   recordCheckInStay(request: CheckInConfirmApiRequest, result: CoreCheckInConfirmResult): PmsSandboxStayReadback | undefined {
@@ -475,6 +520,22 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
         updated_at TEXT NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS reservation_group_drafts (
+        group_draft_id TEXT PRIMARY KEY,
+        property_id TEXT NOT NULL,
+        client_token TEXT NOT NULL UNIQUE,
+        request_fingerprint TEXT NOT NULL,
+        status TEXT NOT NULL,
+        slots_json TEXT NOT NULL,
+        missing_slots_json TEXT NOT NULL,
+        evidence_refs_json TEXT NOT NULL,
+        quote_json TEXT,
+        pending_action_json TEXT,
+        expires_at TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
       CREATE TABLE IF NOT EXISTS reservation_draft_audits (
         audit_id TEXT PRIMARY KEY,
         draft_id TEXT NOT NULL,
@@ -482,6 +543,15 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
         occurred_at TEXT NOT NULL,
         payload_json TEXT NOT NULL,
         FOREIGN KEY (draft_id) REFERENCES reservation_drafts(draft_id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS reservation_group_draft_audits (
+        audit_id TEXT PRIMARY KEY,
+        group_draft_id TEXT NOT NULL,
+        action TEXT NOT NULL,
+        occurred_at TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        FOREIGN KEY (group_draft_id) REFERENCES reservation_group_drafts(group_draft_id) ON DELETE CASCADE
       );
 
       CREATE TABLE IF NOT EXISTS stays (
@@ -625,6 +695,9 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
       CREATE INDEX IF NOT EXISTS idx_reservation_drafts_client_token ON reservation_drafts(client_token);
       CREATE INDEX IF NOT EXISTS idx_reservation_drafts_status ON reservation_drafts(status);
       CREATE INDEX IF NOT EXISTS idx_reservation_draft_audits_draft_id ON reservation_draft_audits(draft_id);
+      CREATE INDEX IF NOT EXISTS idx_reservation_group_drafts_client_token ON reservation_group_drafts(client_token);
+      CREATE INDEX IF NOT EXISTS idx_reservation_group_drafts_status ON reservation_group_drafts(status);
+      CREATE INDEX IF NOT EXISTS idx_reservation_group_draft_audits_group_draft_id ON reservation_group_draft_audits(group_draft_id);
       CREATE INDEX IF NOT EXISTS idx_stays_room_id ON stays(room_id);
       CREATE INDEX IF NOT EXISTS idx_inventory_blocks_room_id ON inventory_blocks(room_id);
       CREATE INDEX IF NOT EXISTS idx_inventory_blocks_source ON inventory_blocks(source_type, source_id);
@@ -708,6 +781,8 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
       DELETE FROM inventory_interval_projection;
       DELETE FROM inventory_day_room;
       DELETE FROM inventory_blocks;
+      DELETE FROM reservation_group_draft_audits;
+      DELETE FROM reservation_group_drafts;
       DELETE FROM reservation_draft_audits;
       DELETE FROM reservation_drafts;
       DELETE FROM stays;
@@ -926,6 +1001,158 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
     return cloneValue(existing.response) as ReservationDraftWorkflowApiResponse;
   }
 
+  private createReservationGroupDraftRecord(request: ReservationGroupDraftCreateApiRequest): ReservationGroupDraftWorkflowApiResponse {
+    const replay = this.reservationGroupDraftReplayOrConflict(request);
+    if (replay) return replay;
+
+    const createdAt = nonEmptyString(request.requestedAt, this.now());
+    const expiresAt = nonEmptyString(request.expiresAt, addHoursIso(createdAt, 24));
+    const slots = cloneValue(request.slots ?? {});
+    const missingSlots = deriveGroupMissingSlots(slots);
+    const status = groupDraftStatusFromMissingSlots(missingSlots, expiresAt, createdAt);
+    const groupDraft: StoredReservationGroupDraft = {
+      groupDraftId: reservationGroupDraftIdFromClientToken(request.clientToken),
+      propertyId: nonEmptyString(request.propertyId, 'property-unknown'),
+      clientToken: request.clientToken,
+      requestFingerprint: request.requestFingerprint,
+      status,
+      slots,
+      missingSlots,
+      evidenceRefs: cloneValue(request.evidenceRefs ?? []),
+      expiresAt,
+      createdAt,
+      updatedAt: createdAt,
+    };
+    this.saveReservationGroupDraft(groupDraft);
+    const auditRef = this.appendReservationGroupDraftAudit(groupDraft.groupDraftId, status === 'expired' ? 'expired' : 'created', createdAt, { request });
+    const response = reservationGroupDraftSuccessResponse(request.operation, 'created', groupDraft, [auditRef]);
+    this.saveApiIdempotency({ idempotencyKey: request.clientToken, requestFingerprint: request.requestFingerprint, response });
+    return response;
+  }
+
+  private updateReservationGroupDraftRecord(request: ReservationGroupDraftUpdateApiRequest): ReservationGroupDraftWorkflowApiResponse {
+    const replay = this.reservationGroupDraftReplayOrConflict(request);
+    if (replay) return replay;
+
+    const existing = this.getReservationGroupDraftByContext(request);
+    if (!existing) return reservationGroupDraftNotFoundResponse(request);
+    const updatedAt = nonEmptyString(request.requestedAt, this.now());
+    const slots = { ...existing.slots, ...(request.slots ?? {}) };
+    const evidenceRefs = mergeEvidenceRefs(existing.evidenceRefs, request.evidenceRefs ?? []);
+    const missingSlots = cloneValue(request.missingSlots ?? deriveGroupMissingSlots(slots));
+    const status = existing.status === 'cancelled' ? 'cancelled' : groupDraftStatusFromMissingSlots(missingSlots, existing.expiresAt, updatedAt);
+    const groupDraft: StoredReservationGroupDraft = {
+      ...existing,
+      clientToken: request.clientToken,
+      requestFingerprint: request.requestFingerprint,
+      status,
+      slots,
+      missingSlots,
+      evidenceRefs,
+      quote: status === 'cancelled' ? existing.quote : undefined,
+      pendingAction: status === 'cancelled' ? existing.pendingAction : undefined,
+      updatedAt,
+    };
+    this.saveReservationGroupDraft(groupDraft);
+    const auditRef = this.appendReservationGroupDraftAudit(groupDraft.groupDraftId, status === 'expired' ? 'expired' : 'updated', updatedAt, { request });
+    const response = reservationGroupDraftSuccessResponse(request.operation, 'updated', groupDraft, [auditRef]);
+    this.saveApiIdempotency({ idempotencyKey: request.clientToken, requestFingerprint: request.requestFingerprint, response });
+    return response;
+  }
+
+  private quoteReservationGroupDraftRecord(request: ReservationGroupQuoteApiRequest): ReservationGroupDraftWorkflowApiResponse {
+    const replay = this.reservationGroupDraftReplayOrConflict(request);
+    if (replay) return replay;
+
+    const existing = this.getReservationGroupDraftByContext(request);
+    if (!existing) return reservationGroupDraftNotFoundResponse(request);
+
+    const quotedAt = nonEmptyString(request.requestedAt, this.now());
+    const inactive = reservationGroupDraftInactiveResponse(request, existing, quotedAt);
+    if (inactive) return inactive;
+    if (existing.missingSlots.length > 0) return reservationGroupDraftMissingSlotsResponse(request, existing);
+
+    const quote = reservationGroupDraftQuote(existing, quotedAt);
+    const groupDraft: StoredReservationGroupDraft = {
+      ...existing,
+      clientToken: request.clientToken,
+      requestFingerprint: request.requestFingerprint,
+      status: 'quoteReady',
+      quote,
+      updatedAt: quotedAt,
+    };
+    this.saveReservationGroupDraft(groupDraft);
+    const auditRef = this.appendReservationGroupDraftAudit(groupDraft.groupDraftId, 'quoted', quotedAt, { request, quoteRef: quote.quoteRef });
+    const response = reservationGroupDraftSuccessResponse(request.operation, 'quoted', groupDraft, [auditRef]);
+    this.saveApiIdempotency({ idempotencyKey: request.clientToken, requestFingerprint: request.requestFingerprint, response });
+    return response;
+  }
+
+  private prepareConfirmReservationGroupDraftRecord(request: ReservationGroupPrepareConfirmApiRequest): ReservationGroupDraftWorkflowApiResponse {
+    const replay = this.reservationGroupDraftReplayOrConflict(request);
+    if (replay) return replay;
+
+    const existing = this.getReservationGroupDraftByContext(request);
+    if (!existing) return reservationGroupDraftNotFoundResponse(request);
+
+    const preparedAt = nonEmptyString(request.requestedAt, this.now());
+    const inactive = reservationGroupDraftInactiveResponse(request, existing, preparedAt);
+    if (inactive) return inactive;
+    if (existing.missingSlots.length > 0) return reservationGroupDraftMissingSlotsResponse(request, existing);
+    if (!existing.quote) return reservationGroupDraftQuoteRequiredResponse(request, existing);
+    if (request.quoteRef && request.quoteRef !== existing.quote.quoteRef) return reservationGroupDraftQuoteMismatchResponse(request, existing);
+
+    const pendingAction = reservationGroupDraftPendingAction(existing, existing.quote.quoteRef, preparedAt);
+    const groupDraft: StoredReservationGroupDraft = {
+      ...existing,
+      clientToken: request.clientToken,
+      requestFingerprint: request.requestFingerprint,
+      status: 'awaitingConfirmation',
+      pendingAction,
+      updatedAt: preparedAt,
+    };
+    this.saveReservationGroupDraft(groupDraft);
+    const auditRef = this.appendReservationGroupDraftAudit(groupDraft.groupDraftId, 'prepared', preparedAt, {
+      request,
+      pendingActionRef: pendingAction.pendingActionRef,
+      cardPayloadRef: pendingAction.cardPayloadRef,
+      selectionCount: pendingAction.selectionCount,
+    });
+    const response = reservationGroupDraftSuccessResponse(request.operation, 'prepared', groupDraft, [auditRef]);
+    this.saveApiIdempotency({ idempotencyKey: request.clientToken, requestFingerprint: request.requestFingerprint, response });
+    return response;
+  }
+
+  private cancelReservationGroupDraftRecord(request: ReservationGroupDraftCancelApiRequest): ReservationGroupDraftWorkflowApiResponse {
+    const replay = this.reservationGroupDraftReplayOrConflict(request);
+    if (replay) return replay;
+
+    const existing = this.getReservationGroupDraftByContext(request);
+    if (!existing) return reservationGroupDraftNotFoundResponse(request);
+    const updatedAt = nonEmptyString(request.requestedAt, this.now());
+    const groupDraft: StoredReservationGroupDraft = {
+      ...existing,
+      clientToken: request.clientToken,
+      requestFingerprint: request.requestFingerprint,
+      status: 'cancelled',
+      updatedAt,
+    };
+    this.saveReservationGroupDraft(groupDraft);
+    const auditRef = this.appendReservationGroupDraftAudit(groupDraft.groupDraftId, 'cancelled', updatedAt, { request, reason: request.reason });
+    const response = reservationGroupDraftSuccessResponse(request.operation, 'cancelled', groupDraft, [auditRef]);
+    this.saveApiIdempotency({ idempotencyKey: request.clientToken, requestFingerprint: request.requestFingerprint, response });
+    return response;
+  }
+
+  private reservationGroupDraftReplayOrConflict(request: ReservationGroupDraftCreateApiRequest | ReservationGroupDraftUpdateApiRequest | ReservationGroupQuoteApiRequest | ReservationGroupPrepareConfirmApiRequest | ReservationGroupDraftCancelApiRequest): ReservationGroupDraftWorkflowApiResponse | undefined {
+    const existing = this.getApiIdempotency(request.clientToken);
+    if (!existing) return undefined;
+    if (existing.requestFingerprint !== request.requestFingerprint) {
+      return reservationGroupDraftTokenConflictResponse(request);
+    }
+    return cloneValue(existing.response) as ReservationGroupDraftWorkflowApiResponse;
+  }
+
   private createOperationRequestRecord(request: OperationRequestCreateApiRequest): OperationRequestCreateApiResponse {
     const payloadJson = stableJsonStringify(request.payload ?? {});
     const existing = this.getOperationRequestByClientToken(request.clientToken);
@@ -1027,15 +1254,28 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
     if (replay) return replay;
 
     const draft = this.getReservationDraftByPendingActionRef(request.pendingActionRef);
-    if (!draft || !draft.pendingAction) return pendingActionNotFoundResponse(request);
+    if (draft?.pendingAction) {
+      const requestedAt = nonEmptyString(request.requestedAt, this.now());
+      const expired = this.expirePendingActionIfNeeded(request, draft, requestedAt);
+      if (expired) return expired;
+      const auditRef = this.appendReservationDraftAudit(draft.draftId, 'pendingActionStatusRead', requestedAt, redactedPendingActionAuditPayload(request));
+      const response = pendingActionSuccessResponse(request.operation ?? pmsPendingActionStatusOperation, 'statusRead', 'none', draft, [auditRef]);
+      this.saveApiIdempotency({ idempotencyKey: request.clientToken, requestFingerprint: request.requestFingerprint, response });
+      return response;
+    }
 
-    const requestedAt = nonEmptyString(request.requestedAt, this.now());
-    const expired = this.expirePendingActionIfNeeded(request, draft, requestedAt);
-    if (expired) return expired;
-    const auditRef = this.appendReservationDraftAudit(draft.draftId, 'pendingActionStatusRead', requestedAt, redactedPendingActionAuditPayload(request));
-    const response = pendingActionSuccessResponse(request.operation ?? pmsPendingActionStatusOperation, 'statusRead', 'none', draft, [auditRef]);
-    this.saveApiIdempotency({ idempotencyKey: request.clientToken, requestFingerprint: request.requestFingerprint, response });
-    return response;
+    const groupDraft = this.getReservationGroupDraftByPendingActionRef(request.pendingActionRef);
+    if (groupDraft?.pendingAction) {
+      const requestedAt = nonEmptyString(request.requestedAt, this.now());
+      const expired = this.expireGroupPendingActionIfNeeded(request, groupDraft, requestedAt);
+      if (expired) return expired;
+      const auditRef = this.appendReservationGroupDraftAudit(groupDraft.groupDraftId, 'pendingActionStatusRead', requestedAt, redactedPendingActionAuditPayload(request));
+      const response = pendingActionSuccessResponseFromGroup(request.operation ?? pmsPendingActionStatusOperation, 'statusRead', 'none', groupDraft, [auditRef]);
+      this.saveApiIdempotency({ idempotencyKey: request.clientToken, requestFingerprint: request.requestFingerprint, response });
+      return response;
+    }
+
+    return pendingActionNotFoundResponse(request);
   }
 
   private transitionPendingActionRecord(
@@ -1046,44 +1286,85 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
     if (replay) return replay;
 
     const draft = this.getReservationDraftByPendingActionRef(request.pendingActionRef);
-    if (!draft || !draft.pendingAction) return pendingActionNotFoundResponse(request);
-
     const requestedAt = nonEmptyString(request.requestedAt, this.now());
-    const expired = this.expirePendingActionIfNeeded(request, draft, requestedAt);
-    if (expired) return expired;
-    if (request.cardPayloadRef && request.cardPayloadRef !== draft.pendingAction.cardPayloadRef) return pendingActionCardPayloadMismatchResponse(request, draft);
-    if (draft.pendingAction.status !== 'awaitingConfirmation' || draft.status !== 'awaitingConfirmation') return pendingActionInactiveResponse(request, draft);
+    if (draft?.pendingAction) {
+      const expired = this.expirePendingActionIfNeeded(request, draft, requestedAt);
+      if (expired) return expired;
+      if (request.cardPayloadRef && request.cardPayloadRef !== draft.pendingAction.cardPayloadRef) return pendingActionCardPayloadMismatchResponse(request, draft);
+      if (draft.pendingAction.status !== 'awaitingConfirmation' || draft.status !== 'awaitingConfirmation') return pendingActionInactiveResponse(request, draft);
 
-    const pendingAction: ReservationDraftPendingActionRef = {
-      ...draft.pendingAction,
-      status: transition,
-      mutationStatus: transition === 'confirmed' ? 'deferred' : 'none',
-      updatedAt: requestedAt,
-    };
-    const updated: StoredReservationDraft = {
-      ...draft,
-      clientToken: request.clientToken,
-      requestFingerprint: request.requestFingerprint,
-      status: transition === 'cancelled' ? 'cancelled' : draft.status,
-      pendingAction,
-      updatedAt: requestedAt,
-    };
-    this.saveReservationDraft(updated);
-    const auditRef = this.appendReservationDraftAudit(
-      updated.draftId,
-      transition === 'confirmed' ? 'pendingActionConfirmed' : 'pendingActionCancelled',
-      requestedAt,
-      redactedPendingActionAuditPayload(request),
-    );
-    const response = pendingActionSuccessResponse(
-      request.operation ?? (transition === 'confirmed' ? pmsPendingActionConfirmOperation : pmsPendingActionCancelOperation),
-      transition,
-      transition === 'confirmed' ? 'deferred' : 'none',
-      updated,
-      [auditRef],
-    );
-    this.saveApiIdempotency({ idempotencyKey: request.clientToken, requestFingerprint: request.requestFingerprint, response });
-    return response;
+      const pendingAction: ReservationDraftPendingActionRef = {
+        ...draft.pendingAction,
+        status: transition,
+        mutationStatus: transition === 'confirmed' ? 'deferred' : 'none',
+        updatedAt: requestedAt,
+      };
+      const updated: StoredReservationDraft = {
+        ...draft,
+        clientToken: request.clientToken,
+        requestFingerprint: request.requestFingerprint,
+        status: transition === 'cancelled' ? 'cancelled' : draft.status,
+        pendingAction,
+        updatedAt: requestedAt,
+      };
+      this.saveReservationDraft(updated);
+      const auditRef = this.appendReservationDraftAudit(
+        updated.draftId,
+        transition === 'confirmed' ? 'pendingActionConfirmed' : 'pendingActionCancelled',
+        requestedAt,
+        redactedPendingActionAuditPayload(request),
+      );
+      const response = pendingActionSuccessResponse(
+        request.operation ?? (transition === 'confirmed' ? pmsPendingActionConfirmOperation : pmsPendingActionCancelOperation),
+        transition,
+        transition === 'confirmed' ? 'deferred' : 'none',
+        updated,
+        [auditRef],
+      );
+      this.saveApiIdempotency({ idempotencyKey: request.clientToken, requestFingerprint: request.requestFingerprint, response });
+      return response;
+    }
+
+    const groupDraft = this.getReservationGroupDraftByPendingActionRef(request.pendingActionRef);
+    if (groupDraft?.pendingAction) {
+      const expired = this.expireGroupPendingActionIfNeeded(request, groupDraft, requestedAt);
+      if (expired) return expired;
+      if (request.cardPayloadRef && request.cardPayloadRef !== groupDraft.pendingAction.cardPayloadRef) return pendingActionCardPayloadMismatchResponseFromGroup(request, groupDraft);
+      if (groupDraft.pendingAction.status !== 'awaitingConfirmation' || groupDraft.status !== 'awaitingConfirmation') return pendingActionInactiveResponseFromGroup(request, groupDraft);
+
+      const pendingAction: ReservationGroupDraftPendingActionRef = {
+        ...groupDraft.pendingAction,
+        status: transition,
+        mutationStatus: transition === 'confirmed' ? 'deferred' : 'none',
+        updatedAt: requestedAt,
+      };
+      const updated: StoredReservationGroupDraft = {
+        ...groupDraft,
+        clientToken: request.clientToken,
+        requestFingerprint: request.requestFingerprint,
+        status: transition === 'cancelled' ? 'cancelled' : groupDraft.status,
+        pendingAction,
+        updatedAt: requestedAt,
+      };
+      this.saveReservationGroupDraft(updated);
+      const auditRef = this.appendReservationGroupDraftAudit(
+        updated.groupDraftId,
+        transition === 'confirmed' ? 'pendingActionConfirmed' : 'pendingActionCancelled',
+        requestedAt,
+        redactedPendingActionAuditPayload(request),
+      );
+      const response = pendingActionSuccessResponseFromGroup(
+        request.operation ?? (transition === 'confirmed' ? pmsPendingActionConfirmOperation : pmsPendingActionCancelOperation),
+        transition,
+        transition === 'confirmed' ? 'deferred' : 'none',
+        updated,
+        [auditRef],
+      );
+      this.saveApiIdempotency({ idempotencyKey: request.clientToken, requestFingerprint: request.requestFingerprint, response });
+      return response;
+    }
+
+    return pendingActionNotFoundResponse(request);
   }
 
   private pendingActionReplayOrConflict(request: PendingActionCallbackApiRequest): PendingActionCallbackApiResponse | undefined {
@@ -1120,6 +1401,33 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
     this.saveReservationDraft(expired);
     const auditRef = this.appendReservationDraftAudit(expired.draftId, 'pendingActionExpired', requestedAt, redactedPendingActionAuditPayload(request));
     return pendingActionExpiredResponse(request, expired, [auditRef]);
+  }
+
+  private expireGroupPendingActionIfNeeded(
+    request: PendingActionCallbackApiRequest,
+    draft: StoredReservationGroupDraft,
+    requestedAt: string,
+  ): PendingActionCallbackApiResponse | undefined {
+    if (!draft.pendingAction || draft.pendingAction.status !== 'awaitingConfirmation') return undefined;
+    const expiresAt = draft.pendingAction.expiresAt ?? draft.expiresAt;
+    if (expiresAt > requestedAt) return undefined;
+    const pendingAction: ReservationGroupDraftPendingActionRef = {
+      ...draft.pendingAction,
+      status: 'expired',
+      mutationStatus: 'none',
+      updatedAt: requestedAt,
+    };
+    const expired: StoredReservationGroupDraft = {
+      ...draft,
+      clientToken: request.clientToken,
+      requestFingerprint: request.requestFingerprint,
+      status: 'expired',
+      pendingAction,
+      updatedAt: requestedAt,
+    };
+    this.saveReservationGroupDraft(expired);
+    const auditRef = this.appendReservationGroupDraftAudit(expired.groupDraftId, 'pendingActionExpired', requestedAt, redactedPendingActionAuditPayload(request));
+    return pendingActionExpiredResponseFromGroup(request, expired, [auditRef]);
   }
 
   private findOperationRequest(request: OperationRequestGetApiRequest | OperationRequestUpdateApiRequest): OperationRequest | undefined {
@@ -2245,6 +2553,103 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
     }));
   }
 
+  private getReservationGroupDraftById(groupDraftId: string): StoredReservationGroupDraft | undefined {
+    const row = this.db.prepare('SELECT * FROM reservation_group_drafts WHERE group_draft_id = ?').get(groupDraftId) as ReservationGroupDraftRow | undefined;
+    return row ? reservationGroupDraftFromRow(row) : undefined;
+  }
+
+  private getReservationGroupDraftByContext(request: ReservationGroupDraftUpdateApiRequest | ReservationGroupQuoteApiRequest | ReservationGroupPrepareConfirmApiRequest | ReservationGroupDraftCancelApiRequest): StoredReservationGroupDraft | undefined {
+    if (request.groupDraftRef) return this.listStoredReservationGroupDrafts().find((draft) => reservationGroupDraftRef(draft.groupDraftId) === request.groupDraftRef);
+    return request.groupDraftId ? this.getReservationGroupDraftById(request.groupDraftId) : undefined;
+  }
+
+  private getReservationGroupDraftByPendingActionRef(pendingActionRef: string): StoredReservationGroupDraft | undefined {
+    return this.listStoredReservationGroupDrafts().find((draft) => draft.pendingAction?.pendingActionRef === pendingActionRef);
+  }
+
+  private listStoredReservationGroupDrafts(): StoredReservationGroupDraft[] {
+    const rows = this.db
+      .prepare('SELECT * FROM reservation_group_drafts ORDER BY created_at, group_draft_id')
+      .all() as unknown as ReservationGroupDraftRow[];
+    return rows.map(reservationGroupDraftFromRow);
+  }
+
+  private listReservationGroupDrafts(): ReservationGroupDraftWorkflowRef[] {
+    return this.listStoredReservationGroupDrafts().map((draft) => reservationGroupDraftRefFromStored(draft, [], { includeGroupDraftId: true }));
+  }
+
+  private saveReservationGroupDraft(draft: StoredReservationGroupDraft): void {
+    this.db
+      .prepare(
+        `
+          INSERT INTO reservation_group_drafts (
+            group_draft_id, property_id, client_token, request_fingerprint, status, slots_json,
+            missing_slots_json, evidence_refs_json, quote_json, pending_action_json, expires_at, created_at, updated_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(group_draft_id) DO UPDATE SET
+            client_token = excluded.client_token,
+            request_fingerprint = excluded.request_fingerprint,
+            status = excluded.status,
+            slots_json = excluded.slots_json,
+            missing_slots_json = excluded.missing_slots_json,
+            evidence_refs_json = excluded.evidence_refs_json,
+            quote_json = excluded.quote_json,
+            pending_action_json = excluded.pending_action_json,
+            expires_at = excluded.expires_at,
+            updated_at = excluded.updated_at
+        `,
+      )
+      .run(
+        draft.groupDraftId,
+        draft.propertyId,
+        draft.clientToken,
+        draft.requestFingerprint,
+        draft.status,
+        JSON.stringify(draft.slots),
+        JSON.stringify(draft.missingSlots),
+        JSON.stringify(draft.evidenceRefs),
+        draft.quote ? JSON.stringify(draft.quote) : null,
+        draft.pendingAction ? JSON.stringify(draft.pendingAction) : null,
+        draft.expiresAt,
+        draft.createdAt,
+        draft.updatedAt,
+      );
+  }
+
+  private appendReservationGroupDraftAudit(
+    groupDraftId: string,
+    action: ReservationGroupDraftAuditRef['action'],
+    occurredAt: string,
+    payload: unknown,
+  ): ReservationGroupDraftAuditRef {
+    const auditRef: ReservationGroupDraftAuditRef = {
+      auditId: reservationGroupDraftAuditId(groupDraftId, action, occurredAt, this.listReservationGroupDraftAudits().length + 1),
+      action,
+      occurredAt,
+    };
+    this.db
+      .prepare(
+        `
+          INSERT INTO reservation_group_draft_audits (audit_id, group_draft_id, action, occurred_at, payload_json)
+          VALUES (?, ?, ?, ?, ?)
+        `,
+      )
+      .run(auditRef.auditId, groupDraftId, action, occurredAt, JSON.stringify(payload));
+    return auditRef;
+  }
+
+  private listReservationGroupDraftAudits(): ReservationGroupDraftAuditRef[] {
+    const rows = this.db
+      .prepare('SELECT audit_id, action, occurred_at FROM reservation_group_draft_audits ORDER BY occurred_at, audit_id')
+      .all() as unknown as ReservationDraftAuditRow[];
+    return rows.map((row) => ({
+      auditId: row.audit_id,
+      action: row.action,
+      occurredAt: row.occurred_at,
+    }));
+  }
+
   private getOperationRequestById(operationRequestId: string): OperationRequest | undefined {
     const row = this.db.prepare('SELECT * FROM operation_requests WHERE operation_request_id = ?').get(operationRequestId) as OperationRequestRow | undefined;
     return row ? operationRequestFromRow(row) : undefined;
@@ -2472,6 +2877,38 @@ interface ReservationDraftAuditRow {
   readonly audit_id: string;
   readonly action: ReservationDraftAuditRef['action'];
   readonly occurred_at: string;
+}
+
+interface ReservationGroupDraftRow {
+  readonly group_draft_id: string;
+  readonly property_id: string;
+  readonly client_token: string;
+  readonly request_fingerprint: string;
+  readonly status: ReservationGroupDraftStatus;
+  readonly slots_json: string;
+  readonly missing_slots_json: string;
+  readonly evidence_refs_json: string;
+  readonly quote_json?: string | null;
+  readonly pending_action_json?: string | null;
+  readonly expires_at: string;
+  readonly created_at: string;
+  readonly updated_at: string;
+}
+
+interface StoredReservationGroupDraft {
+  readonly groupDraftId: string;
+  readonly propertyId: string;
+  readonly clientToken: string;
+  readonly requestFingerprint: string;
+  readonly status: ReservationGroupDraftStatus;
+  readonly slots: ReservationGroupDraftSlots;
+  readonly missingSlots: readonly ReservationGroupDraftMissingSlot[];
+  readonly evidenceRefs: readonly ReservationGroupDraftEvidenceRef[];
+  readonly quote?: ReservationGroupDraftQuoteRef;
+  readonly pendingAction?: ReservationGroupDraftPendingActionRef;
+  readonly expiresAt: string;
+  readonly createdAt: string;
+  readonly updatedAt: string;
 }
 
 interface StoredReservationDraft {
@@ -2717,6 +3154,44 @@ function reservationDraftRefFromStored(
   };
 }
 
+function reservationGroupDraftFromRow(row: ReservationGroupDraftRow): StoredReservationGroupDraft {
+  return {
+    groupDraftId: row.group_draft_id,
+    propertyId: row.property_id,
+    clientToken: row.client_token,
+    requestFingerprint: row.request_fingerprint,
+    status: row.status,
+    slots: parseJson<ReservationGroupDraftSlots>(row.slots_json),
+    missingSlots: parseJson<ReservationGroupDraftMissingSlot[]>(row.missing_slots_json),
+    evidenceRefs: parseJson<ReservationGroupDraftEvidenceRef[]>(row.evidence_refs_json),
+    ...(row.quote_json ? { quote: parseJson<ReservationGroupDraftQuoteRef>(row.quote_json) } : {}),
+    ...(row.pending_action_json ? { pendingAction: parseJson<ReservationGroupDraftPendingActionRef>(row.pending_action_json) } : {}),
+    expiresAt: row.expires_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function reservationGroupDraftRefFromStored(
+  draft: StoredReservationGroupDraft,
+  auditRefs: readonly ReservationGroupDraftAuditRef[] = [],
+  options: { includeGroupDraftId?: boolean } = {},
+): ReservationGroupDraftWorkflowRef {
+  return {
+    workflowType: 'reservationGroup',
+    groupDraftRef: reservationGroupDraftRef(draft.groupDraftId),
+    ...(options.includeGroupDraftId ? { groupDraftId: draft.groupDraftId } : {}),
+    status: draft.status,
+    slots: cloneValue(draft.slots),
+    missingSlots: cloneValue(draft.missingSlots),
+    evidenceRefs: cloneValue(draft.evidenceRefs),
+    expiresAt: draft.expiresAt,
+    ...(draft.quote ? { quote: cloneValue(draft.quote) } : {}),
+    ...(draft.pendingAction ? { pendingAction: cloneValue(draft.pendingAction) } : {}),
+    ...(auditRefs.length > 0 ? { auditRefs: cloneValue(auditRefs) } : {}),
+  };
+}
+
 function reservationDraftSuccessResponse(
   operation: typeof pmsReservationDraftCreateOperation | typeof pmsReservationDraftUpdateOperation | typeof pmsReservationQuoteOperation | typeof pmsReservationPrepareConfirmOperation | typeof pmsReservationDraftCancelOperation,
   idempotencyStatus: 'created' | 'updated' | 'quoted' | 'prepared' | 'cancelled',
@@ -2730,6 +3205,22 @@ function reservationDraftSuccessResponse(
     mutationStatus: 'draftOnly',
     idempotencyStatus,
     draft: reservationDraftRefFromStored(draft, auditRefs),
+  };
+}
+
+function reservationGroupDraftSuccessResponse(
+  operation: typeof pmsReservationGroupDraftCreateOperation | typeof pmsReservationGroupDraftUpdateOperation | typeof pmsReservationGroupQuoteOperation | typeof pmsReservationGroupPrepareConfirmOperation | typeof pmsReservationGroupDraftCancelOperation,
+  idempotencyStatus: 'created' | 'updated' | 'quoted' | 'prepared' | 'cancelled',
+  groupDraft: StoredReservationGroupDraft,
+  auditRefs: readonly ReservationGroupDraftAuditRef[],
+): ReservationGroupDraftWorkflowApiResponse {
+  return {
+    ok: true,
+    operation,
+    status: 'ok',
+    mutationStatus: 'draftOnly',
+    idempotencyStatus,
+    groupDraft: reservationGroupDraftRefFromStored(groupDraft, auditRefs),
   };
 }
 
@@ -2811,6 +3302,113 @@ function reservationDraftRejectedResponse(
   };
 }
 
+function reservationGroupDraftTokenConflictResponse(
+  request: ReservationGroupDraftCreateApiRequest | ReservationGroupDraftUpdateApiRequest | ReservationGroupQuoteApiRequest | ReservationGroupPrepareConfirmApiRequest | ReservationGroupDraftCancelApiRequest,
+): ReservationGroupDraftWorkflowApiResponse {
+  return {
+    ok: false,
+    operation: request.operation,
+    status: 'rejected',
+    mutationStatus: 'none',
+    errors: [{
+      code: 'RESERVATION_GROUP_DRAFT_TOKEN_REUSED_WITH_DIFFERENT_FINGERPRINT',
+      message: 'The reservation group draft client token was reused with a different request fingerprint.',
+      field: 'requestFingerprint',
+    }],
+  };
+}
+
+function reservationGroupDraftNotFoundResponse(request: ReservationGroupDraftUpdateApiRequest | ReservationGroupQuoteApiRequest | ReservationGroupPrepareConfirmApiRequest | ReservationGroupDraftCancelApiRequest): ReservationGroupDraftWorkflowApiResponse {
+  return {
+    ok: false,
+    operation: request.operation,
+    status: 'notFound',
+    mutationStatus: 'none',
+    errors: [{ code: 'RESERVATION_GROUP_DRAFT_NOT_FOUND', message: 'Reservation group draft was not found.', field: 'groupDraftRef' }],
+  };
+}
+
+function reservationGroupDraftInactiveResponse(
+  request: ReservationGroupQuoteApiRequest | ReservationGroupPrepareConfirmApiRequest,
+  draft: StoredReservationGroupDraft,
+  requestedAt: string,
+): ReservationGroupDraftWorkflowApiResponse | undefined {
+  if (draft.status === 'cancelled') {
+    return reservationGroupDraftRejectedResponse(request, draft, 'RESERVATION_GROUP_DRAFT_NOT_ACTIVE', 'Reservation group draft is cancelled and cannot be quoted or prepared.', 'status');
+  }
+  if (draft.status === 'expired' || draft.expiresAt <= requestedAt) {
+    return reservationGroupDraftRejectedResponse(request, { ...draft, status: 'expired' }, 'RESERVATION_GROUP_DRAFT_EXPIRED', 'Reservation group draft is expired and cannot be quoted or prepared.', 'expiresAt');
+  }
+  return undefined;
+}
+
+function reservationGroupDraftMissingSlotsResponse(
+  request: ReservationGroupQuoteApiRequest | ReservationGroupPrepareConfirmApiRequest,
+  draft: StoredReservationGroupDraft,
+): ReservationGroupDraftWorkflowApiResponse {
+  return reservationGroupDraftRejectedResponse(request, draft, 'RESERVATION_GROUP_DRAFT_MISSING_REQUIRED_SLOTS', 'Reservation group draft is missing required slots.', 'missingSlots');
+}
+
+function reservationGroupDraftQuoteRequiredResponse(
+  request: ReservationGroupPrepareConfirmApiRequest,
+  draft: StoredReservationGroupDraft,
+): ReservationGroupDraftWorkflowApiResponse {
+  return reservationGroupDraftRejectedResponse(request, draft, 'RESERVATION_GROUP_DRAFT_QUOTE_REQUIRED', 'Reservation group draft must be quoted before prepareConfirm can create pending-action refs.', 'quoteRef');
+}
+
+function reservationGroupDraftQuoteMismatchResponse(
+  request: ReservationGroupPrepareConfirmApiRequest,
+  draft: StoredReservationGroupDraft,
+): ReservationGroupDraftWorkflowApiResponse {
+  return reservationGroupDraftRejectedResponse(request, draft, 'RESERVATION_GROUP_DRAFT_QUOTE_MISMATCH', 'Reservation group prepareConfirm quoteRef does not match the group draft quote.', 'quoteRef');
+}
+
+function reservationGroupDraftRejectedResponse(
+  request: ReservationGroupQuoteApiRequest | ReservationGroupPrepareConfirmApiRequest,
+  draft: StoredReservationGroupDraft,
+  code: 'RESERVATION_GROUP_DRAFT_MISSING_REQUIRED_SLOTS' | 'RESERVATION_GROUP_DRAFT_NOT_ACTIVE' | 'RESERVATION_GROUP_DRAFT_EXPIRED' | 'RESERVATION_GROUP_DRAFT_QUOTE_REQUIRED' | 'RESERVATION_GROUP_DRAFT_QUOTE_MISMATCH',
+  message: string,
+  field: string,
+): ReservationGroupDraftWorkflowApiResponse {
+  return {
+    ok: false,
+    operation: request.operation,
+    status: 'rejected',
+    mutationStatus: 'none',
+    groupDraft: reservationGroupDraftRefFromStored(draft),
+    errors: [{ code, message, field }],
+  };
+}
+
+function deriveGroupMissingSlots(slots: ReservationGroupDraftSlots): readonly ReservationGroupDraftMissingSlot[] {
+  const missing: ReservationGroupDraftMissingSlot[] = [];
+  if (!slots.guestDisplayName) missing.push('guest');
+  if (!slots.arrivalDate || !slots.departureDate) missing.push('stayDates');
+  if (!slots.quantity || slots.quantity < 1) missing.push('quantity');
+  if (!hasCompleteGroupSelections(slots)) missing.push('roomSelections');
+  return missing;
+}
+
+function hasCompleteGroupSelections(slots: ReservationGroupDraftSlots): boolean {
+  if (!slots.quantity || slots.quantity < 1) return false;
+  if (!slots.selections || slots.selections.length !== slots.quantity) return false;
+  const roomIds = new Set<string>();
+  for (const selection of slots.selections) {
+    if (!selection.roomId || !selection.selectedCandidateRef) return false;
+    roomIds.add(selection.roomId);
+  }
+  return roomIds.size === slots.quantity;
+}
+
+function groupDraftStatusFromMissingSlots(
+  missingSlots: readonly ReservationGroupDraftMissingSlot[],
+  expiresAt: string,
+  requestedAt: string,
+): ReservationGroupDraftStatus {
+  if (expiresAt <= requestedAt) return 'expired';
+  return missingSlots.length > 0 ? 'collectingSlots' : 'quoteReady';
+}
+
 function deriveMissingSlots(slots: ReservationDraftSlots): readonly ReservationDraftMissingSlot[] {
   const missing: ReservationDraftMissingSlot[] = [];
   if (!slots.guestDisplayName) missing.push('guest');
@@ -2838,6 +3436,34 @@ function mergeEvidenceRefs(
     byKey.set(`${ref.source}:${ref.refId}`, ref);
   }
   return Array.from(byKey.values());
+}
+
+function reservationGroupDraftQuote(draft: StoredReservationGroupDraft, generatedAt: string): ReservationGroupDraftQuoteRef {
+  return {
+    quoteRef: reservationGroupQuoteRef(draft),
+    status: 'pricingUnsupported',
+    generatedAt,
+    capabilityGap: {
+      code: 'RESERVATION_GROUP_QUOTE_PRICING_UNSUPPORTED',
+      owner: 'pms-platform',
+      message: 'Reservation group pricing/rate truth is not available in the local platform sandbox; no price was invented.',
+    },
+  };
+}
+
+function reservationGroupDraftPendingAction(draft: StoredReservationGroupDraft, quoteRef: string, generatedAt: string): ReservationGroupDraftPendingActionRef {
+  return {
+    pendingActionRef: reservationDraftDerivedRef('pending-action', `${draft.groupDraftId}:${quoteRef}`),
+    cardPayloadRef: reservationDraftDerivedRef('card-payload', `${draft.groupDraftId}:${quoteRef}`),
+    quoteRef,
+    generatedAt,
+    updatedAt: generatedAt,
+    expiresAt: draft.expiresAt,
+    status: 'awaitingConfirmation',
+    confirmationMode: 'typedCardOnly',
+    mutationStatus: 'none',
+    selectionCount: draft.slots.selections?.length ?? 0,
+  };
 }
 
 function reservationDraftQuote(draft: StoredReservationDraft, generatedAt: string): ReservationDraftQuoteRef {
@@ -2884,6 +3510,23 @@ function pendingActionReadModelFromDraft(draft: StoredReservationDraft, auditRef
   };
 }
 
+function pendingActionReadModelFromGroupDraft(draft: StoredReservationGroupDraft, auditRefs: readonly ReservationGroupDraftAuditRef[] = []): PendingActionReadModel {
+  const pendingAction = draft.pendingAction!;
+  return {
+    pendingActionRef: pendingAction.pendingActionRef,
+    workflowType: 'reservationGroup',
+    quoteRef: pendingAction.quoteRef,
+    cardPayloadRef: pendingAction.cardPayloadRef,
+    status: pendingAction.status,
+    confirmationMode: pendingAction.confirmationMode,
+    mutationStatus: pendingAction.mutationStatus,
+    generatedAt: pendingAction.generatedAt,
+    updatedAt: pendingAction.updatedAt,
+    ...(pendingAction.expiresAt ? { expiresAt: pendingAction.expiresAt } : {}),
+    ...(auditRefs.length > 0 ? { auditRefs: cloneValue(auditRefs) } : {}),
+  };
+}
+
 function pendingActionSuccessResponse(
   operation: typeof pmsPendingActionStatusOperation | typeof pmsPendingActionConfirmOperation | typeof pmsPendingActionCancelOperation,
   idempotencyStatus: 'statusRead' | 'confirmed' | 'cancelled',
@@ -2898,6 +3541,23 @@ function pendingActionSuccessResponse(
     mutationStatus,
     idempotencyStatus,
     pendingAction: pendingActionReadModelFromDraft(draft, auditRefs),
+  };
+}
+
+function pendingActionSuccessResponseFromGroup(
+  operation: typeof pmsPendingActionStatusOperation | typeof pmsPendingActionConfirmOperation | typeof pmsPendingActionCancelOperation,
+  idempotencyStatus: 'statusRead' | 'confirmed' | 'cancelled',
+  mutationStatus: 'none' | 'deferred',
+  draft: StoredReservationGroupDraft,
+  auditRefs: readonly ReservationGroupDraftAuditRef[],
+): PendingActionCallbackApiResponse {
+  return {
+    ok: true,
+    operation,
+    status: 'ok',
+    mutationStatus,
+    idempotencyStatus,
+    pendingAction: pendingActionReadModelFromGroupDraft(draft, auditRefs),
   };
 }
 
@@ -2936,6 +3596,17 @@ function pendingActionCardPayloadMismatchResponse(request: PendingActionCallback
   };
 }
 
+function pendingActionCardPayloadMismatchResponseFromGroup(request: PendingActionCallbackApiRequest, draft: StoredReservationGroupDraft): PendingActionCallbackApiResponse {
+  return {
+    ok: false,
+    operation: request.operation ?? pendingActionFallbackOperation(request),
+    status: 'rejected',
+    mutationStatus: 'none',
+    pendingAction: pendingActionReadModelFromGroupDraft(draft),
+    errors: [{ code: 'PENDING_ACTION_CARD_PAYLOAD_MISMATCH', message: 'Card payload ref does not match the pending action.', field: 'cardPayloadRef' }],
+  };
+}
+
 function pendingActionInactiveResponse(request: PendingActionCallbackApiRequest, draft: StoredReservationDraft): PendingActionCallbackApiResponse {
   return {
     ok: false,
@@ -2947,6 +3618,17 @@ function pendingActionInactiveResponse(request: PendingActionCallbackApiRequest,
   };
 }
 
+function pendingActionInactiveResponseFromGroup(request: PendingActionCallbackApiRequest, draft: StoredReservationGroupDraft): PendingActionCallbackApiResponse {
+  return {
+    ok: false,
+    operation: request.operation ?? pendingActionFallbackOperation(request),
+    status: 'rejected',
+    mutationStatus: 'none',
+    pendingAction: pendingActionReadModelFromGroupDraft(draft),
+    errors: [{ code: 'PENDING_ACTION_NOT_ACTIVE', message: 'Pending action is no longer awaiting typed-card confirmation.', field: 'status' }],
+  };
+}
+
 function pendingActionExpiredResponse(request: PendingActionCallbackApiRequest, draft: StoredReservationDraft, auditRefs: readonly ReservationDraftAuditRef[]): PendingActionCallbackApiResponse {
   return {
     ok: false,
@@ -2954,6 +3636,17 @@ function pendingActionExpiredResponse(request: PendingActionCallbackApiRequest, 
     status: 'rejected',
     mutationStatus: 'none',
     pendingAction: pendingActionReadModelFromDraft(draft, auditRefs),
+    errors: [{ code: 'PENDING_ACTION_EXPIRED', message: 'Pending action is expired and cannot be confirmed or cancelled.', field: 'expiresAt' }],
+  };
+}
+
+function pendingActionExpiredResponseFromGroup(request: PendingActionCallbackApiRequest, draft: StoredReservationGroupDraft, auditRefs: readonly ReservationGroupDraftAuditRef[]): PendingActionCallbackApiResponse {
+  return {
+    ok: false,
+    operation: request.operation ?? pendingActionFallbackOperation(request),
+    status: 'rejected',
+    mutationStatus: 'none',
+    pendingAction: pendingActionReadModelFromGroupDraft(draft, auditRefs),
     errors: [{ code: 'PENDING_ACTION_EXPIRED', message: 'Pending action is expired and cannot be confirmed or cancelled.', field: 'expiresAt' }],
   };
 }
@@ -2973,6 +3666,7 @@ function pendingActionFallbackOperation(request: PendingActionCallbackApiRequest
 function deriveProjectionOutboxEntries(input: {
   domainEvents: readonly DomainEvent[];
   reservationDraftAudits: readonly ReservationDraftAuditRef[];
+  reservationGroupDraftAudits: readonly ReservationGroupDraftAuditRef[];
   operationRequests: readonly OperationRequest[];
   idempotencyRecords: readonly PmsSandboxIdempotencyReadback[];
   generatedAt: string;
@@ -2994,6 +3688,17 @@ function deriveProjectionOutboxEntries(input: {
   for (const audit of input.reservationDraftAudits) {
     entries.push(projectionOutboxEntry({
       sourceType: 'reservationDraftAudit',
+      sourceRef: audit.auditId,
+      projectionKind: 'reservationWorkflow',
+      aggregateRef: audit.auditId,
+      generatedAt: audit.occurredAt,
+      updatedAt: audit.occurredAt,
+      status: 'pending',
+    }));
+  }
+  for (const audit of input.reservationGroupDraftAudits) {
+    entries.push(projectionOutboxEntry({
+      sourceType: 'reservationGroupDraftAudit',
       sourceRef: audit.auditId,
       projectionKind: 'reservationWorkflow',
       aggregateRef: audit.auditId,
@@ -3100,6 +3805,24 @@ function addHoursIso(timestamp: string, hours: number): string {
   return new Date(new Date(timestamp).getTime() + hours * 60 * 60 * 1000).toISOString();
 }
 
+function reservationGroupDraftIdFromClientToken(clientToken: string): string {
+  const digest = createHash('sha256').update(clientToken).digest('hex').slice(0, 12);
+  return `group-draft-${sanitizeSlug(clientToken).slice(0, 42)}-${digest}`;
+}
+
+function reservationGroupDraftRef(groupDraftId: string): string {
+  return createHash('sha256').update(`reservation-group-draft:${groupDraftId}`).digest('hex').slice(0, 16);
+}
+
+function reservationGroupQuoteRef(draft: StoredReservationGroupDraft): string {
+  return reservationDraftDerivedRef('group-quote', `${draft.groupDraftId}:${stableJsonStringify(draft.slots)}:${stableJsonStringify(draft.evidenceRefs)}`);
+}
+
+function reservationGroupDraftAuditId(groupDraftId: string, action: string, occurredAt: string, sequence: number): string {
+  const digest = createHash('sha256').update(`${groupDraftId}:${action}:${occurredAt}:${sequence}`).digest('hex').slice(0, 12);
+  return `audit-${sanitizeSlug(action).slice(0, 24)}-${digest}`;
+}
+
 function reservationDraftIdFromClientToken(clientToken: string): string {
   const digest = createHash('sha256').update(clientToken).digest('hex').slice(0, 12);
   return `draft-${sanitizeSlug(clientToken).slice(0, 48)}-${digest}`;
@@ -3190,6 +3913,11 @@ function requestOperationFromRecord(record: ApiIdempotencyRecord): PmsSandboxIde
     record.response.operation === pmsReservationQuoteOperation ||
     record.response.operation === pmsReservationPrepareConfirmOperation ||
     record.response.operation === pmsReservationDraftCancelOperation ||
+    record.response.operation === pmsReservationGroupDraftCreateOperation ||
+    record.response.operation === pmsReservationGroupDraftUpdateOperation ||
+    record.response.operation === pmsReservationGroupQuoteOperation ||
+    record.response.operation === pmsReservationGroupPrepareConfirmOperation ||
+    record.response.operation === pmsReservationGroupDraftCancelOperation ||
     record.response.operation === pmsPendingActionStatusOperation ||
     record.response.operation === pmsPendingActionConfirmOperation ||
     record.response.operation === pmsPendingActionCancelOperation
@@ -3207,7 +3935,8 @@ function requestModeFromRecord(record: ApiIdempotencyRecord): PmsSandboxIdempote
 
 function requestJsonFromRecord(record: ApiIdempotencyRecord): unknown {
   if (record.response.ok && 'request' in record.response) return record.response.request.fingerprintInput;
-  if (record.response.ok && record.response.mutationStatus === 'draftOnly') return { operation: record.response.operation, draftRef: record.response.draft.draftRef };
+  if (record.response.ok && record.response.mutationStatus === 'draftOnly' && 'draft' in record.response) return { operation: record.response.operation, draftRef: record.response.draft.draftRef };
+  if (record.response.ok && record.response.mutationStatus === 'draftOnly' && 'groupDraft' in record.response) return { operation: record.response.operation, groupDraftRef: record.response.groupDraft.groupDraftRef };
   if (record.response.ok && 'pendingAction' in record.response) return { operation: record.response.operation, pendingActionRef: record.response.pendingAction.pendingActionRef };
   return 'mode' in record.response ? { mode: record.response.mode } : { operation: record.response.operation };
 }

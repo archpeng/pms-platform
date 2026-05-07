@@ -34,6 +34,9 @@ import {
   type ProjectionOutboxEntry,
   reservationDraftCreateOperationName,
   reservationDraftWorkflowOperations,
+  reservationGroupDraftCreateOperationName,
+  reservationGroupDraftWorkflowOperations,
+  type ReservationGroupDraftWorkflowRef,
   type ReservationDraftWorkflowRef,
   type ReservationDraftWorkflowSafeGap,
   type ReportMaintenanceCommand,
@@ -253,6 +256,32 @@ describe('PMS command contracts', () => {
       'pms.reservation.prepare_confirm',
       'pms.reservation.draft.cancel',
     ]);
+    expect(reservationGroupDraftCreateOperationName).toBe('pms.reservation.group_draft.create');
+    expect(reservationGroupDraftWorkflowOperations).toEqual([
+      'pms.reservation.group_draft.create',
+      'pms.reservation.group_draft.update',
+      'pms.reservation.group_quote',
+      'pms.reservation.group_prepare_confirm',
+      'pms.reservation.group_draft.cancel',
+    ]);
+    const groupDraftRef: ReservationGroupDraftWorkflowRef = {
+      workflowType: 'reservationGroup',
+      groupDraftRef: 'group-draft-contract-1',
+      status: 'quoteReady',
+      slots: {
+        guestDisplayName: 'Contract Guest',
+        arrivalDate: '2026-05-04',
+        departureDate: '2026-05-05',
+        quantity: 2,
+        selections: [
+          { roomId: 'room-contract-1', selectedCandidateRef: 'availability-contract:room-contract-1' },
+          { roomId: 'room-contract-2', selectedCandidateRef: 'availability-contract:room-contract-2' },
+        ],
+      },
+      missingSlots: [],
+      evidenceRefs: [{ source: 'availabilitySearch', refId: 'availability-contract' }],
+    };
+    expect(groupDraftRef.slots?.selections).toHaveLength(2);
     expect(draftRef).toMatchObject({
       workflowType: 'reservation',
       status: 'collectingSlots',

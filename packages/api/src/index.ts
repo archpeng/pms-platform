@@ -27,6 +27,17 @@ import type {
   ReservationDraftWorkflowOperation,
   ReservationDraftWorkflowRef,
   ReservationDraftWorkflowSafeGap,
+  ReservationGroupDraftAuditRef,
+  ReservationGroupDraftEvidenceRef,
+  ReservationGroupDraftMissingSlot,
+  ReservationGroupDraftPendingActionRef,
+  ReservationGroupDraftQuoteRef,
+  ReservationGroupDraftSlots,
+  ReservationGroupDraftStatus,
+  ReservationGroupDraftWorkflowOperation,
+  ReservationGroupDraftWorkflowRef,
+  ReservationGroupDraftWorkflowSafeGap,
+  ReservationGroupRoomSelection,
   PmsCapabilityManifest,
   PmsCapabilityManifestItem,
   PmsCapabilityPlannerProjection,
@@ -43,6 +54,11 @@ import {
   reservationDraftCancelOperationName,
   reservationDraftCreateOperationName,
   reservationDraftUpdateOperationName,
+  reservationGroupDraftCancelOperationName,
+  reservationGroupDraftCreateOperationName,
+  reservationGroupDraftUpdateOperationName,
+  reservationGroupPrepareConfirmOperationName,
+  reservationGroupQuoteOperationName,
   reservationPrepareConfirmOperationName,
   reservationQuoteOperationName,
   pendingActionCancelOperationName,
@@ -94,6 +110,11 @@ export const pmsReservationDraftUpdateOperation = reservationDraftUpdateOperatio
 export const pmsReservationQuoteOperation = reservationQuoteOperationName;
 export const pmsReservationPrepareConfirmOperation = reservationPrepareConfirmOperationName;
 export const pmsReservationDraftCancelOperation = reservationDraftCancelOperationName;
+export const pmsReservationGroupDraftCreateOperation = reservationGroupDraftCreateOperationName;
+export const pmsReservationGroupDraftUpdateOperation = reservationGroupDraftUpdateOperationName;
+export const pmsReservationGroupQuoteOperation = reservationGroupQuoteOperationName;
+export const pmsReservationGroupPrepareConfirmOperation = reservationGroupPrepareConfirmOperationName;
+export const pmsReservationGroupDraftCancelOperation = reservationGroupDraftCancelOperationName;
 export const pmsPendingActionStatusOperation = pendingActionStatusOperationName;
 export const pmsPendingActionConfirmOperation = pendingActionConfirmOperationName;
 export const pmsPendingActionCancelOperation = pendingActionCancelOperationName;
@@ -125,6 +146,7 @@ export type PmsReadModelOperation =
 export type PmsApiMode = 'dryRun' | 'confirm';
 export type CheckOutApiMode = PmsApiMode;
 export type PmsReservationDraftWorkflowOperation = ReservationDraftWorkflowOperation;
+export type PmsReservationGroupDraftWorkflowOperation = ReservationGroupDraftWorkflowOperation;
 export type PmsPendingActionOperation = PendingActionCallbackOperation;
 export type PmsOperationRequestOperation =
   | typeof pmsOperationRequestCreateOperation
@@ -142,6 +164,15 @@ export type ApiBoundaryErrorCode =
   | 'RESERVATION_DRAFT_QUOTE_MISMATCH'
   | 'RESERVATION_DRAFT_WORKFLOW_NOT_IMPLEMENTED'
   | 'RESERVATION_QUOTE_PRICING_UNSUPPORTED'
+  | 'RESERVATION_GROUP_DRAFT_TOKEN_REUSED_WITH_DIFFERENT_FINGERPRINT'
+  | 'RESERVATION_GROUP_DRAFT_NOT_FOUND'
+  | 'RESERVATION_GROUP_DRAFT_MISSING_REQUIRED_SLOTS'
+  | 'RESERVATION_GROUP_DRAFT_NOT_ACTIVE'
+  | 'RESERVATION_GROUP_DRAFT_EXPIRED'
+  | 'RESERVATION_GROUP_DRAFT_QUOTE_REQUIRED'
+  | 'RESERVATION_GROUP_DRAFT_QUOTE_MISMATCH'
+  | 'RESERVATION_GROUP_DRAFT_WORKFLOW_NOT_IMPLEMENTED'
+  | 'RESERVATION_GROUP_QUOTE_PRICING_UNSUPPORTED'
   | 'OPERATION_REQUEST_TOKEN_REUSED_WITH_DIFFERENT_FINGERPRINT'
   | 'OPERATION_REQUEST_UNSUPPORTED_ACTION'
   | 'OPERATION_REQUEST_UNSUPPORTED_SOURCE'
@@ -526,6 +557,105 @@ export type ReservationDraftWorkflowApiResponse =
   | ReservationDraftWorkflowSafeGapApiResponse
   | ReservationDraftWorkflowErrorApiResponse;
 
+interface ReservationGroupDraftWorkflowApiRequestBase {
+  readonly operation: PmsReservationGroupDraftWorkflowOperation;
+  readonly propertyId: string;
+  readonly actor: Actor;
+  readonly source: Extract<CommandMeta['source'], 'api' | 'mcp' | 'test'>;
+  readonly clientToken: string;
+  readonly requestFingerprint: string;
+  readonly correlationId: string;
+  readonly requestedAt: string;
+  readonly slots?: ReservationGroupDraftSlots;
+  readonly evidenceRefs?: readonly ReservationGroupDraftEvidenceRef[];
+  readonly expiresAt?: string;
+}
+
+export interface ReservationGroupDraftCreateApiRequest extends ReservationGroupDraftWorkflowApiRequestBase {
+  readonly operation: typeof pmsReservationGroupDraftCreateOperation;
+}
+
+export interface ReservationGroupDraftUpdateApiRequest extends ReservationGroupDraftWorkflowApiRequestBase {
+  readonly operation: typeof pmsReservationGroupDraftUpdateOperation;
+  readonly groupDraftRef?: string;
+  readonly groupDraftId?: string;
+  readonly missingSlots?: readonly ReservationGroupDraftMissingSlot[];
+}
+
+export interface ReservationGroupQuoteApiRequest extends ReservationGroupDraftWorkflowApiRequestBase {
+  readonly operation: typeof pmsReservationGroupQuoteOperation;
+  readonly groupDraftRef?: string;
+  readonly groupDraftId?: string;
+}
+
+export interface ReservationGroupPrepareConfirmApiRequest extends ReservationGroupDraftWorkflowApiRequestBase {
+  readonly operation: typeof pmsReservationGroupPrepareConfirmOperation;
+  readonly groupDraftRef?: string;
+  readonly groupDraftId?: string;
+  readonly quoteRef?: string;
+}
+
+export interface ReservationGroupDraftCancelApiRequest extends ReservationGroupDraftWorkflowApiRequestBase {
+  readonly operation: typeof pmsReservationGroupDraftCancelOperation;
+  readonly groupDraftRef?: string;
+  readonly groupDraftId?: string;
+  readonly reason: string;
+}
+
+export type ReservationGroupDraftWorkflowApiRequest =
+  | ReservationGroupDraftCreateApiRequest
+  | ReservationGroupDraftUpdateApiRequest
+  | ReservationGroupQuoteApiRequest
+  | ReservationGroupPrepareConfirmApiRequest
+  | ReservationGroupDraftCancelApiRequest;
+
+export type ReservationGroupDraftIdempotencyStatus = 'created' | 'updated' | 'quoted' | 'prepared' | 'cancelled' | 'replayed';
+
+export interface ReservationGroupDraftWorkflowSuccessApiResponse {
+  readonly ok: true;
+  readonly operation: PmsReservationGroupDraftWorkflowOperation;
+  readonly status: 'ok';
+  readonly mutationStatus: 'draftOnly';
+  readonly idempotencyStatus: ReservationGroupDraftIdempotencyStatus;
+  readonly groupDraft: ReservationGroupDraftWorkflowRef;
+}
+
+export interface ReservationGroupDraftWorkflowSafeGapApiResponse {
+  readonly ok: false;
+  readonly operation: PmsReservationGroupDraftWorkflowOperation;
+  readonly status: 'notImplemented';
+  readonly mutationStatus: 'none';
+  readonly groupDraft?: ReservationGroupDraftWorkflowRef;
+  readonly gap: ReservationGroupDraftWorkflowSafeGap;
+  readonly errors: readonly ApiError[];
+}
+
+export interface ReservationGroupDraftWorkflowErrorApiResponse {
+  readonly ok: false;
+  readonly operation: PmsReservationGroupDraftWorkflowOperation;
+  readonly status: 'rejected' | 'notFound';
+  readonly mutationStatus: 'none';
+  readonly groupDraft?: ReservationGroupDraftWorkflowRef;
+  readonly errors: readonly ApiError[];
+}
+
+export type ReservationGroupDraftWorkflowApiResponse =
+  | ReservationGroupDraftWorkflowSuccessApiResponse
+  | ReservationGroupDraftWorkflowSafeGapApiResponse
+  | ReservationGroupDraftWorkflowErrorApiResponse;
+
+export interface ReservationGroupDraftLifecycleStore {
+  createReservationGroupDraft(request: ReservationGroupDraftCreateApiRequest): ReservationGroupDraftWorkflowApiResponse;
+  updateReservationGroupDraft(request: ReservationGroupDraftUpdateApiRequest): ReservationGroupDraftWorkflowApiResponse;
+  quoteReservationGroupDraft(request: ReservationGroupQuoteApiRequest): ReservationGroupDraftWorkflowApiResponse;
+  prepareConfirmReservationGroupDraft(request: ReservationGroupPrepareConfirmApiRequest): ReservationGroupDraftWorkflowApiResponse;
+  cancelReservationGroupDraft(request: ReservationGroupDraftCancelApiRequest): ReservationGroupDraftWorkflowApiResponse;
+}
+
+export interface ExecuteReservationGroupDraftWorkflowApiOptions {
+  readonly groupDrafts?: ReservationGroupDraftLifecycleStore;
+}
+
 export interface ReservationDraftLifecycleStore {
   createReservationDraft(request: ReservationDraftCreateApiRequest): ReservationDraftWorkflowApiResponse;
   updateReservationDraft(request: ReservationDraftUpdateApiRequest): ReservationDraftWorkflowApiResponse;
@@ -692,7 +822,7 @@ export type OperationRequestUpdateApiResponse = OperationRequestUpdateApiSuccess
 export interface ApiIdempotencyRecord {
   readonly idempotencyKey: string;
   readonly requestFingerprint: string;
-  readonly response: CheckInApiResponse | CheckOutApiResponse | PmsExtendedCommandApiResponse | ReservationDraftWorkflowApiResponse | PendingActionCallbackApiResponse;
+  readonly response: CheckInApiResponse | CheckOutApiResponse | PmsExtendedCommandApiResponse | ReservationDraftWorkflowApiResponse | ReservationGroupDraftWorkflowApiResponse | PendingActionCallbackApiResponse;
 }
 
 export interface ApiIdempotencyRepository {
@@ -783,6 +913,29 @@ function buildPmsCapabilityManifestItems(): readonly PmsCapabilityManifestItem[]
       { name: 'draftRef', required: true, source: 'context' },
       { name: 'reason', required: true, source: 'user' },
     ]),
+    reservationGroupDraftCapability(pmsReservationGroupDraftCreateOperation, '/v1/pms/reservation-group-drafts/create', 'draft', 'ReservationGroupDraftCreateApiRequest', [
+      { name: 'propertyId', required: true, source: 'context' },
+      { name: 'guestDisplayName', required: false, source: 'user' },
+      { name: 'arrivalDate', required: false, source: 'user' },
+      { name: 'departureDate', required: false, source: 'user' },
+      { name: 'quantity', required: true, source: 'user' },
+      { name: 'roomTypeKeyword', required: false, source: 'user' },
+    ]),
+    reservationGroupDraftCapability(pmsReservationGroupDraftUpdateOperation, '/v1/pms/reservation-group-drafts/update', 'draft', 'ReservationGroupDraftUpdateApiRequest', [
+      { name: 'groupDraftRef', required: true, source: 'context' },
+      { name: 'selections', required: true, source: 'context', schemaRef: 'ReservationGroupRoomSelection[]' },
+    ]),
+    reservationGroupDraftCapability(pmsReservationGroupQuoteOperation, '/v1/pms/reservation-group-drafts/quote', 'draft', 'ReservationGroupQuoteApiRequest', [
+      { name: 'groupDraftRef', required: true, source: 'context' },
+    ]),
+    reservationGroupDraftCapability(pmsReservationGroupPrepareConfirmOperation, '/v1/pms/reservation-group-drafts/prepare-confirm', 'prepareConfirm', 'ReservationGroupPrepareConfirmApiRequest', [
+      { name: 'groupDraftRef', required: true, source: 'context' },
+      { name: 'quoteRef', required: false, source: 'context' },
+    ]),
+    reservationGroupDraftCapability(pmsReservationGroupDraftCancelOperation, '/v1/pms/reservation-group-drafts/cancel', 'draft', 'ReservationGroupDraftCancelApiRequest', [
+      { name: 'groupDraftRef', required: true, source: 'context' },
+      { name: 'reason', required: true, source: 'user' },
+    ]),
     readCapability(pmsOperationRequestGetOperation, '/v1/pms/operation-requests/get', 'OperationRequestGetApiRequest', 'OperationRequestGetApiResponse', [{ name: 'operationRequestId', required: false, source: 'context' }], 'OperationRequest'),
     readCapability(pmsOperationRequestListOperation, '/v1/pms/operation-requests/list', 'OperationRequestListApiRequest', 'OperationRequestListApiResponse', [], 'OperationRequest'),
     commandCapability(pmsCheckInOperation, 'CHECK_IN', '/v1/pms/check-in', 'dryRun', ['RoomCheckedIn'], [{ name: 'roomId', required: true, source: 'user' }, { name: 'reservationCode', required: false, source: 'user' }]),
@@ -841,15 +994,37 @@ function reservationDraftCapability(
   requestSchemaRef: string,
   slots: PmsCapabilityManifestItem['slots'],
 ): PmsCapabilityManifestItem {
+  return workflowCapability(operation, path, capabilityClass, requestSchemaRef, 'ReservationDraftWorkflowApiResponse', 'reservationDraft', slots);
+}
+
+function reservationGroupDraftCapability(
+  operation: PmsReservationGroupDraftWorkflowOperation,
+  path: string,
+  capabilityClass: Extract<PmsCapabilityClass, 'draft' | 'prepareConfirm'>,
+  requestSchemaRef: string,
+  slots: PmsCapabilityManifestItem['slots'],
+): PmsCapabilityManifestItem {
+  return workflowCapability(operation, path, capabilityClass, requestSchemaRef, 'ReservationGroupDraftWorkflowApiResponse', 'reservationGroupDraft', slots);
+}
+
+function workflowCapability(
+  operation: PmsReservationDraftWorkflowOperation | PmsReservationGroupDraftWorkflowOperation,
+  path: string,
+  capabilityClass: Extract<PmsCapabilityClass, 'draft' | 'prepareConfirm'>,
+  requestSchemaRef: string,
+  responseSchemaRef: string,
+  workflow: string,
+  slots: PmsCapabilityManifestItem['slots'],
+): PmsCapabilityManifestItem {
   return capability({
     name: operation,
     class: capabilityClass,
     customerChatAllowed: true,
     naturalLanguageExecutable: true,
     confirmationRequired: false,
-    schemaRefs: { request: requestSchemaRef, response: 'ReservationDraftWorkflowApiResponse' },
+    schemaRefs: { request: requestSchemaRef, response: responseSchemaRef },
     slots,
-    refs: { workflow: 'reservationDraft' },
+    refs: { workflow },
     idempotency: { required: true, keyField: 'clientToken', fingerprintRequired: true, replaySafe: true },
     audit: { auditRequired: true, emitsDomainEvents: false, eventTypes: [] },
     endpoint: { method: 'POST', path, operation, auth: 'bearer-token' },
@@ -1340,6 +1515,72 @@ export function executeReservationDraftWorkflowApiRequest(
   };
 }
 
+export function executeReservationGroupDraftWorkflowApiRequest(
+  request: ReservationGroupDraftWorkflowApiRequest,
+  options: ExecuteReservationGroupDraftWorkflowApiOptions = {},
+): ReservationGroupDraftWorkflowApiResponse {
+  if (options.groupDrafts && request.operation === pmsReservationGroupDraftCreateOperation) {
+    return options.groupDrafts.createReservationGroupDraft(request);
+  }
+  if (options.groupDrafts && request.operation === pmsReservationGroupDraftUpdateOperation) {
+    return options.groupDrafts.updateReservationGroupDraft(request);
+  }
+  if (options.groupDrafts && request.operation === pmsReservationGroupQuoteOperation) {
+    return options.groupDrafts.quoteReservationGroupDraft(request);
+  }
+  if (options.groupDrafts && request.operation === pmsReservationGroupPrepareConfirmOperation) {
+    return options.groupDrafts.prepareConfirmReservationGroupDraft(request);
+  }
+  if (options.groupDrafts && request.operation === pmsReservationGroupDraftCancelOperation) {
+    return options.groupDrafts.cancelReservationGroupDraft(request);
+  }
+
+  const gap: ReservationGroupDraftWorkflowSafeGap = {
+    code: 'RESERVATION_GROUP_DRAFT_WORKFLOW_NOT_IMPLEMENTED',
+    owner: 'pms-platform',
+    mutationStatus: 'none',
+    message: 'Reservation group draft workflow storage and mutation behavior are intentionally not implemented in this contract skeleton.',
+  };
+
+  return {
+    ok: false,
+    operation: request.operation,
+    status: 'notImplemented',
+    mutationStatus: 'none',
+    groupDraft: {
+      workflowType: 'reservationGroup',
+      ...(isGroupDraftScopedRequest(request) ? groupDraftContextFromRequest(request) : {}),
+      status: 'collectingSlots',
+      missingSlots: [],
+      evidenceRefs: request.evidenceRefs ?? [],
+      ...(request.expiresAt ? { expiresAt: request.expiresAt } : {}),
+    },
+    gap,
+    errors: [
+      {
+        code: gap.code,
+        message: gap.message,
+        field: 'operation',
+      },
+    ],
+  };
+}
+
+function isGroupDraftScopedRequest(
+  request: ReservationGroupDraftWorkflowApiRequest,
+): request is ReservationGroupDraftUpdateApiRequest | ReservationGroupQuoteApiRequest | ReservationGroupPrepareConfirmApiRequest | ReservationGroupDraftCancelApiRequest {
+  return 'groupDraftRef' in request || 'groupDraftId' in request;
+}
+
+function groupDraftContextFromRequest(
+  request: ReservationGroupDraftUpdateApiRequest | ReservationGroupQuoteApiRequest | ReservationGroupPrepareConfirmApiRequest | ReservationGroupDraftCancelApiRequest,
+): { groupDraftRef?: string; groupDraftId?: string } {
+  return {
+    ...(request.groupDraftRef ? { groupDraftRef: request.groupDraftRef } : {}),
+    ...(request.groupDraftId ? { groupDraftId: request.groupDraftId } : {}),
+  };
+}
+
 export function executeAvailabilitySearchApiRequest(
   request: AvailabilitySearchApiRequest,
   inventory: InventoryReadModel,
@@ -1475,6 +1716,11 @@ export function describeApiContractBoundary() {
       pmsReservationQuoteOperation,
       pmsReservationPrepareConfirmOperation,
       pmsReservationDraftCancelOperation,
+      pmsReservationGroupDraftCreateOperation,
+      pmsReservationGroupDraftUpdateOperation,
+      pmsReservationGroupQuoteOperation,
+      pmsReservationGroupPrepareConfirmOperation,
+      pmsReservationGroupDraftCancelOperation,
       pmsPendingActionStatusOperation,
       pmsPendingActionConfirmOperation,
       pmsPendingActionCancelOperation,

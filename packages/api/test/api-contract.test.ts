@@ -20,6 +20,7 @@ import {
   executeGetRoomApiRequest,
   executePmsExtendedCommandApiRequest,
   executeReservationDraftWorkflowApiRequest,
+  executeReservationGroupDraftWorkflowApiRequest,
   getPmsCapabilityManifest,
   getPmsCapabilityPlannerProjection,
   pmsCapabilityManifestOperation,
@@ -44,6 +45,11 @@ import {
   pmsReservationDraftCancelOperation,
   pmsReservationDraftCreateOperation,
   pmsReservationDraftUpdateOperation,
+  pmsReservationGroupDraftCancelOperation,
+  pmsReservationGroupDraftCreateOperation,
+  pmsReservationGroupDraftUpdateOperation,
+  pmsReservationGroupPrepareConfirmOperation,
+  pmsReservationGroupQuoteOperation,
   pmsReservationPrepareConfirmOperation,
   pmsReservationQuoteOperation,
   pmsRestoreSellableOperation,
@@ -63,6 +69,8 @@ import {
   type MaintenanceDoneApiRequest,
   type ReportMaintenanceApiRequest,
   type ReservationDraftCreateApiRequest,
+  type ReservationGroupDraftCreateApiRequest,
+  type ReservationGroupPrepareConfirmApiRequest,
   type ReservationPrepareConfirmApiRequest,
   type RestoreSellableApiRequest,
 } from '../src/index.js';
@@ -195,6 +203,11 @@ describe('API checkout contract skeleton', () => {
         'pms.reservation.quote',
         'pms.reservation.prepare_confirm',
         'pms.reservation.draft.cancel',
+        'pms.reservation.group_draft.create',
+        'pms.reservation.group_draft.update',
+        'pms.reservation.group_quote',
+        'pms.reservation.group_prepare_confirm',
+        'pms.reservation.group_draft.cancel',
         'pms.pending_action.status',
         'pms.pending_action.confirm',
         'pms.pending_action.cancel',
@@ -259,6 +272,11 @@ describe('API checkout contract skeleton', () => {
     expect(pmsReservationQuoteOperation).toBe('pms.reservation.quote');
     expect(pmsReservationPrepareConfirmOperation).toBe('pms.reservation.prepare_confirm');
     expect(pmsReservationDraftCancelOperation).toBe('pms.reservation.draft.cancel');
+    expect(pmsReservationGroupDraftCreateOperation).toBe('pms.reservation.group_draft.create');
+    expect(pmsReservationGroupDraftUpdateOperation).toBe('pms.reservation.group_draft.update');
+    expect(pmsReservationGroupQuoteOperation).toBe('pms.reservation.group_quote');
+    expect(pmsReservationGroupPrepareConfirmOperation).toBe('pms.reservation.group_prepare_confirm');
+    expect(pmsReservationGroupDraftCancelOperation).toBe('pms.reservation.group_draft.cancel');
     expect(pmsOperationRequestCreateOperation).toBe('pms_operation_request_create');
     expect(pmsOperationRequestGetOperation).toBe('pms_operation_request_get');
     expect(pmsOperationRequestListOperation).toBe('pms_operation_request_list');
@@ -304,6 +322,53 @@ describe('API checkout contract skeleton', () => {
       operation: 'pms.reservation.prepare_confirm',
       mutationStatus: 'none',
       draft: { draftId: 'draft-1' },
+    });
+  });
+
+  it('returns typed reservation group draft safe gaps without final PMS mutations', () => {
+    const createRequest: ReservationGroupDraftCreateApiRequest = {
+      operation: pmsReservationGroupDraftCreateOperation,
+      propertyId: 'property-small-hotel',
+      actor: checkoutContractFixtures.actor,
+      source: 'api',
+      clientToken: 'reservation-group-draft-create-1',
+      requestFingerprint: 'sha256:reservation-group-draft-create-1',
+      correlationId: 'corr-reservation-group-draft-create-1',
+      requestedAt: '2026-05-02T00:00:00.000Z',
+      slots: {
+        guestDisplayName: 'Guest Group',
+        arrivalDate: '2026-05-04',
+        departureDate: '2026-05-05',
+        quantity: 2,
+        selections: [
+          { roomId: 'room-1001', selectedCandidateRef: 'availability-search-1:room-1001' },
+          { roomId: 'room-1002', selectedCandidateRef: 'availability-search-1:room-1002' },
+        ],
+      },
+      evidenceRefs: [{ source: 'availabilitySearch', refId: 'availability-search-1' }],
+    };
+    const prepareRequest: ReservationGroupPrepareConfirmApiRequest = {
+      ...createRequest,
+      operation: pmsReservationGroupPrepareConfirmOperation,
+      clientToken: 'reservation-group-draft-prepare-1',
+      requestFingerprint: 'sha256:reservation-group-draft-prepare-1',
+      groupDraftId: 'group-draft-1',
+      quoteRef: 'group-quote-1',
+    };
+
+    expect(executeReservationGroupDraftWorkflowApiRequest(createRequest)).toMatchObject({
+      ok: false,
+      operation: 'pms.reservation.group_draft.create',
+      status: 'notImplemented',
+      mutationStatus: 'none',
+      gap: { code: 'RESERVATION_GROUP_DRAFT_WORKFLOW_NOT_IMPLEMENTED', owner: 'pms-platform', mutationStatus: 'none' },
+      groupDraft: { workflowType: 'reservationGroup', status: 'collectingSlots', evidenceRefs: [{ refId: 'availability-search-1' }] },
+    });
+    expect(executeReservationGroupDraftWorkflowApiRequest(prepareRequest)).toMatchObject({
+      ok: false,
+      operation: 'pms.reservation.group_prepare_confirm',
+      mutationStatus: 'none',
+      groupDraft: { groupDraftId: 'group-draft-1' },
     });
   });
 

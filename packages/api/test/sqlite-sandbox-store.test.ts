@@ -16,6 +16,11 @@ import {
   pmsReservationDraftCancelOperation,
   pmsReservationDraftCreateOperation,
   pmsReservationDraftUpdateOperation,
+  pmsReservationGroupDraftCancelOperation,
+  pmsReservationGroupDraftCreateOperation,
+  pmsReservationGroupDraftUpdateOperation,
+  pmsReservationGroupPrepareConfirmOperation,
+  pmsReservationGroupQuoteOperation,
   pmsReservationPrepareConfirmOperation,
   pmsReservationQuoteOperation,
   pmsRestoreSellableOperation,
@@ -29,6 +34,7 @@ import {
   type ReservationDraftCancelApiRequest,
   type ReservationDraftCreateApiRequest,
   type ReservationDraftUpdateApiRequest,
+  type ReservationGroupDraftCreateApiRequest,
   type ReservationPrepareConfirmApiRequest,
   type ReservationQuoteApiRequest,
   type RestoreSellableApiRequest,
@@ -1035,6 +1041,113 @@ describe('SQLite local sandbox store', () => {
     const restarted = createSqliteLocalSandboxStore({ dbPath, seedRooms: [], resetOnStart: false, now: () => now });
     expect(restarted.readback().reservationDrafts).toEqual(expect.arrayContaining([
       expect.objectContaining({ draftRef, status: 'awaitingConfirmation', quote: expect.objectContaining({ quoteRef }), pendingAction: expect.objectContaining({ quoteRef }) }),
+    ]));
+    restarted.close();
+  });
+
+  it('persists reservation group draft workflow and pending-action callbacks without final PMS mutation', () => {
+    const dbPath = tempPath('reservation-group-draft-workflow.sqlite');
+    const store = createSqliteLocalSandboxStore({ dbPath, seedRooms: [dueOutRoom, vacantCleanRoom], resetOnStart: true, now: () => now });
+    const actor = { type: 'human' as const, id: 'frontdesk-1', displayName: 'Front Desk' };
+    const completeSlots = {
+      guestDisplayName: 'Group Guest',
+      arrivalDate: '2026-05-04',
+      departureDate: '2026-05-05',
+      roomTypeKeyword: '花园',
+      quantity: 2,
+      selections: [
+        { roomId: 'room-1001', selectedCandidateRef: 'availability-group-sqlite-1:room-1001', roomTypeId: 'room-type-garden-villa', roomType: '花园别墅' },
+        { roomId: 'room-A2', selectedCandidateRef: 'availability-group-sqlite-1:room-A2', roomTypeId: 'room-type-garden-villa', roomType: '花园别墅' },
+      ],
+    };
+    const baseCreate: ReservationGroupDraftCreateApiRequest = {
+      operation: pmsReservationGroupDraftCreateOperation,
+      propertyId: 'property-small-hotel',
+      actor,
+      source: 'api',
+      clientToken: 'group-draft-sqlite-create-1',
+      requestFingerprint: 'sha256:group-draft-sqlite-create-1',
+      correlationId: 'corr-group-draft-sqlite-create-1',
+      requestedAt: now,
+      slots: { ...completeSlots, selections: undefined },
+      evidenceRefs: [{ source: 'availabilitySearch', refId: 'availability-group-sqlite-1', generatedAt: now }],
+      expiresAt: '2026-05-03T00:00:00.000Z',
+    };
+    const created = store.createReservationGroupDraft(baseCreate);
+    const replayedCreate = store.createReservationGroupDraft(baseCreate);
+    const createMismatch = store.createReservationGroupDraft({ ...baseCreate, requestFingerprint: 'sha256:group-draft-sqlite-create-1-different' });
+    const groupDraftRef = created.ok ? created.groupDraft.groupDraftRef! : 'missing-group-draft';
+    const update = store.updateReservationGroupDraft({
+      ...baseCreate,
+      operation: pmsReservationGroupDraftUpdateOperation,
+      clientToken: 'group-draft-sqlite-update-1',
+      requestFingerprint: 'sha256:group-draft-sqlite-update-1',
+      correlationId: 'corr-group-draft-sqlite-update-1',
+      requestedAt: '2026-04-28T00:01:00.000Z',
+      groupDraftRef,
+      slots: completeSlots,
+    });
+    const quote = store.quoteReservationGroupDraft({
+      ...baseCreate,
+      operation: pmsReservationGroupQuoteOperation,
+      clientToken: 'group-draft-sqlite-quote-1',
+      requestFingerprint: 'sha256:group-draft-sqlite-quote-1',
+      correlationId: 'corr-group-draft-sqlite-quote-1',
+      requestedAt: '2026-04-28T00:02:00.000Z',
+      groupDraftRef,
+    });
+    const quoteRef = quote.ok ? quote.groupDraft.quote!.quoteRef : 'missing-group-quote';
+    const prepared = store.prepareConfirmReservationGroupDraft({
+      ...baseCreate,
+      operation: pmsReservationGroupPrepareConfirmOperation,
+      clientToken: 'group-draft-sqlite-prepare-1',
+      requestFingerprint: 'sha256:group-draft-sqlite-prepare-1',
+      correlationId: 'corr-group-draft-sqlite-prepare-1',
+      requestedAt: '2026-04-28T00:03:00.000Z',
+      groupDraftRef,
+      quoteRef,
+    });
+    const pendingActionRef = prepared.ok ? prepared.groupDraft.pendingAction!.pendingActionRef : 'missing-group-pending';
+    const cardPayloadRef = prepared.ok ? prepared.groupDraft.pendingAction!.cardPayloadRef : 'missing-group-card';
+    const scope = { propertyId: 'property-small-hotel', channel: 'typed_card' as const, userIdHash: 'sha256:user-group-callback-1' };
+    const status = store.getPendingActionStatus({ operation: pmsPendingActionStatusOperation, pendingActionRef, actor, scope, clientToken: 'group-pending-sqlite-status-1', requestFingerprint: 'sha256:group-pending-sqlite-status-1', correlationId: 'corr-group-pending-sqlite-status-1', requestedAt: '2026-04-28T00:04:00.000Z', cardPayloadRef });
+    const cardPayloadMismatch = store.confirmPendingAction({ operation: pmsPendingActionConfirmOperation, pendingActionRef, actor, scope, clientToken: 'group-pending-sqlite-card-mismatch-1', requestFingerprint: 'sha256:group-pending-sqlite-card-mismatch-1', correlationId: 'corr-group-pending-sqlite-card-mismatch-1', requestedAt: '2026-04-28T00:05:00.000Z', cardPayloadRef: 'card-payload-ref-tampered' });
+    const confirmed = store.confirmPendingAction({ operation: pmsPendingActionConfirmOperation, pendingActionRef, actor, scope, clientToken: 'group-pending-sqlite-confirm-1', requestFingerprint: 'sha256:group-pending-sqlite-confirm-1', correlationId: 'corr-group-pending-sqlite-confirm-1', requestedAt: '2026-04-28T00:06:00.000Z', cardPayloadRef });
+    const inactiveCancel = store.cancelPendingAction({ operation: pmsPendingActionCancelOperation, pendingActionRef, actor, scope, clientToken: 'group-pending-sqlite-inactive-cancel-1', requestFingerprint: 'sha256:group-pending-sqlite-inactive-cancel-1', correlationId: 'corr-group-pending-sqlite-inactive-cancel-1', requestedAt: '2026-04-28T00:07:00.000Z', cardPayloadRef, reason: 'too late' });
+
+    const cancelTarget = store.createReservationGroupDraft({ ...baseCreate, clientToken: 'group-draft-sqlite-cancel-create-1', requestFingerprint: 'sha256:group-draft-sqlite-cancel-create-1', correlationId: 'corr-group-draft-sqlite-cancel-create-1', slots: completeSlots });
+    const cancelled = store.cancelReservationGroupDraft({ ...baseCreate, operation: pmsReservationGroupDraftCancelOperation, clientToken: 'group-draft-sqlite-cancel-1', requestFingerprint: 'sha256:group-draft-sqlite-cancel-1', correlationId: 'corr-group-draft-sqlite-cancel-1', requestedAt: '2026-04-28T00:08:00.000Z', groupDraftRef: cancelTarget.ok ? cancelTarget.groupDraft.groupDraftRef : 'missing-cancel-group', reason: 'guest cancelled group' });
+
+    expect(created).toMatchObject({ ok: true, operation: 'pms.reservation.group_draft.create', mutationStatus: 'draftOnly', groupDraft: { groupDraftRef, status: 'collectingSlots', missingSlots: ['roomSelections'] } });
+    expect(replayedCreate).toEqual(created);
+    expect(createMismatch).toMatchObject({ ok: false, errors: [{ code: 'RESERVATION_GROUP_DRAFT_TOKEN_REUSED_WITH_DIFFERENT_FINGERPRINT' }] });
+    expect(update).toMatchObject({ ok: true, operation: 'pms.reservation.group_draft.update', groupDraft: { groupDraftRef, status: 'quoteReady', missingSlots: [], slots: { selections: [{ roomId: 'room-1001' }, { roomId: 'room-A2' }] } } });
+    expect(quote).toMatchObject({ ok: true, operation: 'pms.reservation.group_quote', groupDraft: { groupDraftRef, quote: { quoteRef, status: 'pricingUnsupported', capabilityGap: { code: 'RESERVATION_GROUP_QUOTE_PRICING_UNSUPPORTED' } } } });
+    expect(prepared).toMatchObject({ ok: true, operation: 'pms.reservation.group_prepare_confirm', groupDraft: { groupDraftRef, status: 'awaitingConfirmation', pendingAction: { quoteRef, selectionCount: 2, confirmationMode: 'typedCardOnly', mutationStatus: 'none' } } });
+    expect(status).toMatchObject({ ok: true, operation: 'pms.pending_action.status', pendingAction: { workflowType: 'reservationGroup', pendingActionRef, status: 'awaitingConfirmation' } });
+    expect(cardPayloadMismatch).toMatchObject({ ok: false, pendingAction: { workflowType: 'reservationGroup', pendingActionRef, cardPayloadRef }, errors: [{ code: 'PENDING_ACTION_CARD_PAYLOAD_MISMATCH' }] });
+    expect(confirmed).toMatchObject({ ok: true, operation: 'pms.pending_action.confirm', mutationStatus: 'deferred', pendingAction: { workflowType: 'reservationGroup', pendingActionRef, status: 'confirmed', mutationStatus: 'deferred' } });
+    expect(inactiveCancel).toMatchObject({ ok: false, errors: [{ code: 'PENDING_ACTION_NOT_ACTIVE' }] });
+    expect(cancelled).toMatchObject({ ok: true, operation: 'pms.reservation.group_draft.cancel', groupDraft: { status: 'cancelled' } });
+
+    const readback = store.readback();
+    expect(readback.reservationGroupDrafts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ groupDraftRef, status: 'awaitingConfirmation', pendingAction: expect.objectContaining({ pendingActionRef, status: 'confirmed', selectionCount: 2 }) }),
+    ]));
+    expect(readback.reservationGroupDraftAudits.map((audit) => audit.action)).toEqual(expect.arrayContaining(['created', 'updated', 'quoted', 'prepared', 'pendingActionStatusRead', 'pendingActionConfirmed', 'cancelled']));
+    expect(readback.projectionOutbox).toEqual(expect.arrayContaining([
+      expect.objectContaining({ sourceType: 'reservationGroupDraftAudit', projectionKind: 'reservationWorkflow', status: 'pending', deliveryOwner: 'adapter', truthOwner: 'pms-platform' }),
+    ]));
+    expect(JSON.stringify(readback.reservationGroupDraftAudits)).not.toContain(pendingActionRef);
+    expect(readback.reservations).toEqual([]);
+    expect(readback.operationRequests).toEqual([]);
+    expect(readback.audits).toEqual([]);
+    expect(readback.domainEvents).toEqual([]);
+    store.close();
+
+    const restarted = createSqliteLocalSandboxStore({ dbPath, seedRooms: [], resetOnStart: false, now: () => now });
+    expect(restarted.readback().reservationGroupDrafts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ groupDraftRef, pendingAction: expect.objectContaining({ status: 'confirmed', selectionCount: 2 }) }),
     ]));
     restarted.close();
   });

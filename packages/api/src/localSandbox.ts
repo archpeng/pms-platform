@@ -33,6 +33,7 @@ import {
   executeGetRoomApiRequest,
   executePmsExtendedCommandApiRequest,
   executeReservationDraftWorkflowApiRequest,
+  executeReservationGroupDraftWorkflowApiRequest,
   getPmsCapabilityManifest,
   pmsAvailabilitySearchOperation,
   pmsCapabilityManifestOperation,
@@ -58,6 +59,11 @@ import {
   pmsReservationDraftCancelOperation,
   pmsReservationDraftCreateOperation,
   pmsReservationDraftUpdateOperation,
+  pmsReservationGroupDraftCancelOperation,
+  pmsReservationGroupDraftCreateOperation,
+  pmsReservationGroupDraftUpdateOperation,
+  pmsReservationGroupPrepareConfirmOperation,
+  pmsReservationGroupQuoteOperation,
   pmsReservationPrepareConfirmOperation,
   pmsReservationQuoteOperation,
   pmsRoomReservationContextOperation,
@@ -84,6 +90,14 @@ import {
   type PmsExtendedCommandApiRequest,
   type ReservationDraftLifecycleStore,
   type ReservationDraftWorkflowApiRequest,
+  type ReservationGroupDraftCancelApiRequest,
+  type ReservationGroupDraftCreateApiRequest,
+  type ReservationGroupDraftLifecycleStore,
+  type ReservationGroupDraftUpdateApiRequest,
+  type ReservationGroupDraftWorkflowApiRequest,
+  type ReservationGroupDraftWorkflowApiResponse,
+  type ReservationGroupPrepareConfirmApiRequest,
+  type ReservationGroupQuoteApiRequest,
   type PmsReadModelApiRequest,
 } from './index.js';
 
@@ -188,7 +202,9 @@ export interface PmsSandboxReadback {
   readonly inventoryIntervalProjection: readonly InventoryIntervalProjection[];
   readonly inventorySummaryDayType: readonly InventorySummaryDayType[];
   readonly reservationDrafts: readonly import('@pms-platform/contracts').ReservationDraftWorkflowRef[];
+  readonly reservationGroupDrafts: readonly import('@pms-platform/contracts').ReservationGroupDraftWorkflowRef[];
   readonly reservationDraftAudits: readonly import('@pms-platform/contracts').ReservationDraftAuditRef[];
+  readonly reservationGroupDraftAudits: readonly import('@pms-platform/contracts').ReservationGroupDraftAuditRef[];
   readonly operationRequests: readonly OperationRequest[];
   readonly housekeepingTasks: readonly HousekeepingTask[];
   readonly maintenanceTickets: readonly MaintenanceTicket[];
@@ -199,14 +215,14 @@ export interface PmsSandboxReadback {
 }
 
 export interface PmsSandboxIdempotencyReadback {
-  readonly operation: typeof pmsCheckInOperation | typeof pmsCheckOutOperation | PmsExtendedCommandApiRequest['operation'] | ReservationDraftWorkflowApiRequest['operation'] | typeof pmsPendingActionStatusOperation | typeof pmsPendingActionConfirmOperation | typeof pmsPendingActionCancelOperation | 'unknown';
+  readonly operation: typeof pmsCheckInOperation | typeof pmsCheckOutOperation | PmsExtendedCommandApiRequest['operation'] | ReservationDraftWorkflowApiRequest['operation'] | ReservationGroupDraftWorkflowApiRequest['operation'] | typeof pmsPendingActionStatusOperation | typeof pmsPendingActionConfirmOperation | typeof pmsPendingActionCancelOperation | 'unknown';
   readonly mode: CheckInApiRequest['mode'] | CheckOutApiRequest['mode'] | PmsExtendedCommandApiRequest['mode'] | 'draft' | 'unknown';
   readonly idempotencyKey: string;
   readonly requestFingerprint: string;
   readonly ok: boolean;
 }
 
-export interface PmsLocalSandboxStore extends ReservationDraftLifecycleStore {
+export interface PmsLocalSandboxStore extends ReservationDraftLifecycleStore, ReservationGroupDraftLifecycleStore {
   readonly ports: CorePorts;
   readonly apiIdempotency: ApiIdempotencyRepository;
   readonly storage: PmsLocalStorageMetadata;
@@ -291,6 +307,11 @@ export function createPmsLocalHttpHandler(options: PmsLocalHttpHandlerOptions) {
             pmsReservationQuoteOperation,
             pmsReservationPrepareConfirmOperation,
             pmsReservationDraftCancelOperation,
+            pmsReservationGroupDraftCreateOperation,
+            pmsReservationGroupDraftUpdateOperation,
+            pmsReservationGroupQuoteOperation,
+            pmsReservationGroupPrepareConfirmOperation,
+            pmsReservationGroupDraftCancelOperation,
             pmsOperationRequestCreateOperation,
             pmsOperationRequestGetOperation,
             pmsOperationRequestListOperation,
@@ -487,6 +508,17 @@ export function createPmsLocalHttpHandler(options: PmsLocalHttpHandlerOptions) {
         return;
       }
 
+      const reservationGroupDraftRoute = reservationGroupDraftOperationForPath(url.pathname);
+      if (request.method === 'POST' && reservationGroupDraftRoute) {
+        const body = await readJsonBody(request);
+        const result = executeWithStoreTransaction(options.store, () => executeReservationGroupDraftWorkflowApiRequest({
+          ...(body as Record<string, unknown>),
+          operation: reservationGroupDraftRoute,
+        } as ReservationGroupDraftWorkflowApiRequest, { groupDrafts: options.store }));
+        writeJson(response, result.ok ? 200 : result.status === 'notImplemented' ? 501 : 400, result);
+        return;
+      }
+
       if (request.method === 'POST' && url.pathname === '/v1/pms/operation-requests/create') {
         const body = await readJsonBody(request) as OperationRequestCreateApiRequest;
         const result = options.store.createOperationRequest({ ...body, operation: pmsOperationRequestCreateOperation });
@@ -632,6 +664,15 @@ function reservationDraftOperationForPath(pathname: string): ReservationDraftWor
   if (pathname === '/v1/pms/reservation-drafts/quote') return pmsReservationQuoteOperation;
   if (pathname === '/v1/pms/reservation-drafts/prepare-confirm') return pmsReservationPrepareConfirmOperation;
   if (pathname === '/v1/pms/reservation-drafts/cancel') return pmsReservationDraftCancelOperation;
+  return undefined;
+}
+
+function reservationGroupDraftOperationForPath(pathname: string): ReservationGroupDraftWorkflowApiRequest['operation'] | undefined {
+  if (pathname === '/v1/pms/reservation-group-drafts/create') return pmsReservationGroupDraftCreateOperation;
+  if (pathname === '/v1/pms/reservation-group-drafts/update') return pmsReservationGroupDraftUpdateOperation;
+  if (pathname === '/v1/pms/reservation-group-drafts/quote') return pmsReservationGroupQuoteOperation;
+  if (pathname === '/v1/pms/reservation-group-drafts/prepare-confirm') return pmsReservationGroupPrepareConfirmOperation;
+  if (pathname === '/v1/pms/reservation-group-drafts/cancel') return pmsReservationGroupDraftCancelOperation;
   return undefined;
 }
 

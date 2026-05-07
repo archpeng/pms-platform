@@ -15,6 +15,10 @@ import {
   pmsReservationDraftCancelOperation,
   pmsReservationDraftCreateOperation,
   pmsReservationDraftUpdateOperation,
+  pmsReservationGroupDraftCreateOperation,
+  pmsReservationGroupDraftUpdateOperation,
+  pmsReservationGroupPrepareConfirmOperation,
+  pmsReservationGroupQuoteOperation,
   pmsReservationPrepareConfirmOperation,
   pmsReservationQuoteOperation,
   type CheckInConfirmApiRequest,
@@ -784,81 +788,88 @@ describe('PMS local durable checkout sandbox HTTP boundary', () => {
   });
 
   it('serves agent route-sequence smoke with typed HTTP routes and no final PMS mutation', async () => {
-    const { url } = await startServer();
+    const { url } = await startServer(undefined, true, [dueOutRoom, vacantCleanRoom]);
 
-    const before = await authedGet(`${url}/v1/sandbox/readback/room-1001`);
+    const before = await authedGet(`${url}/v1/sandbox/readback`);
     const availability = await authedPost(`${url}/v1/pms/availability/search`, {
       operation: pmsAvailabilitySearchOperation,
       startDate: '2026-05-04',
       endDate: '2026-05-05',
       roomTypeKeyword: '花园',
       requestedAt: '2026-05-02T01:00:00.000Z',
-      count: 1,
+      count: 2,
     });
     const candidate = availability.readModel.candidates[0];
+    const secondCandidate = availability.readModel.candidates[1];
     expect(availability).toMatchObject({
       ok: true,
       operation: 'pms_availability_search',
-      readModel: { request: { startDate: '2026-05-04', endDate: '2026-05-05', roomTypeKeyword: '花园', count: 1 }, candidateCount: 1 },
+      readModel: { request: { startDate: '2026-05-04', endDate: '2026-05-05', roomTypeKeyword: '花园', count: 2 }, candidateCount: 2 },
     });
     expect(candidate).toMatchObject({ roomId: 'room-1001', roomNumber: '1001', availableDates: ['2026-05-04'] });
+    expect(secondCandidate).toMatchObject({ roomId: 'room-A2', roomNumber: 'A2', availableDates: ['2026-05-04'] });
 
     const actor = { type: 'human', id: 'frontdesk-1', displayName: 'Front Desk' };
-    const create = await authedPost(`${url}/v1/pms/reservation-drafts/create`, {
-      operation: pmsReservationDraftCreateOperation,
+    const create = await authedPost(`${url}/v1/pms/reservation-group-drafts/create`, {
+      operation: pmsReservationGroupDraftCreateOperation,
       propertyId: 'property-small-hotel',
       actor,
       source: 'api',
-      clientToken: 'http-agent-sequence-draft-create-1',
-      requestFingerprint: 'sha256:http-agent-sequence-draft-create-1',
-      correlationId: 'corr-http-agent-sequence-draft-create-1',
+      clientToken: 'http-agent-sequence-group-draft-create-1',
+      requestFingerprint: 'sha256:http-agent-sequence-group-draft-create-1',
+      correlationId: 'corr-http-agent-sequence-group-draft-create-1',
       requestedAt: '2026-05-02T01:01:00.000Z',
-      slots: { guestDisplayName: 'Route Sequence Guest', arrivalDate: '2026-05-04', departureDate: '2026-05-05', roomTypeKeyword: '花园' },
-      evidenceRefs: [{ source: 'availabilitySearch', refId: `${availability.readModel.generatedAt}:room-1001` }],
+      slots: { guestDisplayName: 'Route Sequence Group', arrivalDate: '2026-05-04', departureDate: '2026-05-05', roomTypeKeyword: '花园', quantity: 2 },
+      evidenceRefs: [{ source: 'availabilitySearch', refId: `${availability.readModel.generatedAt}:group` }],
       expiresAt: '2026-05-03T01:00:00.000Z',
     });
-    const draftRef = create.draft.draftRef;
-    expect(create).toMatchObject({ ok: true, operation: 'pms.reservation.draft.create', mutationStatus: 'draftOnly', draft: { draftRef, status: 'collectingSlots' } });
+    const groupDraftRef = create.groupDraft.groupDraftRef;
+    expect(create).toMatchObject({ ok: true, operation: 'pms.reservation.group_draft.create', mutationStatus: 'draftOnly', groupDraft: { groupDraftRef, status: 'collectingSlots', missingSlots: ['roomSelections'] } });
 
-    const update = await authedPost(`${url}/v1/pms/reservation-drafts/update`, {
-      operation: pmsReservationDraftUpdateOperation,
+    const update = await authedPost(`${url}/v1/pms/reservation-group-drafts/update`, {
+      operation: pmsReservationGroupDraftUpdateOperation,
       propertyId: 'property-small-hotel',
       actor,
       source: 'api',
-      clientToken: 'http-agent-sequence-draft-update-1',
-      requestFingerprint: 'sha256:http-agent-sequence-draft-update-1',
-      correlationId: 'corr-http-agent-sequence-draft-update-1',
+      clientToken: 'http-agent-sequence-group-draft-update-1',
+      requestFingerprint: 'sha256:http-agent-sequence-group-draft-update-1',
+      correlationId: 'corr-http-agent-sequence-group-draft-update-1',
       requestedAt: '2026-05-02T01:02:00.000Z',
-      draftRef,
-      slots: { roomId: candidate.roomId, selectedCandidateRef: `${availability.readModel.generatedAt}:${candidate.roomId}` },
-      evidenceRefs: [{ source: 'availabilitySearch', refId: `${availability.readModel.generatedAt}:${candidate.roomId}` }],
+      groupDraftRef,
+      slots: {
+        selections: [
+          { roomId: candidate.roomId, selectedCandidateRef: `${availability.readModel.generatedAt}:${candidate.roomId}`, roomTypeId: candidate.roomTypeId, roomType: candidate.roomType },
+          { roomId: secondCandidate.roomId, selectedCandidateRef: `${availability.readModel.generatedAt}:${secondCandidate.roomId}`, roomTypeId: secondCandidate.roomTypeId, roomType: secondCandidate.roomType },
+        ],
+      },
+      evidenceRefs: [{ source: 'availabilitySearch', refId: `${availability.readModel.generatedAt}:selected-group` }],
     });
-    const quote = await authedPost(`${url}/v1/pms/reservation-drafts/quote`, {
-      operation: pmsReservationQuoteOperation,
+    const quote = await authedPost(`${url}/v1/pms/reservation-group-drafts/quote`, {
+      operation: pmsReservationGroupQuoteOperation,
       propertyId: 'property-small-hotel',
       actor,
       source: 'api',
-      clientToken: 'http-agent-sequence-draft-quote-1',
-      requestFingerprint: 'sha256:http-agent-sequence-draft-quote-1',
-      correlationId: 'corr-http-agent-sequence-draft-quote-1',
+      clientToken: 'http-agent-sequence-group-draft-quote-1',
+      requestFingerprint: 'sha256:http-agent-sequence-group-draft-quote-1',
+      correlationId: 'corr-http-agent-sequence-group-draft-quote-1',
       requestedAt: '2026-05-02T01:03:00.000Z',
-      draftRef,
+      groupDraftRef,
     });
-    const quoteRef = quote.draft.quote.quoteRef;
-    const prepareConfirm = await authedPost(`${url}/v1/pms/reservation-drafts/prepare-confirm`, {
-      operation: pmsReservationPrepareConfirmOperation,
+    const quoteRef = quote.groupDraft.quote.quoteRef;
+    const prepareConfirm = await authedPost(`${url}/v1/pms/reservation-group-drafts/prepare-confirm`, {
+      operation: pmsReservationGroupPrepareConfirmOperation,
       propertyId: 'property-small-hotel',
       actor,
       source: 'api',
-      clientToken: 'http-agent-sequence-draft-prepare-1',
-      requestFingerprint: 'sha256:http-agent-sequence-draft-prepare-1',
-      correlationId: 'corr-http-agent-sequence-draft-prepare-1',
+      clientToken: 'http-agent-sequence-group-draft-prepare-1',
+      requestFingerprint: 'sha256:http-agent-sequence-group-draft-prepare-1',
+      correlationId: 'corr-http-agent-sequence-group-draft-prepare-1',
       requestedAt: '2026-05-02T01:04:00.000Z',
-      draftRef,
+      groupDraftRef,
       quoteRef,
     });
-    const pendingActionRef = prepareConfirm.draft.pendingAction.pendingActionRef;
-    const cardPayloadRef = prepareConfirm.draft.pendingAction.cardPayloadRef;
+    const pendingActionRef = prepareConfirm.groupDraft.pendingAction.pendingActionRef;
+    const cardPayloadRef = prepareConfirm.groupDraft.pendingAction.cardPayloadRef;
     const status = await authedPost(`${url}/v1/pms/pending-actions/status`, {
       operation: pmsPendingActionStatusOperation,
       pendingActionRef,
@@ -870,15 +881,31 @@ describe('PMS local durable checkout sandbox HTTP boundary', () => {
       requestedAt: '2026-05-02T01:05:00.000Z',
       cardPayloadRef,
     });
-    const after = await authedGet(`${url}/v1/sandbox/readback/room-1001`);
+    const confirm = await authedPost(`${url}/v1/pms/pending-actions/confirm`, {
+      operation: pmsPendingActionConfirmOperation,
+      pendingActionRef,
+      actor,
+      scope: { propertyId: 'property-small-hotel', channel: 'typed_card', userIdHash: 'sha256:user-agent-sequence' },
+      clientToken: 'http-agent-sequence-group-pending-confirm-1',
+      requestFingerprint: 'sha256:http-agent-sequence-group-pending-confirm-1',
+      correlationId: 'corr-http-agent-sequence-group-pending-confirm-1',
+      requestedAt: '2026-05-02T01:06:00.000Z',
+      cardPayloadRef,
+    });
+    const after = await authedGet(`${url}/v1/sandbox/readback`);
 
-    expect(update).toMatchObject({ ok: true, operation: 'pms.reservation.draft.update', mutationStatus: 'draftOnly', draft: { draftRef, slots: { roomId: 'room-1001', selectedCandidateRef: `${availability.readModel.generatedAt}:${candidate.roomId}` } } });
-    expect(quote).toMatchObject({ ok: true, operation: 'pms.reservation.quote', mutationStatus: 'draftOnly', draft: { draftRef, status: 'quoteReady', quote: { quoteRef, status: 'pricingUnsupported' } } });
-    expect(prepareConfirm).toMatchObject({ ok: true, operation: 'pms.reservation.prepare_confirm', mutationStatus: 'draftOnly', draft: { draftRef, status: 'awaitingConfirmation', pendingAction: { pendingActionRef, quoteRef, cardPayloadRef, confirmationMode: 'typedCardOnly', mutationStatus: 'none' } } });
-    expect(status).toMatchObject({ ok: true, operation: 'pms.pending_action.status', mutationStatus: 'none', idempotencyStatus: 'statusRead', pendingAction: { pendingActionRef, quoteRef, cardPayloadRef, status: 'awaitingConfirmation', confirmationMode: 'typedCardOnly', mutationStatus: 'none' } });
+    expect(update).toMatchObject({ ok: true, operation: 'pms.reservation.group_draft.update', mutationStatus: 'draftOnly', groupDraft: { groupDraftRef, status: 'quoteReady', missingSlots: [], slots: { selections: [{ roomId: 'room-1001' }, { roomId: 'room-A2' }] } } });
+    expect(quote).toMatchObject({ ok: true, operation: 'pms.reservation.group_quote', mutationStatus: 'draftOnly', groupDraft: { groupDraftRef, status: 'quoteReady', quote: { quoteRef, status: 'pricingUnsupported' } } });
+    expect(prepareConfirm).toMatchObject({ ok: true, operation: 'pms.reservation.group_prepare_confirm', mutationStatus: 'draftOnly', groupDraft: { groupDraftRef, status: 'awaitingConfirmation', pendingAction: { pendingActionRef, quoteRef, cardPayloadRef, confirmationMode: 'typedCardOnly', mutationStatus: 'none', selectionCount: 2 } } });
+    expect(status).toMatchObject({ ok: true, operation: 'pms.pending_action.status', mutationStatus: 'none', idempotencyStatus: 'statusRead', pendingAction: { workflowType: 'reservationGroup', pendingActionRef, quoteRef, cardPayloadRef, status: 'awaitingConfirmation', confirmationMode: 'typedCardOnly', mutationStatus: 'none' } });
+    expect(confirm).toMatchObject({ ok: true, operation: 'pms.pending_action.confirm', mutationStatus: 'deferred', idempotencyStatus: 'confirmed', pendingAction: { workflowType: 'reservationGroup', pendingActionRef, status: 'confirmed', mutationStatus: 'deferred' } });
     expect(status.pendingAction.draftId).toBeUndefined();
-    expect(after.reservationDraftAudits.map((audit: { action: string }) => audit.action)).toEqual(['created', 'updated', 'quoted', 'prepared', 'pendingActionStatusRead']);
-    expect(after.reservationDrafts).toEqual(expect.arrayContaining([expect.objectContaining({ draftRef, status: 'awaitingConfirmation', pendingAction: expect.objectContaining({ pendingActionRef, status: 'awaitingConfirmation' }) })]));
+    expect(status.pendingAction.groupDraftId).toBeUndefined();
+    expect(after.reservationGroupDraftAudits.map((audit: { action: string }) => audit.action)).toEqual(['created', 'updated', 'quoted', 'prepared', 'pendingActionStatusRead', 'pendingActionConfirmed']);
+    expect(after.reservationGroupDrafts).toEqual(expect.arrayContaining([expect.objectContaining({ groupDraftRef, status: 'awaitingConfirmation', pendingAction: expect.objectContaining({ pendingActionRef, status: 'confirmed', selectionCount: 2 }) })]));
+    expect(after.projectionOutbox).toEqual(expect.arrayContaining([
+      expect.objectContaining({ sourceType: 'reservationGroupDraftAudit', projectionKind: 'reservationWorkflow', status: 'pending', deliveryOwner: 'adapter', truthOwner: 'pms-platform' }),
+    ]));
     expect(after.rooms).toEqual(before.rooms);
     expect(after.reservations).toEqual(before.reservations);
     expect(after.operationRequests).toEqual(before.operationRequests);
