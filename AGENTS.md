@@ -44,3 +44,18 @@ Do not add `@mariozechner/pi-agent-core`, `@mariozechner/pi-ai`, `@mariozechner/
 ## Validation
 
 `npm run verify` is the repo-local verification ladder. It must run `scripts/check-boundaries.mjs` before build/test so accidental Pi/LLM/Feishu adapter runtime drift fails before PMS business verification proceeds.
+
+## AI maintainability boundaries
+
+Keep domain owners visible in file names instead of hiding business logic in catch-all `index.ts` or storage classes.
+
+- `packages/api/src/sqliteSandboxStore.ts` remains the SQLite sandbox facade and repository coordinator.
+- `packages/api/src/sqliteSandbox/schema.ts` owns SQLite DDL and compatible schema migration helpers.
+- `packages/api/src/sqliteSandbox/projectionOutbox.ts` owns projection outbox derivation from PMS truth/readback records.
+- `packages/api/src/operations.ts` owns API operation names and operation union types.
+- `packages/api/src/capabilityManifest.ts` owns PMS capability manifest and planner projection assembly.
+- `packages/contracts/src/index.ts` is the compatibility export surface plus remaining core contracts; new independent contract domains should be added as named files and re-exported from `index.ts`.
+- `packages/contracts/src/reservationWorkflow.ts` owns reservation draft/group workflow and pending-action contracts.
+- `packages/contracts/src/projectionOutbox.ts` owns PMS projection outbox contracts.
+
+When adding behavior, prefer extending the domain owner file above or creating a similarly named owner file. Do not add new Feishu transport, Pi/LLM routing, generic SQL, or customer-chat behavior to PMS truth modules.

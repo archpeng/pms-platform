@@ -27,6 +27,25 @@ const requiredAgentSnippets = [
   'does not own Feishu conversation routing',
   'operation-request read/list APIs must be typed PMS read models',
   'not generic customer-chat projection surfaces',
+  'AI maintainability boundaries',
+  'packages/api/src/sqliteSandbox/schema.ts` owns SQLite DDL',
+  'packages/api/src/sqliteSandbox/projectionOutbox.ts` owns projection outbox derivation',
+  'packages/api/src/operations.ts` owns API operation names',
+  'packages/api/src/capabilityManifest.ts` owns PMS capability manifest',
+  'packages/contracts/src/reservationWorkflow.ts` owns reservation draft/group workflow',
+  'packages/contracts/src/projectionOutbox.ts` owns PMS projection outbox contracts',
+];
+
+const lineBudgetTargets = [
+  { path: 'packages/api/src/sqliteSandboxStore.ts', maxLines: 4200, reason: 'SQLite sandbox facade must keep schema/outbox logic in owner modules' },
+  { path: 'packages/api/src/sqliteSandbox/schema.ts', maxLines: 450, reason: 'SQLite schema owner should stay focused on DDL/migrations' },
+  { path: 'packages/api/src/sqliteSandbox/projectionOutbox.ts', maxLines: 220, reason: 'Projection outbox owner should stay as pure derivation logic' },
+  { path: 'packages/api/src/index.ts', maxLines: 1450, reason: 'API index must keep operations/capability manifest in owner modules' },
+  { path: 'packages/api/src/operations.ts', maxLines: 130, reason: 'API operation constants should remain a compact owner file' },
+  { path: 'packages/api/src/capabilityManifest.ts', maxLines: 430, reason: 'capability manifest assembly should stay separate from API execution code' },
+  { path: 'packages/contracts/src/index.ts', maxLines: 950, reason: 'contracts index must not absorb independent contract domains' },
+  { path: 'packages/contracts/src/reservationWorkflow.ts', maxLines: 260, reason: 'reservation workflow contracts should remain a bounded domain file' },
+  { path: 'packages/contracts/src/projectionOutbox.ts', maxLines: 80, reason: 'projection outbox contracts should remain a bounded domain file' },
 ];
 
 function assert(condition, message) {
@@ -111,6 +130,12 @@ function assertSourceFile(relativePath) {
   }
 }
 
+function assertLineBudget({ path, maxLines, reason }) {
+  const text = readText(path);
+  const lineCount = text.split('\n').length;
+  assert(lineCount <= maxLines, `${path} has ${lineCount} lines, budget is ${maxLines}; ${reason}`);
+}
+
 assert(existsSync(join(repoRoot, 'AGENTS.md')), 'missing AGENTS.md boundary policy');
 assert(existsSync(join(repoRoot, 'package.json')), 'missing package.json');
 
@@ -125,6 +150,10 @@ for (const relativePath of collectPackageManifests()) {
 
 for (const relativePath of collectSourceFiles()) {
   assertSourceFile(relativePath);
+}
+
+for (const target of lineBudgetTargets) {
+  assertLineBudget(target);
 }
 
 console.log('pms-platform boundary check passed');
