@@ -1152,7 +1152,7 @@ describe('SQLite local sandbox store', () => {
     restarted.close();
   });
 
-  it('persists platform pending-action status, confirm, cancel, replay, conflicts, and expiry without final PMS mutation', () => {
+  it('persists platform pending-action status, materializes single-room confirm, and keeps replay/conflict/expiry safe', () => {
     const dbPath = tempPath('pending-action-callback.sqlite');
     const store = createSqliteLocalSandboxStore({ dbPath, seedRooms: [dueOutRoom], resetOnStart: true, now: () => now });
     const baseCreate: ReservationDraftCreateApiRequest = {
@@ -1199,7 +1199,21 @@ describe('SQLite local sandbox store', () => {
 
     expect(status).toMatchObject({ ok: true, operation: 'pms.pending_action.status', mutationStatus: 'none', pendingAction: { pendingActionRef, status: 'awaitingConfirmation' } });
     expect(cardPayloadMismatch).toMatchObject({ ok: false, operation: 'pms.pending_action.confirm', mutationStatus: 'none', pendingAction: { pendingActionRef, status: 'awaitingConfirmation', cardPayloadRef }, errors: [{ code: 'PENDING_ACTION_CARD_PAYLOAD_MISMATCH', field: 'cardPayloadRef' }] });
-    expect(confirmed).toMatchObject({ ok: true, operation: 'pms.pending_action.confirm', mutationStatus: 'deferred', pendingAction: { pendingActionRef, status: 'confirmed', mutationStatus: 'deferred' } });
+    expect(confirmed).toMatchObject({
+      ok: true,
+      operation: 'pms.pending_action.confirm',
+      mutationStatus: 'committed',
+      pendingAction: { pendingActionRef, status: 'confirmed', mutationStatus: 'committed' },
+      reservation: {
+        reservationCode: expect.stringMatching(/^R-[A-F0-9]{16}$/),
+        roomId: 'room-1001',
+        roomNumber: '1001',
+        guestDisplayName: 'Pending Guest',
+        arrivalDate: '2026-05-04',
+        departureDate: '2026-05-05',
+        status: 'booked'
+      }
+    });
     expect(replayedConfirm).toEqual(confirmed);
     expect(confirmMismatch).toMatchObject({ ok: false, errors: [{ code: 'PENDING_ACTION_TOKEN_REUSED_WITH_DIFFERENT_FINGERPRINT' }] });
     expect(wrongOperationToken).toMatchObject({ ok: false, operation: 'pms.pending_action.status', errors: [{ code: 'PENDING_ACTION_TOKEN_REUSED_WITH_DIFFERENT_FINGERPRINT' }] });
@@ -1209,7 +1223,7 @@ describe('SQLite local sandbox store', () => {
 
     const readback = store.readback('room-1001');
     expect(readback.reservationDrafts).toEqual(expect.arrayContaining([
-      expect.objectContaining({ draftRef, status: 'awaitingConfirmation', pendingAction: expect.objectContaining({ pendingActionRef, status: 'confirmed', mutationStatus: 'deferred' }) }),
+      expect.objectContaining({ draftRef, status: 'awaitingConfirmation', pendingAction: expect.objectContaining({ pendingActionRef, status: 'confirmed', mutationStatus: 'committed' }) }),
       expect.objectContaining({ draftRef: cancelDraftRef, status: 'cancelled', pendingAction: expect.objectContaining({ status: 'cancelled' }) }),
       expect.objectContaining({ draftRef: expiredDraftRef, status: 'expired', pendingAction: expect.objectContaining({ status: 'expired' }) }),
     ]));
@@ -1226,12 +1240,21 @@ describe('SQLite local sandbox store', () => {
     ]));
     expect(readback.projectionOutbox).toEqual(expect.arrayContaining([
       expect.objectContaining({ sourceType: 'reservationDraftAudit', projectionKind: 'reservationWorkflow', status: 'pending', deliveryOwner: 'adapter', truthOwner: 'pms-platform' }),
+      expect.objectContaining({ sourceType: 'reservation', projectionKind: 'reservation', status: 'pending', deliveryOwner: 'adapter', truthOwner: 'pms-platform' }),
     ]));
     const exposedOutboxSurface = JSON.stringify(readback.projectionOutbox);
     expect(exposedOutboxSurface).not.toContain(pendingActionRef);
     expect(exposedOutboxSurface).not.toContain(cardPayloadRef);
     expect(exposedOutboxSurface).not.toContain(confirmRequest.clientToken);
-    expect(readback.reservations).toEqual([]);
+    expect(readback.reservations).toEqual([
+      expect.objectContaining({
+        reservationCode: confirmed.ok ? confirmed.reservation?.reservationCode : 'missing-reservation',
+        roomId: 'room-1001',
+        roomNumber: '1001',
+        guestDisplayName: 'Pending Guest',
+        status: 'booked'
+      })
+    ]);
     expect(readback.operationRequests).toEqual([]);
     expect(readback.audits).toEqual([]);
     expect(readback.domainEvents).toEqual([]);

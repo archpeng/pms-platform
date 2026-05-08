@@ -45,6 +45,7 @@ All local HTTP routes below are fixed typed PMS Platform routes. They require lo
 | Reservation quote | `pms.reservation.quote` | `POST /v1/pms/reservation-drafts/quote` | `ReservationDraftWorkflowApiResponse`; current quote may carry platform-owned capability gap such as `RESERVATION_QUOTE_PRICING_UNSUPPORTED` | `packages/api/src/index.ts`; `packages/api/src/localSandbox.ts`; `packages/api/test/local-sandbox-http.test.ts` |
 | Prepare confirmation | `pms.reservation.prepare_confirm` | `POST /v1/pms/reservation-drafts/prepare-confirm` | `ReservationDraftWorkflowApiResponse` with pending-action evidence, `confirmationMode=typedCardOnly`, and no final mutation | `README.md`; `packages/api/src/index.ts`; `packages/api/src/localSandbox.ts`; `packages/api/test/local-sandbox-http.test.ts` |
 | Pending-action status readback | `pms.pending_action.status` | `POST /v1/pms/pending-actions/status` | `PendingActionCallbackApiResponse` with `mutationStatus=none` for status read | `packages/api/src/index.ts`; `packages/api/src/localSandbox.ts`; `packages/api/test/local-sandbox-http.test.ts` |
+| Pending-action confirm callback | `pms.pending_action.confirm` | `POST /v1/pms/pending-actions/confirm` | Single-room callbacks now materialize a `ReservationReadModel` with `mutationStatus=committed`; group callbacks remain `mutationStatus=deferred` until a group reservation materializer exists | `packages/api/src/sqliteSandboxStore.ts`; `packages/api/test/local-sandbox-http.test.ts`; `packages/api/test/projection-dispatcher.test.ts` |
 
 The typed callback routes `POST /v1/pms/pending-actions/confirm` and `POST /v1/pms/pending-actions/cancel` exist as PMS Platform callback-result routes, but they are not natural-language planner actions. They are transport/callback handoff surfaces and must not be exposed as direct conversation tools.
 
@@ -90,15 +91,15 @@ Not agent-owned and not planner truth:
 
 Natural-language execution may collect slots, read PMS truth, create/update reservation drafts, quote, and prepare typed confirmation. It must not perform final PMS mutation.
 
-Final reservation mutation remains a typed pending-action callback boundary. The natural-language prepare-confirm path creates draft/pending-action state with `mutationStatus=none` or `draftOnly`; final confirm/cancel must arrive through the typed callback transport owned outside `pms-platform`.
+Final reservation mutation remains a typed pending-action callback boundary. The natural-language prepare-confirm path creates draft/pending-action state with `mutationStatus=none` or `draftOnly`; final confirm/cancel must arrive through typed callback transport. For single-room reservation drafts, confirm materializes a booked reservation and room allocation; group draft confirm remains deferred.
 
 The local HTTP tests prove:
 
 1. Reservation draft create/update/quote/prepare-confirm returns redacted draft refs and no raw `draftId` in customer-facing responses.
 2. Prepare-confirm returns `confirmationMode=typedCardOnly` and pending-action `mutationStatus=none`.
 3. Pending-action status returns `mutationStatus=none`.
-4. Pending-action confirm returns deferred callback-result semantics and does not mutate PMS room/reservation truth in the current sandbox proof.
-5. Rooms, reservations, operation requests, audits, and domain events remain unchanged during draft and status-only paths.
+4. Single-room pending-action confirm returns `mutationStatus=committed`, creates a booked reservation, and emits reservation projection outbox.
+5. Rooms, operation requests, audits, and domain events remain unchanged during draft and status-only paths.
 6. `packages/api/test/local-sandbox-http.test.ts` includes an agent route-sequence smoke for `availability/search -> reservation-drafts/create -> reservation-drafts/update -> reservation-drafts/quote -> reservation-drafts/prepare-confirm -> pending-actions/status`; it uses only authenticated local typed HTTP routes and stops before confirm/cancel.
 
 ## Expected `pms-agent-v2` Route Sequence

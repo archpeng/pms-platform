@@ -736,7 +736,7 @@ export interface ReservationDraftQuoteRef {
 }
 
 export type PendingActionStatus = 'awaitingConfirmation' | 'confirmed' | 'cancelled' | 'expired';
-export type PendingActionMutationStatus = 'none' | 'deferred';
+export type PendingActionMutationStatus = 'none' | 'deferred' | 'committed';
 
 export interface PendingActionScopeRef {
   readonly propertyId: string;
@@ -960,13 +960,14 @@ export interface CommandProjection {
 export const pmsProjectionOutboxSchemaVersion = 'pms-projection-outbox-v1';
 
 export type ProjectionOutboxTargetFamily = 'pms-base-projection';
-export type ProjectionOutboxSourceType = 'domainEvent' | 'reservationDraftAudit' | 'reservationGroupDraftAudit' | 'operationRequest' | 'apiIdempotency';
+export type ProjectionOutboxSourceType = 'domainEvent' | 'reservation' | 'reservationDraftAudit' | 'reservationGroupDraftAudit' | 'operationRequest' | 'apiIdempotency';
 export type ProjectionOutboxStatus = 'pending' | 'retryable' | 'skipped';
 export type ProjectionOutboxKind =
   | 'roomLedger'
   | 'operationLog'
   | 'housekeepingTask'
   | 'maintenanceTicket'
+  | 'reservation'
   | 'reservationWorkflow'
   | 'operationRequestStatus'
   | 'dryRunReadback';

@@ -182,7 +182,8 @@ export type ApiBoundaryErrorCode =
   | 'PENDING_ACTION_NOT_FOUND'
   | 'PENDING_ACTION_CARD_PAYLOAD_MISMATCH'
   | 'PENDING_ACTION_NOT_ACTIVE'
-  | 'PENDING_ACTION_EXPIRED';
+  | 'PENDING_ACTION_EXPIRED'
+  | 'RESERVATION_ROOM_UNAVAILABLE';
 export type ApiErrorCode = DomainError['code'] | ApiBoundaryErrorCode;
 
 export interface ApiError {
@@ -718,9 +719,10 @@ export interface PendingActionCallbackSuccessApiResponse {
   readonly ok: true;
   readonly operation: PmsPendingActionOperation;
   readonly status: 'ok';
-  readonly mutationStatus: 'none' | 'deferred';
+  readonly mutationStatus: 'none' | 'deferred' | 'committed';
   readonly idempotencyStatus: PendingActionCallbackIdempotencyStatus;
   readonly pendingAction: PendingActionReadModel;
+  readonly reservation?: ReservationReadModel;
 }
 
 export interface PendingActionCallbackErrorApiResponse {

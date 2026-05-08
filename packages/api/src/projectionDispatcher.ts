@@ -9,6 +9,7 @@ import type {
   ProjectionOutboxEntry,
   ReservationDraftWorkflowRef,
   ReservationGroupDraftWorkflowRef,
+  ReservationReadModel,
   SaleStatus,
 } from '@pms-platform/contracts';
 import type {
@@ -53,6 +54,7 @@ export interface StartedPmsProjectionDispatcher {
 
 type AdapterPmsBaseRequest =
   | { readonly operation: 'pms_base_upsert_room_projection'; readonly roomNumber: string; readonly fields: JsonRecord }
+  | { readonly operation: 'pms_base_upsert_reservation_projection'; readonly reservationCode: string; readonly fields: JsonRecord }
   | { readonly operation: 'pms_base_upsert_housekeeping_task_projection'; readonly taskId: string; readonly fields: JsonRecord }
   | { readonly operation: 'pms_base_upsert_maintenance_ticket_projection'; readonly ticketId: string; readonly fields: JsonRecord }
   | { readonly operation: 'pms_base_upsert_operation_request'; readonly clientToken: string; readonly fields: JsonRecord };
@@ -148,11 +150,29 @@ export function startProjectionDispatcher(options: PmsProjectionDispatcherOption
 export function mapProjectionDispatchWorkItem(item: ProjectionDispatchWorkItem, generatedAt: string): AdapterPmsBaseRequest | undefined {
   if (item.entry.projectionKind === 'dryRunReadback') return undefined;
   if (item.entry.projectionKind === 'reservationWorkflow') return mapReservationWorkflow(item, generatedAt);
+  if (item.entry.projectionKind === 'reservation' && item.reservation) return mapReservation(item.reservation);
   if (item.entry.projectionKind === 'operationRequestStatus' && item.operationRequest) return mapOperationRequest(item.operationRequest);
   if (item.entry.projectionKind === 'roomLedger' && item.room) return mapRoomLedger(item, generatedAt);
   if (item.entry.projectionKind === 'housekeepingTask' && item.housekeepingTask) return mapHousekeepingTask(item.housekeepingTask, item.room);
   if (item.entry.projectionKind === 'maintenanceTicket' && item.maintenanceTicket) return mapMaintenanceTicket(item.maintenanceTicket, item.room);
   throw new ProjectionDispatchPermanentError(`projection_mapping_missing:${item.entry.projectionKind}:${item.entry.sourceType}`);
+}
+
+function mapReservation(reservation: ReservationReadModel): AdapterPmsBaseRequest {
+  return {
+    operation: 'pms_base_upsert_reservation_projection',
+    reservationCode: reservation.reservationCode,
+    fields: {
+      backendId: reservation.reservationId,
+      reservationCode: reservation.reservationCode,
+      roomNumber: reservation.roomNumber ?? reservation.roomId ?? 'N/A',
+      guestLabel: reservation.guestDisplayName,
+      arrivalDate: reservation.arrivalDate,
+      departureDate: reservation.departureDate,
+      status: reservationStatusLabel(reservation.status),
+      schemaVersion: pmsBaseProjectionSchemaVersion,
+    },
+  };
 }
 
 function mapReservationWorkflow(item: ProjectionDispatchWorkItem, generatedAt: string): AdapterPmsBaseRequest {
@@ -409,6 +429,19 @@ function reservationWorkflowOperationStatus(action: string): string {
   if (action === 'prepared' || action === 'pendingActionStatusRead') return '待确认';
   if (action === 'rejected') return '失败';
   return '处理中';
+}
+
+function reservationStatusLabel(status: ReservationReadModel['status']): string {
+  switch (status) {
+    case 'booked':
+      return 'Booked';
+    case 'checkedIn':
+      return 'Checked In';
+    case 'checkedOut':
+      return 'Checked Out';
+    case 'cancelled':
+      return 'Cancelled';
+  }
 }
 
 function operationRequestStatusLabel(status: OperationRequest['status']): string {

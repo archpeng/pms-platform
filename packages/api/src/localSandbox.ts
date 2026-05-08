@@ -261,6 +261,7 @@ export interface ProjectionDispatchWorkItem {
   readonly ledger: ProjectionDispatchLedgerEntry;
   readonly domainEvent?: DomainEvent;
   readonly room?: RoomAggregate;
+  readonly reservation?: ReservationReadModel;
   readonly selectedRooms?: readonly RoomAggregate[];
   readonly housekeepingTask?: HousekeepingTask;
   readonly maintenanceTicket?: MaintenanceTicket;

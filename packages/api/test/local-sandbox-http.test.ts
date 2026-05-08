@@ -601,7 +601,7 @@ describe('PMS local durable checkout sandbox HTTP boundary', () => {
     expect(after.domainEvents).toEqual([]);
   });
 
-  it('serves platform pending-action status, confirm, cancel, replay, and conflict through HTTP without final PMS mutation', async () => {
+  it('serves platform pending-action confirm through HTTP and materializes a single-room reservation', async () => {
     const { url } = await startServer();
     const before = await authedGet(`${url}/v1/sandbox/readback/room-1001`);
     const actor = { type: 'human', id: 'frontdesk-1', displayName: 'Front Desk' };
@@ -681,17 +681,42 @@ describe('PMS local durable checkout sandbox HTTP boundary', () => {
 
     expect(status).toMatchObject({ ok: true, operation: 'pms.pending_action.status', mutationStatus: 'none', pendingAction: { pendingActionRef, status: 'awaitingConfirmation', cardPayloadRef } });
     expect(cardPayloadMismatch).toMatchObject({ ok: false, operation: 'pms.pending_action.confirm', mutationStatus: 'none', pendingAction: { pendingActionRef, status: 'awaitingConfirmation', cardPayloadRef }, errors: [{ code: 'PENDING_ACTION_CARD_PAYLOAD_MISMATCH', field: 'cardPayloadRef' }] });
-    expect(confirm).toMatchObject({ ok: true, operation: 'pms.pending_action.confirm', mutationStatus: 'deferred', pendingAction: { pendingActionRef, status: 'confirmed', mutationStatus: 'deferred' } });
+    expect(confirm).toMatchObject({
+      ok: true,
+      operation: 'pms.pending_action.confirm',
+      mutationStatus: 'committed',
+      pendingAction: { pendingActionRef, status: 'confirmed', mutationStatus: 'committed' },
+      reservation: {
+        reservationCode: expect.stringMatching(/^R-[A-F0-9]{16}$/),
+        roomId: 'room-1001',
+        roomNumber: '1001',
+        guestDisplayName: 'Pending Guest',
+        arrivalDate: '2026-05-04',
+        departureDate: '2026-05-05',
+        status: 'booked'
+      }
+    });
     expect(replay).toEqual(confirm);
     expect(conflict).toMatchObject({ ok: false, status: 'rejected', errors: [{ code: 'PENDING_ACTION_TOKEN_REUSED_WITH_DIFFERENT_FINGERPRINT' }] });
     expect(JSON.stringify(confirm)).not.toContain('frontdesk-1');
-    expect(after.reservationDrafts).toEqual(expect.arrayContaining([expect.objectContaining({ draftRef, status: 'awaitingConfirmation', pendingAction: expect.objectContaining({ pendingActionRef, status: 'confirmed', mutationStatus: 'deferred' }) })]));
+    expect(after.reservationDrafts).toEqual(expect.arrayContaining([expect.objectContaining({ draftRef, status: 'awaitingConfirmation', pendingAction: expect.objectContaining({ pendingActionRef, status: 'confirmed', mutationStatus: 'committed' }) })]));
     expect(after.reservationDraftAudits.map((audit: { action: string }) => audit.action)).toEqual(expect.arrayContaining(['pendingActionStatusRead', 'pendingActionConfirmed']));
     expect(after.rooms).toEqual(before.rooms);
-    expect(after.reservations).toEqual(before.reservations);
+    expect(after.reservations).toEqual([
+      expect.objectContaining({
+        reservationCode: confirm.reservation.reservationCode,
+        roomId: 'room-1001',
+        roomNumber: '1001',
+        guestDisplayName: 'Pending Guest',
+        status: 'booked'
+      })
+    ]);
     expect(after.operationRequests).toEqual(before.operationRequests);
     expect(after.audits).toEqual([]);
     expect(after.domainEvents).toEqual([]);
+    expect(after.projectionOutbox).toEqual(expect.arrayContaining([
+      expect.objectContaining({ sourceType: 'reservation', projectionKind: 'reservation', status: 'pending', deliveryOwner: 'adapter', truthOwner: 'pms-platform' })
+    ]));
 
     const createCancel = await authedPost(`${url}/v1/pms/reservation-drafts/create`, { ...createBase, clientToken: 'http-pending-cancel-create-1', requestFingerprint: 'sha256:http-pending-cancel-create-1', correlationId: 'corr-http-pending-cancel-create-1' });
     const cancelDraftRef = createCancel.draft.draftRef;

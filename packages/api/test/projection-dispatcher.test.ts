@@ -11,10 +11,14 @@ import {
   pmsOperationRequestCreateOperation,
   pmsOperationRequestUpdateOperation,
   pmsPendingActionConfirmOperation,
+  pmsReservationDraftCreateOperation,
+  pmsReservationPrepareConfirmOperation,
+  pmsReservationQuoteOperation,
   pmsReservationGroupDraftCreateOperation,
   pmsReservationGroupPrepareConfirmOperation,
   pmsReservationGroupQuoteOperation,
   pmsReservationGroupDraftUpdateOperation,
+  type ReservationDraftCreateApiRequest,
   type ReservationGroupDraftCreateApiRequest,
 } from '../src/index.js';
 import { createSqliteLocalSandboxStore } from '../src/sqliteSandboxStore.js';
@@ -84,6 +88,36 @@ describe('projection dispatcher', () => {
     expect(JSON.stringify(confirmedBody)).not.toContain(pendingActionRef);
     expect(JSON.stringify(confirmedBody)).not.toContain(cardPayloadRef);
     expect(store.listProjectionDispatchWork({ now: '2026-05-07T01:11:00.000Z', limit: 100 })).toHaveLength(0);
+    store.close();
+  });
+
+  it('maps committed single-room reservation outbox to adapter reservation projection upsert', async () => {
+    const store = createSqliteLocalSandboxStore({
+      dbPath: tempPath('projection-dispatch-reservation.sqlite'),
+      seedRooms: [room('room-1001', '1001')],
+      resetOnStart: true,
+      now: () => now,
+    });
+    const reservationCode = createConfirmedSingleRoomDraft(store);
+
+    const item = store.listProjectionDispatchWork({ now: '2026-05-07T01:12:00.000Z', limit: 100 })
+      .find((candidate) => candidate.entry.projectionKind === 'reservation');
+
+    expect(item).toBeDefined();
+    expect(mapProjectionDispatchWorkItem(item!, '2026-05-07T01:12:00.000Z')).toMatchObject({
+      operation: 'pms_base_upsert_reservation_projection',
+      reservationCode,
+      fields: {
+        backendId: expect.any(String),
+        reservationCode,
+        roomNumber: '1001',
+        guestLabel: 'Single Guest',
+        arrivalDate: '2026-05-08',
+        departureDate: '2026-05-10',
+        status: 'Booked',
+        schemaVersion: 'pms-dashboard-mvp-v1',
+      },
+    });
     store.close();
   });
 
@@ -252,6 +286,65 @@ function createConfirmedGroupDraft(store: ReturnType<typeof createSqliteLocalSan
   });
   if (!confirmed.ok) throw new Error('group_confirm_failed');
   return { pendingActionRef, cardPayloadRef };
+}
+
+function createConfirmedSingleRoomDraft(store: ReturnType<typeof createSqliteLocalSandboxStore>): string {
+  const actor = { type: 'human' as const, id: 'frontdesk-1', displayName: 'Front Desk' };
+  const baseCreate: ReservationDraftCreateApiRequest = {
+    operation: pmsReservationDraftCreateOperation,
+    propertyId: 'property-small-hotel',
+    actor,
+    source: 'api',
+    clientToken: 'single-draft-create-1',
+    requestFingerprint: 'sha256:single-draft-create-1',
+    correlationId: 'corr-single-draft-create-1',
+    requestedAt: now,
+    slots: {
+      guestDisplayName: 'Single Guest',
+      arrivalDate: '2026-05-08',
+      departureDate: '2026-05-10',
+      roomId: 'room-1001',
+      selectedCandidateRef: 'candidate-1001',
+    },
+    evidenceRefs: [{ source: 'availabilitySearch', refId: 'availability-single-1', generatedAt: now }],
+  };
+  const created = store.createReservationDraft(baseCreate);
+  if (!created.ok) throw new Error('single_create_failed');
+  const draftRef = created.draft.draftRef!;
+  const quoted = store.quoteReservationDraft({
+    ...baseCreate,
+    operation: pmsReservationQuoteOperation,
+    clientToken: 'single-draft-quote-1',
+    requestFingerprint: 'sha256:single-draft-quote-1',
+    correlationId: 'corr-single-draft-quote-1',
+    requestedAt: '2026-05-07T01:01:00.000Z',
+    draftRef,
+  });
+  if (!quoted.ok) throw new Error('single_quote_failed');
+  const prepared = store.prepareConfirmReservationDraft({
+    ...baseCreate,
+    operation: pmsReservationPrepareConfirmOperation,
+    clientToken: 'single-draft-prepare-1',
+    requestFingerprint: 'sha256:single-draft-prepare-1',
+    correlationId: 'corr-single-draft-prepare-1',
+    requestedAt: '2026-05-07T01:02:00.000Z',
+    draftRef,
+    quoteRef: quoted.draft.quote!.quoteRef,
+  });
+  if (!prepared.ok) throw new Error('single_prepare_failed');
+  const confirmed = store.confirmPendingAction({
+    operation: pmsPendingActionConfirmOperation,
+    pendingActionRef: prepared.draft.pendingAction!.pendingActionRef,
+    actor,
+    scope: { propertyId: 'property-small-hotel', channel: 'typed_card', userIdHash: 'sha256:user-1' },
+    clientToken: 'single-draft-confirm-1',
+    requestFingerprint: 'sha256:single-draft-confirm-1',
+    correlationId: 'corr-single-draft-confirm-1',
+    requestedAt: '2026-05-07T01:03:00.000Z',
+    cardPayloadRef: prepared.draft.pendingAction!.cardPayloadRef,
+  });
+  if (!confirmed.ok || !confirmed.reservation) throw new Error('single_confirm_failed');
+  return confirmed.reservation.reservationCode;
 }
 
 function room(roomId: string, roomNumber: string): RoomAggregate {

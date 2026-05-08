@@ -201,6 +201,7 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
     }));
     const projectionOutbox = deriveProjectionOutboxEntries({
       domainEvents,
+      reservations,
       reservationDraftAudits,
       reservationGroupDraftAudits,
       operationRequests,
@@ -1350,11 +1351,15 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
       if (expired) return expired;
       if (request.cardPayloadRef && request.cardPayloadRef !== draft.pendingAction.cardPayloadRef) return pendingActionCardPayloadMismatchResponse(request, draft);
       if (draft.pendingAction.status !== 'awaitingConfirmation' || draft.status !== 'awaitingConfirmation') return pendingActionInactiveResponse(request, draft);
+      if (transition === 'confirmed') {
+        const rejection = this.reservationDraftMaterializationRejection(request, draft);
+        if (rejection) return rejection;
+      }
 
       const pendingAction: ReservationDraftPendingActionRef = {
         ...draft.pendingAction,
         status: transition,
-        mutationStatus: transition === 'confirmed' ? 'deferred' : 'none',
+        mutationStatus: transition === 'confirmed' ? 'committed' : 'none',
         updatedAt: requestedAt,
       };
       const updated: StoredReservationDraft = {
@@ -1372,12 +1377,16 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
         requestedAt,
         redactedPendingActionAuditPayload(request),
       );
+      const reservation = transition === 'confirmed'
+        ? this.materializeConfirmedReservationDraft(updated, requestedAt)
+        : undefined;
       const response = pendingActionSuccessResponse(
         request.operation ?? (transition === 'confirmed' ? pmsPendingActionConfirmOperation : pmsPendingActionCancelOperation),
         transition,
-        transition === 'confirmed' ? 'deferred' : 'none',
+        transition === 'confirmed' ? 'committed' : 'none',
         updated,
         [auditRef],
+        reservation,
       );
       this.saveApiIdempotency({ idempotencyKey: request.clientToken, requestFingerprint: request.requestFingerprint, response });
       return response;
@@ -1432,6 +1441,59 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
       return pendingActionTokenConflictResponse(request);
     }
     return cloneValue(existing.response);
+  }
+
+  private reservationDraftMaterializationRejection(
+    request: PendingActionCallbackApiRequest,
+    draft: StoredReservationDraft,
+  ): PendingActionCallbackApiResponse | undefined {
+    const slots = draft.slots;
+    if (!slots.guestDisplayName || !slots.arrivalDate || !slots.departureDate || !slots.roomId) {
+      return pendingActionRejectedResponse(request, draft, 'RESERVATION_DRAFT_MISSING_REQUIRED_SLOTS', 'Reservation draft is missing slots required to create a final reservation.', 'slots');
+    }
+    const reservationId = reservationIdFromDraft(draft);
+    const conflictingReservation = this.listReservationsByRoomIds(new Set([slots.roomId]))
+      .find((reservation) =>
+        reservation.reservationId !== reservationId &&
+        reservation.status !== 'cancelled' &&
+        reservation.status !== 'checkedOut' &&
+        dateRangesOverlap(slots.arrivalDate!, slots.departureDate!, reservation.arrivalDate, reservation.departureDate)
+      );
+    if (conflictingReservation) {
+      return pendingActionRejectedResponse(request, draft, 'RESERVATION_ROOM_UNAVAILABLE', 'Selected room is no longer available for this stay range.', 'roomId');
+    }
+    return undefined;
+  }
+
+  private materializeConfirmedReservationDraft(draft: StoredReservationDraft, requestedAt: string): ReservationReadModel {
+    const slots = draft.slots;
+    const room = slots.roomId ? this.getRoom(slots.roomId) : undefined;
+    const startDate = slots.arrivalDate ?? requestedAt.slice(0, 10);
+    const endDate = slots.departureDate ?? addBusinessDays(startDate, 1);
+    const reservationId = reservationIdFromDraft(draft);
+    return this.saveReservationImportRecord({
+      reservationId,
+      reservationCode: reservationCodeFromDraft(draft),
+      propertyId: draft.propertyId,
+      roomId: slots.roomId,
+      roomNumber: room?.roomNumber,
+      roomTypeId: slots.roomTypeId ?? room?.roomTypeId,
+      roomType: room?.roomType,
+      guestDisplayName: slots.guestDisplayName ?? 'Guest',
+      arrivalDate: startDate,
+      departureDate: endDate,
+      status: 'booked',
+      allocation: {
+        allocationId: `alloc-${reservationId}`,
+        roomId: slots.roomId,
+        roomNumber: room?.roomNumber,
+        roomTypeId: slots.roomTypeId ?? room?.roomTypeId,
+        roomType: room?.roomType,
+        startDate,
+        endDate,
+        status: 'allocated',
+      },
+    });
   }
 
   private expirePendingActionIfNeeded(
@@ -2784,6 +2846,7 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
     }));
     return deriveProjectionOutboxEntries({
       domainEvents: this.listDomainEvents(),
+      reservations: this.listReservations(),
       reservationDraftAudits: this.listReservationDraftAudits(),
       reservationGroupDraftAudits: this.listReservationGroupDraftAudits(),
       operationRequests: this.listOperationRequestRecords(),
@@ -2865,6 +2928,18 @@ export class SqliteLocalSandboxStore implements PmsLocalSandboxStore {
         ...(room ? { room } : {}),
         ...(housekeepingTask ? { housekeepingTask } : {}),
         ...(maintenanceTicket ? { maintenanceTicket } : {}),
+      };
+    }
+
+    if (entry.sourceType === 'reservation') {
+      const row = this.getReservationRowById(entry.sourceRef);
+      const reservation = row ? this.reservationReadModelFromRow(row, entry.generatedAt) : undefined;
+      const room = reservation?.roomId ? this.getRoom(reservation.roomId) : undefined;
+      return {
+        entry,
+        ledger,
+        ...(reservation ? { reservation } : {}),
+        ...(room ? { room } : {}),
       };
     }
 
@@ -3769,9 +3844,10 @@ function pendingActionReadModelFromGroupDraft(draft: StoredReservationGroupDraft
 function pendingActionSuccessResponse(
   operation: typeof pmsPendingActionStatusOperation | typeof pmsPendingActionConfirmOperation | typeof pmsPendingActionCancelOperation,
   idempotencyStatus: 'statusRead' | 'confirmed' | 'cancelled',
-  mutationStatus: 'none' | 'deferred',
+  mutationStatus: 'none' | 'deferred' | 'committed',
   draft: StoredReservationDraft,
   auditRefs: readonly ReservationDraftAuditRef[],
+  reservation?: ReservationReadModel,
 ): PendingActionCallbackApiResponse {
   return {
     ok: true,
@@ -3780,6 +3856,7 @@ function pendingActionSuccessResponse(
     mutationStatus,
     idempotencyStatus,
     pendingAction: pendingActionReadModelFromDraft(draft, auditRefs),
+    ...(reservation ? { reservation: cloneValue(reservation) } : {}),
   };
 }
 
@@ -3797,6 +3874,23 @@ function pendingActionSuccessResponseFromGroup(
     mutationStatus,
     idempotencyStatus,
     pendingAction: pendingActionReadModelFromGroupDraft(draft, auditRefs),
+  };
+}
+
+function pendingActionRejectedResponse(
+  request: PendingActionCallbackApiRequest,
+  draft: StoredReservationDraft,
+  code: ApiErrorCode,
+  message: string,
+  field: string,
+): PendingActionCallbackApiResponse {
+  return {
+    ok: false,
+    operation: request.operation ?? pendingActionFallbackOperation(request),
+    status: 'rejected',
+    mutationStatus: 'none',
+    pendingAction: pendingActionReadModelFromDraft(draft),
+    errors: [{ code, message, field }],
   };
 }
 
@@ -3904,6 +3998,7 @@ function pendingActionFallbackOperation(request: PendingActionCallbackApiRequest
 
 function deriveProjectionOutboxEntries(input: {
   domainEvents: readonly DomainEvent[];
+  reservations: readonly ReservationReadModel[];
   reservationDraftAudits: readonly ReservationDraftAuditRef[];
   reservationGroupDraftAudits: readonly ReservationGroupDraftAuditRef[];
   operationRequests: readonly OperationRequest[];
@@ -3921,6 +4016,17 @@ function deriveProjectionOutboxEntries(input: {
       idempotencyKey: event.idempotencyKey,
       generatedAt: event.occurredAt,
       updatedAt: event.occurredAt,
+      status: 'pending',
+    }));
+  }
+  for (const reservation of input.reservations) {
+    entries.push(projectionOutboxEntry({
+      sourceType: 'reservation',
+      sourceRef: reservation.reservationId,
+      projectionKind: 'reservation',
+      aggregateRef: reservation.reservationId,
+      generatedAt: input.generatedAt,
+      updatedAt: input.generatedAt,
       status: 'pending',
     }));
   }
@@ -4069,6 +4175,14 @@ function reservationDraftIdFromClientToken(clientToken: string): string {
 
 function reservationDraftRef(draftId: string): string {
   return createHash('sha256').update(`reservation-draft:${draftId}`).digest('hex').slice(0, 16);
+}
+
+function reservationIdFromDraft(draft: StoredReservationDraft): string {
+  return `reservation-${reservationDraftRef(draft.draftId)}`;
+}
+
+function reservationCodeFromDraft(draft: StoredReservationDraft): string {
+  return `R-${reservationDraftRef(draft.draftId).toUpperCase()}`;
 }
 
 function reservationQuoteRef(draft: StoredReservationDraft): string {
@@ -4427,6 +4541,10 @@ function businessDateRange(startDate: string, endDate: string): string[] {
 
 function dateInRange(businessDate: string, startDate: string, endDate: string): boolean {
   return businessDate >= normalizeBusinessDate(startDate) && businessDate < normalizeBusinessDate(endDate);
+}
+
+function dateRangesOverlap(leftStart: string, leftEnd: string, rightStart: string, rightEnd: string): boolean {
+  return normalizeBusinessDate(leftStart) < normalizeBusinessDate(rightEnd) && normalizeBusinessDate(rightStart) < normalizeBusinessDate(leftEnd);
 }
 
 function normalizeInventoryHorizonDays(value: number | undefined): number {
