@@ -8,8 +8,17 @@
     "@pms-platform/core": "0.0.0"
   },
   "exports": {
-    ".": "./src/index.ts",
-    "./local-sandbox": "./src/localSandbox.ts",
-    "./sqlite-sandbox": "./src/sqliteSandboxStore.ts"
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./runtime.js"
+    },
+    "./local-sandbox": {
+      "types": "./src/localSandbox.ts",
+      "default": "./runtime-local-sandbox.js"
+    },
+    "./sqlite-sandbox": {
+      "types": "./src/sqliteSandboxStore.ts",
+      "default": "./runtime-sqlite-sandbox.js"
+    }
   }
 }
