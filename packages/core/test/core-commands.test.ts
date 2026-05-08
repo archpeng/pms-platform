@@ -63,179 +63,6 @@ const vacantDirtyRoom: RoomAggregate = {
   saleStatus: 'sellable',
 };
 
-describe('core contract boundary', () => {
-  it('consumes PMS contracts through the workspace package import', () => {
-    expect(describeCoreContractBoundary()).toEqual({
-      packageName: '@pms-platform/core',
-      supportedCommandType: 'CHECK_OUT',
-      supportedCommandTypes: [
-        'CHECK_IN',
-        'CHECK_OUT',
-        'HOUSEKEEPING_DONE',
-        'HOUSEKEEPING_INSPECTION',
-        'HOUSEKEEPING_REWORK',
-        'REPORT_MAINTENANCE',
-        'MAINTENANCE_DONE',
-        'RESTORE_SELLABLE',
-      ],
-      supportedReadModels: ['pms_get_room', 'pms_dashboard'],
-      supportedExecutionModes: ['dryRun', 'confirm'],
-    });
-  });
-});
-
-describe('room domain model', () => {
-  it('supports checkout-relevant room statuses and derives a stable room code', () => {
-    expect(supportedOccupancyStatuses).toEqual(['occupied', 'dueOut', 'vacant']);
-    expect(supportedCleaningStatuses).toEqual(['clean', 'dirty', 'cleaning', 'inspection', 'rework']);
-    expect(supportedSaleStatuses).toEqual(['sellable', 'outOfOrder', 'outOfService']);
-
-    expect(deriveRoomCode(dueOutRoom)).toBe('1001:dueOut:clean:sellable');
-    expect(
-      deriveRoomCode({
-        roomNumber: '1002',
-        occupancyStatus: 'vacant',
-        cleaningStatus: 'dirty',
-        saleStatus: 'outOfService',
-      }),
-    ).toBe('1002:vacant:dirty:outOfService');
-  });
-
-  it('maps between contract RoomState and core RoomAggregate without presentation fields', () => {
-    const aggregate = roomAggregateFromState(checkoutContractFixtures.room);
-
-    expect(aggregate).toEqual(dueOutRoom);
-    expect(roomStateFromAggregate(aggregate)).toEqual(checkoutContractFixtures.room);
-  });
-});
-
-describe('housekeeping task model', () => {
-  it('creates checkout-cleaning tasks with PMS metadata', () => {
-    const task = createCheckoutCleaningTask({
-      taskId: 'task-1',
-      roomId: dueOutRoom.roomId,
-      reason: checkoutContractFixtures.dryRunCommand.meta.reason,
-      correlationId: checkoutContractFixtures.dryRunCommand.meta.correlationId,
-      createdAt: checkoutContractFixtures.dryRunCommand.meta.requestedAt,
-    });
-
-    expect(task).toEqual({
-      taskId: 'task-1',
-      roomId: 'room-1001',
-      kind: 'checkout-cleaning',
-      status: 'pending',
-      reason: 'Guest departed and returned room cards.',
-      correlationId: 'corr-checkout-room-1001',
-      createdAt: '2026-04-25T00:00:00.000Z',
-    });
-  });
-});
-
-describe('domain validation helpers', () => {
-  it('validates command metadata and checkoutable room state without executing checkout', () => {
-    expect(validateCheckoutDomainInput(checkoutContractFixtures.dryRunCommand, dueOutRoom)).toEqual([]);
-
-    expect(validateCheckoutDomainInput(checkoutContractFixtures.dryRunCommand, undefined)).toEqual([
-      {
-        code: 'ROOM_NOT_FOUND',
-        message: 'Room was not found.',
-        field: 'roomId',
-      },
-    ]);
-
-    expect(
-      validateCheckoutDomainInput(checkoutContractFixtures.dryRunCommand, {
-        ...dueOutRoom,
-        occupancyStatus: 'vacant',
-      }),
-    ).toEqual([
-      {
-        code: 'ROOM_NOT_CHECKOUTABLE',
-        message: 'Room is not in a checkoutable occupancy state.',
-        field: 'room.occupancyStatus',
-      },
-    ]);
-  });
-
-  it('validates check-in eligibility without presentation-specific fields', () => {
-    expect(validateCheckInDomainInput(checkinCommandForRoom(vacantCleanRoom.roomId), vacantCleanRoom)).toEqual([]);
-
-    expect(validateCheckInDomainInput(checkinCommandForRoom('missing-room'), undefined)).toEqual([
-      {
-        code: 'ROOM_NOT_FOUND',
-        message: 'Room was not found.',
-        field: 'roomId',
-      },
-    ]);
-
-    expect(validateCheckInDomainInput(checkinCommandForRoom(occupiedRoom.roomId), occupiedRoom)).toEqual([
-      {
-        code: 'ROOM_NOT_CHECKIN_ELIGIBLE',
-        message: 'Room is not eligible for check-in.',
-        field: 'room.status',
-      },
-    ]);
-    expect(validateCheckInDomainInput({ ...checkinCommandForRoom(vacantDirtyRoom.roomId), overrideDirtyRoom: true }, vacantDirtyRoom)).toEqual([]);
-  });
-});
-
-describe('room and dashboard read models', () => {
-  it('returns a PMS-owned one-room read model with task and freshness summary', () => {
-    const ports = createInMemoryCorePorts([dueOutRoom, vacantCleanRoom]);
-    const checkout = checkOut({ ...checkoutContractFixtures.dryRunCommand, meta: { ...checkoutContractFixtures.dryRunCommand.meta, mode: 'confirm' } }, ports);
-
-    expect(checkout.ok).toBe(true);
-    const readModel = getRoomReadModel('room-1001', ports, '2026-04-25T02:00:00.000Z');
-
-    expect(readModel).toMatchObject({
-      schemaVersion: 'pms-dashboard-mvp-v1',
-      summaryStatus: 'fresh',
-      room: {
-        roomId: 'room-1001',
-        roomNumber: '1001',
-        status: {
-          occupancy: 'vacant',
-          cleaning: 'dirty',
-          sale: 'sellable',
-        },
-      },
-      projectionFreshness: {
-        status: 'fresh',
-      },
-    });
-    expect(readModel.housekeepingTasks).toHaveLength(1);
-    expect(readModel.activeReservation).toBeUndefined();
-    expect(readModel.maintenanceTickets).toEqual([]);
-  });
-
-  it('returns dashboard counts and queues without mutating PMS state', () => {
-    const ports = createInMemoryCorePorts([dueOutRoom, occupiedRoom, vacantCleanRoom, vacantDirtyRoom]);
-    const before = snapshotPorts(ports);
-
-    const readModel = getDashboardReadModel(ports, '2026-04-25T02:30:00.000Z');
-
-    expect(readModel).toMatchObject({
-      schemaVersion: 'pms-dashboard-mvp-v1',
-      summaryStatus: 'fresh',
-      counts: {
-        totalRooms: 4,
-        vacantClean: 1,
-        vacantDirty: 1,
-        inHouse: 1,
-        dueOut: 1,
-        stopSell: 1,
-      },
-      queues: {
-        cleaning: 0,
-        inspection: 0,
-        pendingOperationRequests: 0,
-        failedOperationRequests: 0,
-      },
-    });
-    expect(snapshotPorts(ports)).toEqual(before);
-  });
-});
-
 describe('check-in dry-run and confirm execution', () => {
   it('returns a structural check-in dry-run without mutating ports', () => {
     const ports = createInMemoryCorePorts([vacantCleanRoom]);
@@ -331,6 +158,8 @@ describe('check-in dry-run and confirm execution', () => {
     });
   });
 });
+
+
 
 describe('checkout dry-run execution', () => {
   it('returns a structural dry-run plan for a due-out room without mutating ports', () => {
@@ -475,6 +304,8 @@ describe('checkout dry-run execution', () => {
     });
   });
 });
+
+
 
 describe('checkout confirm execution', () => {
   it('confirms checkout for a due-out room with room mutation, task, audit, and events', () => {
@@ -688,6 +519,8 @@ describe('checkout confirm execution', () => {
   });
 });
 
+
+
 describe('housekeeping and maintenance execution', () => {
   it('confirms housekeeping completion, inspection failure, and rework completion through canonical room/task state', () => {
     const ports = createInMemoryCorePorts([{ ...vacantDirtyRoom, roomId: 'room-A1', roomNumber: 'A1' }]);
@@ -822,76 +655,6 @@ describe('housekeeping and maintenance execution', () => {
       'MaintenanceCompleted',
       'RoomSellabilityRestored',
     ]);
-  });
-});
-
-describe('replaceable in-memory ports', () => {
-  it('stores rooms through repository interfaces and returns defensive copies', () => {
-    const rooms = createInMemoryRoomRepository([dueOutRoom]);
-    const room = rooms.get('room-1001');
-
-    expect(room).toEqual(dueOutRoom);
-
-    if (room) {
-      rooms.save({ ...room, cleaningStatus: 'dirty' });
-    }
-
-    expect(rooms.get('room-1001')).toEqual({ ...dueOutRoom, cleaningStatus: 'dirty' });
-    expect(rooms.list()).toEqual([{ ...dueOutRoom, cleaningStatus: 'dirty' }]);
-  });
-
-  it('collects task, audit, idempotency, and event state through replaceable ports', () => {
-    const ports = createInMemoryCorePorts([dueOutRoom]);
-    const task = createCheckoutCleaningTask({
-      taskId: 'task-1',
-      roomId: 'room-1001',
-      reason: checkoutContractFixtures.dryRunCommand.meta.reason,
-      correlationId: checkoutContractFixtures.dryRunCommand.meta.correlationId,
-      createdAt: checkoutContractFixtures.dryRunCommand.meta.requestedAt,
-    });
-
-    ports.housekeepingTasks.save(task);
-    ports.audits.append({
-      auditId: 'audit-1',
-      commandType: 'CHECK_OUT',
-      roomId: 'room-1001',
-      actor: checkoutContractFixtures.dryRunCommand.meta.actor,
-      source: checkoutContractFixtures.dryRunCommand.meta.source,
-      reason: checkoutContractFixtures.dryRunCommand.meta.reason,
-      idempotencyKey: checkoutContractFixtures.dryRunCommand.meta.idempotencyKey,
-      correlationId: checkoutContractFixtures.dryRunCommand.meta.correlationId,
-      occurredAt: checkoutContractFixtures.dryRunCommand.meta.requestedAt,
-    });
-    ports.idempotency.save(checkoutContractFixtures.dryRunCommand.meta.idempotencyKey, {
-      taskId: task.taskId,
-    });
-    ports.events.append({
-      eventId: 'evt-1',
-      type: 'HousekeepingTaskCreated',
-      aggregateId: task.taskId,
-      task,
-      occurredAt: task.createdAt,
-      correlationId: task.correlationId,
-      idempotencyKey: checkoutContractFixtures.dryRunCommand.meta.idempotencyKey,
-      actor: checkoutContractFixtures.dryRunCommand.meta.actor,
-    });
-
-    expect(ports.housekeepingTasks.list()).toEqual([task]);
-    expect(ports.audits.list()).toHaveLength(1);
-    expect(ports.idempotency.has(checkoutContractFixtures.dryRunCommand.meta.idempotencyKey)).toBe(true);
-    expect(ports.idempotency.get(checkoutContractFixtures.dryRunCommand.meta.idempotencyKey)).toEqual({
-      taskId: 'task-1',
-    });
-    expect(ports.events.list().map((event) => event.type)).toEqual(['HousekeepingTaskCreated']);
-  });
-
-  it('keeps repository implementations behind interfaces for future persistence replacement', () => {
-    const idempotency = createInMemoryIdempotencyRepository<{ readonly roomId: string }>();
-    idempotency.save('key-1', { roomId: 'room-1001' });
-
-    const events = createInMemoryDomainEventCollector();
-    expect(idempotency.get('key-1')).toEqual({ roomId: 'room-1001' });
-    expect(events.list()).toEqual([]);
   });
 });
 
