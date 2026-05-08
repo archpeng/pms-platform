@@ -1,14 +1,17 @@
+import {
+  type InventoryHorizonRequest,
+  type InventoryReadModel,
+} from '@pms-platform/contracts';
+import { type RoomAggregate } from '@pms-platform/core';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { type InventoryHorizonRequest, type InventoryReadModel } from '@pms-platform/contracts';
-import { type RoomAggregate } from '@pms-platform/core';
 import {
   pmsSqliteDbPathEnvName,
   type PmsLocalStorageMetadata,
   type PmsSandboxReadback,
   type PmsSandboxReservationImportRecord,
-} from '../localSandbox.js';
+} from '../localSandbox/model.js';
 import { cloneValue } from './model.js';
 import { migrateSqliteSandboxSchema } from './schema.js';
 
@@ -50,8 +53,12 @@ export abstract class SqliteSandboxBase {
     seedReservations?: readonly PmsSandboxReservationImportRecord[],
   ): PmsSandboxReadback;
   protected abstract listRooms(): RoomAggregate[];
-  protected abstract seedCatalogFromRooms(rooms: readonly RoomAggregate[]): void;
-  protected abstract rebuildInventoryHorizon(options?: Partial<InventoryHorizonRequest>): InventoryReadModel;
+  protected abstract seedCatalogFromRooms(
+    rooms: readonly RoomAggregate[],
+  ): void;
+  protected abstract rebuildInventoryHorizon(
+    options?: Partial<InventoryHorizonRequest>,
+  ): InventoryReadModel;
 
   runInTransaction<TValue>(operation: () => TValue): TValue {
     if (this.transactionDepth > 0) {

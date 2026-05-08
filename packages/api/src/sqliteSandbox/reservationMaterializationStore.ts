@@ -1,17 +1,15 @@
+import { type ReservationReadModel } from '@pms-platform/contracts';
 import {
-type ReservationReadModel
-} from '@pms-platform/contracts';
-import {
-type PendingActionCallbackApiRequest,
-type PendingActionCallbackApiResponse
+  type PendingActionCallbackApiRequest,
+  type PendingActionCallbackApiResponse,
 } from '../index.js';
 import {
-StoredReservationDraft,
-addBusinessDays,
-dateRangesOverlap,
-pendingActionRejectedResponse,
-reservationCodeFromDraft,
-reservationIdFromDraft
+  StoredReservationDraft,
+  addBusinessDays,
+  dateRangesOverlap,
+  pendingActionRejectedResponse,
+  reservationCodeFromDraft,
+  reservationIdFromDraft,
 } from './model.js';
 import { SqliteSandboxReservationGroupDraftStore } from './reservationGroupDraftStore.js';
 
@@ -21,24 +19,51 @@ export abstract class SqliteSandboxReservationMaterializationStore extends Sqlit
     draft: StoredReservationDraft,
   ): PendingActionCallbackApiResponse | undefined {
     const slots = draft.slots;
-    if (!slots.guestDisplayName || !slots.arrivalDate || !slots.departureDate || !slots.roomId) {
-      return pendingActionRejectedResponse(request, draft, 'RESERVATION_DRAFT_MISSING_REQUIRED_SLOTS', 'Reservation draft is missing slots required to create a final reservation.', 'slots');
+    if (
+      !slots.guestDisplayName ||
+      !slots.arrivalDate ||
+      !slots.departureDate ||
+      !slots.roomId
+    ) {
+      return pendingActionRejectedResponse(
+        request,
+        draft,
+        'RESERVATION_DRAFT_MISSING_REQUIRED_SLOTS',
+        'Reservation draft is missing slots required to create a final reservation.',
+        'slots',
+      );
     }
     const reservationId = reservationIdFromDraft(draft);
-    const conflictingReservation = this.listReservationsByRoomIds(new Set([slots.roomId]))
-      .find((reservation) =>
+    const conflictingReservation = this.listReservationsByRoomIds(
+      new Set([slots.roomId]),
+    ).find(
+      (reservation) =>
         reservation.reservationId !== reservationId &&
         reservation.status !== 'cancelled' &&
         reservation.status !== 'checkedOut' &&
-        dateRangesOverlap(slots.arrivalDate!, slots.departureDate!, reservation.arrivalDate, reservation.departureDate)
-      );
+        dateRangesOverlap(
+          slots.arrivalDate!,
+          slots.departureDate!,
+          reservation.arrivalDate,
+          reservation.departureDate,
+        ),
+    );
     if (conflictingReservation) {
-      return pendingActionRejectedResponse(request, draft, 'RESERVATION_ROOM_UNAVAILABLE', 'Selected room is no longer available for this stay range.', 'roomId');
+      return pendingActionRejectedResponse(
+        request,
+        draft,
+        'RESERVATION_ROOM_UNAVAILABLE',
+        'Selected room is no longer available for this stay range.',
+        'roomId',
+      );
     }
     return undefined;
   }
 
-  protected materializeConfirmedReservationDraft(draft: StoredReservationDraft, requestedAt: string): ReservationReadModel {
+  protected materializeConfirmedReservationDraft(
+    draft: StoredReservationDraft,
+    requestedAt: string,
+  ): ReservationReadModel {
     const slots = draft.slots;
     const room = slots.roomId ? this.getRoom(slots.roomId) : undefined;
     const startDate = slots.arrivalDate ?? requestedAt.slice(0, 10);

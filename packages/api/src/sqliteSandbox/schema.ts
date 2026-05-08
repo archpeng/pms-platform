@@ -1,6 +1,9 @@
 import type { DatabaseSync } from 'node:sqlite';
 
-export function migrateSqliteSandboxSchema(db: DatabaseSync, appliedAt: string): void {
+export function migrateSqliteSandboxSchema(
+  db: DatabaseSync,
+  appliedAt: string,
+): void {
   db.exec(`
     PRAGMA foreign_keys = ON;
     PRAGMA journal_mode = WAL;
@@ -340,8 +343,15 @@ export function migrateSqliteSandboxSchema(db: DatabaseSync, appliedAt: string):
   addColumnIfMissing(db, 'rooms', 'sort_key', 'TEXT');
 }
 
-function addColumnIfMissing(db: DatabaseSync, tableName: string, columnName: string, columnType: string): void {
-  const rows = db.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{ name?: string }>;
+function addColumnIfMissing(
+  db: DatabaseSync,
+  tableName: string,
+  columnName: string,
+  columnType: string,
+): void {
+  const rows = db.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{
+    name?: string;
+  }>;
   if (rows.some((row) => row.name === columnName)) return;
   db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnType}`);
 }

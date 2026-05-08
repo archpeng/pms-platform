@@ -1,43 +1,49 @@
 import {
-isOperationRequestSource,
-isOperationRequestStatus,
-isSupportedOperationRequestAction,
-type OperationRequest
+  isOperationRequestSource,
+  isOperationRequestStatus,
+  isSupportedOperationRequestAction,
+  type OperationRequest,
 } from '@pms-platform/contracts';
 import {
-pmsOperationRequestCreateOperation,
-pmsOperationRequestGetOperation,
-pmsOperationRequestListOperation,
-pmsOperationRequestUpdateOperation,
-type OperationRequestCreateApiRequest,
-type OperationRequestCreateApiResponse,
-type OperationRequestGetApiRequest,
-type OperationRequestGetApiResponse,
-type OperationRequestListApiRequest,
-type OperationRequestListApiResponse,
-type OperationRequestUpdateApiRequest,
-type OperationRequestUpdateApiResponse
+  pmsOperationRequestCreateOperation,
+  pmsOperationRequestGetOperation,
+  pmsOperationRequestListOperation,
+  pmsOperationRequestUpdateOperation,
+  type OperationRequestCreateApiRequest,
+  type OperationRequestCreateApiResponse,
+  type OperationRequestGetApiRequest,
+  type OperationRequestGetApiResponse,
+  type OperationRequestListApiRequest,
+  type OperationRequestListApiResponse,
+  type OperationRequestUpdateApiRequest,
+  type OperationRequestUpdateApiResponse,
 } from '../index.js';
 import {
-OperationRequestRow,
-cloneValue,
-nonEmptyString,
-operationRequestCreateErrorResponse,
-operationRequestFromRow,
-operationRequestIdFromClientToken,
-operationRequestListLimit,
-operationRequestUpdateErrorResponse,
-optionalString,
-stableJsonStringify
+  OperationRequestRow,
+  cloneValue,
+  nonEmptyString,
+  operationRequestCreateErrorResponse,
+  operationRequestFromRow,
+  operationRequestIdFromClientToken,
+  operationRequestListLimit,
+  operationRequestUpdateErrorResponse,
+  optionalString,
+  stableJsonStringify,
 } from './model.js';
 import { SqliteSandboxWorkflowStore } from './workflowStore.js';
 
 export abstract class SqliteSandboxOperationRequestStore extends SqliteSandboxWorkflowStore {
-  createOperationRequest(request: OperationRequestCreateApiRequest): OperationRequestCreateApiResponse {
-    return this.runInTransaction(() => this.createOperationRequestRecord(request));
+  createOperationRequest(
+    request: OperationRequestCreateApiRequest,
+  ): OperationRequestCreateApiResponse {
+    return this.runInTransaction(() =>
+      this.createOperationRequestRecord(request),
+    );
   }
 
-  getOperationRequest(request: OperationRequestGetApiRequest): OperationRequestGetApiResponse {
+  getOperationRequest(
+    request: OperationRequestGetApiRequest,
+  ): OperationRequestGetApiResponse {
     return {
       ok: true,
       operation: pmsOperationRequestGetOperation,
@@ -45,8 +51,14 @@ export abstract class SqliteSandboxOperationRequestStore extends SqliteSandboxWo
     };
   }
 
-  listOperationRequests(request: OperationRequestListApiRequest = {}): OperationRequestListApiResponse {
-    const status = typeof request.status === 'string' && isOperationRequestStatus(request.status) ? request.status : undefined;
+  listOperationRequests(
+    request: OperationRequestListApiRequest = {},
+  ): OperationRequestListApiResponse {
+    const status =
+      typeof request.status === 'string' &&
+      isOperationRequestStatus(request.status)
+        ? request.status
+        : undefined;
     const roomId = optionalString(request.roomId);
     const limit = operationRequestListLimit(request.limit);
     const matching = this.listOperationRequestRecords()
@@ -68,11 +80,17 @@ export abstract class SqliteSandboxOperationRequestStore extends SqliteSandboxWo
     };
   }
 
-  updateOperationRequest(request: OperationRequestUpdateApiRequest): OperationRequestUpdateApiResponse {
-    return this.runInTransaction(() => this.updateOperationRequestRecord(request));
+  updateOperationRequest(
+    request: OperationRequestUpdateApiRequest,
+  ): OperationRequestUpdateApiResponse {
+    return this.runInTransaction(() =>
+      this.updateOperationRequestRecord(request),
+    );
   }
 
-  protected createOperationRequestRecord(request: OperationRequestCreateApiRequest): OperationRequestCreateApiResponse {
+  protected createOperationRequestRecord(
+    request: OperationRequestCreateApiRequest,
+  ): OperationRequestCreateApiResponse {
     const payloadJson = stableJsonStringify(request.payload ?? {});
     const existing = this.getOperationRequestByClientToken(request.clientToken);
 
@@ -92,7 +110,11 @@ export abstract class SqliteSandboxOperationRequestStore extends SqliteSandboxWo
       );
     }
 
-    if (existing && (existing.requestFingerprint !== request.requestFingerprint || existing.payloadJson !== payloadJson)) {
+    if (
+      existing &&
+      (existing.requestFingerprint !== request.requestFingerprint ||
+        existing.payloadJson !== payloadJson)
+    ) {
       return operationRequestCreateErrorResponse(
         'OPERATION_REQUEST_TOKEN_REUSED_WITH_DIFFERENT_FINGERPRINT',
         'The operation request client token was reused with a different request fingerprint or payload.',
@@ -111,7 +133,9 @@ export abstract class SqliteSandboxOperationRequestStore extends SqliteSandboxWo
 
     const createdAt = nonEmptyString(request.requestedAt, this.now());
     const operationRequest: OperationRequest = {
-      operationRequestId: operationRequestIdFromClientToken(request.clientToken),
+      operationRequestId: operationRequestIdFromClientToken(
+        request.clientToken,
+      ),
       propertyId: nonEmptyString(request.propertyId, 'property-unknown'),
       clientToken: request.clientToken,
       requestFingerprint: request.requestFingerprint,
@@ -135,7 +159,9 @@ export abstract class SqliteSandboxOperationRequestStore extends SqliteSandboxWo
     };
   }
 
-  protected updateOperationRequestRecord(request: OperationRequestUpdateApiRequest): OperationRequestUpdateApiResponse {
+  protected updateOperationRequestRecord(
+    request: OperationRequestUpdateApiRequest,
+  ): OperationRequestUpdateApiResponse {
     const existing = this.findOperationRequest(request);
     if (!existing) {
       return operationRequestUpdateErrorResponse(
@@ -145,7 +171,10 @@ export abstract class SqliteSandboxOperationRequestStore extends SqliteSandboxWo
       );
     }
 
-    if (request.status !== undefined && !isOperationRequestStatus(request.status)) {
+    if (
+      request.status !== undefined &&
+      !isOperationRequestStatus(request.status)
+    ) {
       return operationRequestUpdateErrorResponse(
         'OPERATION_REQUEST_INVALID_STATUS',
         `Unsupported operation request status: ${request.status}`,
@@ -156,7 +185,12 @@ export abstract class SqliteSandboxOperationRequestStore extends SqliteSandboxWo
     const updated: OperationRequest = {
       ...existing,
       status: request.status ?? existing.status,
-      resultJson: request.result === undefined ? existing.resultJson : request.result === null ? undefined : stableJsonStringify(request.result),
+      resultJson:
+        request.result === undefined
+          ? existing.resultJson
+          : request.result === null
+            ? undefined
+            : stableJsonStringify(request.result),
       updatedAt: nonEmptyString(request.updatedAt, this.now()),
     };
     this.saveOperationRequest(updated);
@@ -168,7 +202,9 @@ export abstract class SqliteSandboxOperationRequestStore extends SqliteSandboxWo
     };
   }
 
-  protected findOperationRequest(request: OperationRequestGetApiRequest | OperationRequestUpdateApiRequest): OperationRequest | undefined {
+  protected findOperationRequest(
+    request: OperationRequestGetApiRequest | OperationRequestUpdateApiRequest,
+  ): OperationRequest | undefined {
     if (request.operationRequestId) {
       return this.getOperationRequestById(request.operationRequestId);
     }
@@ -178,28 +214,44 @@ export abstract class SqliteSandboxOperationRequestStore extends SqliteSandboxWo
     return undefined;
   }
 
-  protected getOperationRequestById(operationRequestId: string): OperationRequest | undefined {
-    const row = this.db.prepare('SELECT * FROM operation_requests WHERE operation_request_id = ?').get(operationRequestId) as OperationRequestRow | undefined;
+  protected getOperationRequestById(
+    operationRequestId: string,
+  ): OperationRequest | undefined {
+    const row = this.db
+      .prepare(
+        'SELECT * FROM operation_requests WHERE operation_request_id = ?',
+      )
+      .get(operationRequestId) as OperationRequestRow | undefined;
     return row ? operationRequestFromRow(row) : undefined;
   }
 
-  protected getOperationRequestByClientToken(clientToken: string): OperationRequest | undefined {
-    const row = this.db.prepare('SELECT * FROM operation_requests WHERE client_token = ?').get(clientToken) as OperationRequestRow | undefined;
+  protected getOperationRequestByClientToken(
+    clientToken: string,
+  ): OperationRequest | undefined {
+    const row = this.db
+      .prepare('SELECT * FROM operation_requests WHERE client_token = ?')
+      .get(clientToken) as OperationRequestRow | undefined;
     return row ? operationRequestFromRow(row) : undefined;
   }
 
   protected listOperationRequestRecords(): OperationRequest[] {
     const rows = this.db
-      .prepare('SELECT * FROM operation_requests ORDER BY created_at, operation_request_id')
+      .prepare(
+        'SELECT * FROM operation_requests ORDER BY created_at, operation_request_id',
+      )
       .all() as unknown as OperationRequestRow[];
     return rows.map(operationRequestFromRow);
   }
 
-  protected listOperationRequestsByRoomIds(roomIds: ReadonlySet<string>): OperationRequest[] {
+  protected listOperationRequestsByRoomIds(
+    roomIds: ReadonlySet<string>,
+  ): OperationRequest[] {
     if (roomIds.size === 0) {
       return [];
     }
-    return this.listOperationRequestRecords().filter((request) => request.roomId ? roomIds.has(request.roomId) : false);
+    return this.listOperationRequestRecords().filter((request) =>
+      request.roomId ? roomIds.has(request.roomId) : false,
+    );
   }
 
   protected saveOperationRequest(request: OperationRequest): void {

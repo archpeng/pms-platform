@@ -1,7 +1,4 @@
-import { createHash } from 'node:crypto';
 import {
-  type AuditEntry,
-  type DomainEvent,
   type InventoryAvailabilityStatus,
   type InventoryBlock,
   type InventoryCalendarKind,
@@ -14,74 +11,26 @@ import {
   type ReservationDraftAuditRef,
   type ReservationDraftEvidenceRef,
   type ReservationDraftMissingSlot,
-  type PendingActionReadModel,
   type ReservationDraftPendingActionRef,
   type ReservationDraftQuoteRef,
   type ReservationDraftSlots,
   type ReservationDraftStatus,
-  type ReservationDraftWorkflowRef,
-  type ReservationGroupDraftAuditRef,
   type ReservationGroupDraftEvidenceRef,
   type ReservationGroupDraftMissingSlot,
   type ReservationGroupDraftPendingActionRef,
   type ReservationGroupDraftQuoteRef,
   type ReservationGroupDraftSlots,
   type ReservationGroupDraftStatus,
-  type ReservationGroupDraftWorkflowRef,
   type ReservationReadModel,
   type StayStatus,
 } from '@pms-platform/contracts';
 import { type RoomAggregate } from '@pms-platform/core';
+import { type ApiIdempotencyRecord } from '../index.js';
 import {
-  pmsCheckInOperation,
-  pmsCheckOutOperation,
-  pmsHousekeepingDoneOperation,
-  pmsHousekeepingInspectionOperation,
-  pmsHousekeepingReworkOperation,
-  pmsMaintenanceDoneOperation,
-  pmsPendingActionCancelOperation,
-  pmsPendingActionConfirmOperation,
-  pmsPendingActionStatusOperation,
-  pmsReportMaintenanceOperation,
-  pmsRestoreSellableOperation,
-  type ApiErrorCode,
-  type ApiIdempotencyRecord,
-  pmsOperationRequestCreateOperation,
-  pmsOperationRequestUpdateOperation,
-  pmsReservationDraftCancelOperation,
-  pmsReservationDraftCreateOperation,
-  pmsReservationDraftUpdateOperation,
-  pmsReservationGroupDraftCancelOperation,
-  pmsReservationGroupDraftCreateOperation,
-  pmsReservationGroupDraftUpdateOperation,
-  pmsReservationGroupPrepareConfirmOperation,
-  pmsReservationGroupQuoteOperation,
-  pmsReservationPrepareConfirmOperation,
-  pmsReservationQuoteOperation,
-  type OperationRequestCreateApiResponse,
-  type OperationRequestUpdateApiResponse,
-  type PendingActionCallbackApiRequest,
-  type PendingActionCallbackApiResponse,
-  type ReservationDraftCancelApiRequest,
-  type ReservationDraftCreateApiRequest,
-  type ReservationDraftUpdateApiRequest,
-  type ReservationPrepareConfirmApiRequest,
-  type ReservationQuoteApiRequest,
-  type ReservationDraftWorkflowApiResponse,
-  type ReservationGroupDraftCancelApiRequest,
-  type ReservationGroupDraftCreateApiRequest,
-  type ReservationGroupDraftUpdateApiRequest,
-  type ReservationGroupDraftWorkflowApiResponse,
-  type ReservationGroupPrepareConfirmApiRequest,
-  type ReservationGroupQuoteApiRequest,
-} from '../index.js';
-import {
-  type PmsSandboxReservationAllocationReadback,
   type PmsSandboxStayReadback,
   type ProjectionDispatchLedgerEntry,
   type ProjectionDispatchStatus,
-  type PmsSandboxIdempotencyReadback,
-} from '../localSandbox.js';
+} from '../localSandbox/model.js';
 
 import { parseJson } from './json.js';
 export interface RoomRow {
@@ -334,7 +283,9 @@ export function inventoryBlockFromRow(row: InventoryBlockRow): InventoryBlock {
   };
 }
 
-export function inventoryDayRoomFromRow(row: InventoryDayRoomRow): InventoryDayRoom {
+export function inventoryDayRoomFromRow(
+  row: InventoryDayRoomRow,
+): InventoryDayRoom {
   return {
     businessDate: row.business_date,
     propertyId: row.property_id,
@@ -348,7 +299,9 @@ export function inventoryDayRoomFromRow(row: InventoryDayRoomRow): InventoryDayR
   };
 }
 
-export function inventoryIntervalProjectionFromRow(row: InventoryIntervalProjectionRow): InventoryIntervalProjection {
+export function inventoryIntervalProjectionFromRow(
+  row: InventoryIntervalProjectionRow,
+): InventoryIntervalProjection {
   return {
     projectionId: row.projection_id,
     propertyId: row.property_id,
@@ -366,7 +319,9 @@ export function inventoryIntervalProjectionFromRow(row: InventoryIntervalProject
   };
 }
 
-export function inventorySummaryDayTypeFromRow(row: InventorySummaryDayTypeRow): InventorySummaryDayType {
+export function inventorySummaryDayTypeFromRow(
+  row: InventorySummaryDayTypeRow,
+): InventorySummaryDayType {
   return {
     businessDate: row.business_date,
     propertyId: row.property_id,
@@ -381,7 +336,9 @@ export function inventorySummaryDayTypeFromRow(row: InventorySummaryDayTypeRow):
   };
 }
 
-export function apiIdempotencyFromRow(row: ApiIdempotencyRow): ApiIdempotencyRecord {
+export function apiIdempotencyFromRow(
+  row: ApiIdempotencyRow,
+): ApiIdempotencyRecord {
   return {
     idempotencyKey: row.idempotency_key,
     requestFingerprint: row.request_fingerprint,
@@ -389,7 +346,9 @@ export function apiIdempotencyFromRow(row: ApiIdempotencyRow): ApiIdempotencyRec
   };
 }
 
-export function reservationDraftFromRow(row: ReservationDraftRow): StoredReservationDraft {
+export function reservationDraftFromRow(
+  row: ReservationDraftRow,
+): StoredReservationDraft {
   return {
     draftId: row.draft_id,
     propertyId: row.property_id,
@@ -397,17 +356,31 @@ export function reservationDraftFromRow(row: ReservationDraftRow): StoredReserva
     requestFingerprint: row.request_fingerprint,
     status: row.status,
     slots: parseJson<ReservationDraftSlots>(row.slots_json),
-    missingSlots: parseJson<ReservationDraftMissingSlot[]>(row.missing_slots_json),
-    evidenceRefs: parseJson<ReservationDraftEvidenceRef[]>(row.evidence_refs_json),
-    ...(row.quote_json ? { quote: parseJson<ReservationDraftQuoteRef>(row.quote_json) } : {}),
-    ...(row.pending_action_json ? { pendingAction: parseJson<ReservationDraftPendingActionRef>(row.pending_action_json) } : {}),
+    missingSlots: parseJson<ReservationDraftMissingSlot[]>(
+      row.missing_slots_json,
+    ),
+    evidenceRefs: parseJson<ReservationDraftEvidenceRef[]>(
+      row.evidence_refs_json,
+    ),
+    ...(row.quote_json
+      ? { quote: parseJson<ReservationDraftQuoteRef>(row.quote_json) }
+      : {}),
+    ...(row.pending_action_json
+      ? {
+          pendingAction: parseJson<ReservationDraftPendingActionRef>(
+            row.pending_action_json,
+          ),
+        }
+      : {}),
     expiresAt: row.expires_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
 }
 
-export function reservationGroupDraftFromRow(row: ReservationGroupDraftRow): StoredReservationGroupDraft {
+export function reservationGroupDraftFromRow(
+  row: ReservationGroupDraftRow,
+): StoredReservationGroupDraft {
   return {
     groupDraftId: row.group_draft_id,
     propertyId: row.property_id,
@@ -415,17 +388,31 @@ export function reservationGroupDraftFromRow(row: ReservationGroupDraftRow): Sto
     requestFingerprint: row.request_fingerprint,
     status: row.status,
     slots: parseJson<ReservationGroupDraftSlots>(row.slots_json),
-    missingSlots: parseJson<ReservationGroupDraftMissingSlot[]>(row.missing_slots_json),
-    evidenceRefs: parseJson<ReservationGroupDraftEvidenceRef[]>(row.evidence_refs_json),
-    ...(row.quote_json ? { quote: parseJson<ReservationGroupDraftQuoteRef>(row.quote_json) } : {}),
-    ...(row.pending_action_json ? { pendingAction: parseJson<ReservationGroupDraftPendingActionRef>(row.pending_action_json) } : {}),
+    missingSlots: parseJson<ReservationGroupDraftMissingSlot[]>(
+      row.missing_slots_json,
+    ),
+    evidenceRefs: parseJson<ReservationGroupDraftEvidenceRef[]>(
+      row.evidence_refs_json,
+    ),
+    ...(row.quote_json
+      ? { quote: parseJson<ReservationGroupDraftQuoteRef>(row.quote_json) }
+      : {}),
+    ...(row.pending_action_json
+      ? {
+          pendingAction: parseJson<ReservationGroupDraftPendingActionRef>(
+            row.pending_action_json,
+          ),
+        }
+      : {}),
     expiresAt: row.expires_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
 }
 
-export function operationRequestFromRow(row: OperationRequestRow): OperationRequest {
+export function operationRequestFromRow(
+  row: OperationRequestRow,
+): OperationRequest {
   return {
     operationRequestId: row.operation_request_id,
     propertyId: row.property_id,
@@ -444,13 +431,20 @@ export function operationRequestFromRow(row: OperationRequestRow): OperationRequ
   };
 }
 
-export function projectionDispatchLedgerFromRow(row: ProjectionDispatchLedgerRow): ProjectionDispatchLedgerEntry {
+export function projectionDispatchLedgerFromRow(
+  row: ProjectionDispatchLedgerRow,
+): ProjectionDispatchLedgerEntry {
   return {
     outboxEntryId: row.outbox_entry_id,
     status: row.status,
     attemptCount: row.attempt_count,
-    ...(row.adapter_operation ? { adapterOperation: row.adapter_operation } : {}),
-    ...(row.adapter_status_code !== null && row.adapter_status_code !== undefined ? { adapterStatusCode: row.adapter_status_code } : {}),
+    ...(row.adapter_operation
+      ? { adapterOperation: row.adapter_operation }
+      : {}),
+    ...(row.adapter_status_code !== null &&
+    row.adapter_status_code !== undefined
+      ? { adapterStatusCode: row.adapter_status_code }
+      : {}),
     ...(row.last_attempt_at ? { lastAttemptAt: row.last_attempt_at } : {}),
     ...(row.next_attempt_at ? { nextAttemptAt: row.next_attempt_at } : {}),
     ...(row.redacted_error ? { redactedError: row.redacted_error } : {}),

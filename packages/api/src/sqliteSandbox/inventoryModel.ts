@@ -1,89 +1,24 @@
-import { createHash } from 'node:crypto';
 import {
-  type AuditEntry,
   type DomainEvent,
   type InventoryAvailabilityStatus,
   type InventoryBlock,
-  type InventoryCalendarKind,
   type InventoryDayRoom,
   type InventoryIntervalProjection,
-  type InventorySellableStatus,
   type InventorySourceRef,
   type InventorySummaryDayType,
-  type OperationRequest,
-  type ReservationDraftAuditRef,
-  type ReservationDraftEvidenceRef,
-  type ReservationDraftMissingSlot,
-  type PendingActionReadModel,
-  type ReservationDraftPendingActionRef,
-  type ReservationDraftQuoteRef,
-  type ReservationDraftSlots,
-  type ReservationDraftStatus,
-  type ReservationDraftWorkflowRef,
-  type ReservationGroupDraftAuditRef,
-  type ReservationGroupDraftEvidenceRef,
-  type ReservationGroupDraftMissingSlot,
-  type ReservationGroupDraftPendingActionRef,
-  type ReservationGroupDraftQuoteRef,
-  type ReservationGroupDraftSlots,
-  type ReservationGroupDraftStatus,
-  type ReservationGroupDraftWorkflowRef,
   type ReservationReadModel,
-  type StayStatus,
 } from '@pms-platform/contracts';
 import { type RoomAggregate } from '@pms-platform/core';
 import {
-  pmsCheckInOperation,
-  pmsCheckOutOperation,
-  pmsHousekeepingDoneOperation,
-  pmsHousekeepingInspectionOperation,
-  pmsHousekeepingReworkOperation,
-  pmsMaintenanceDoneOperation,
-  pmsPendingActionCancelOperation,
-  pmsPendingActionConfirmOperation,
-  pmsPendingActionStatusOperation,
-  pmsReportMaintenanceOperation,
-  pmsRestoreSellableOperation,
-  type ApiErrorCode,
-  type ApiIdempotencyRecord,
-  pmsOperationRequestCreateOperation,
-  pmsOperationRequestUpdateOperation,
-  pmsReservationDraftCancelOperation,
-  pmsReservationDraftCreateOperation,
-  pmsReservationDraftUpdateOperation,
-  pmsReservationGroupDraftCancelOperation,
-  pmsReservationGroupDraftCreateOperation,
-  pmsReservationGroupDraftUpdateOperation,
-  pmsReservationGroupPrepareConfirmOperation,
-  pmsReservationGroupQuoteOperation,
-  pmsReservationPrepareConfirmOperation,
-  pmsReservationQuoteOperation,
-  type OperationRequestCreateApiResponse,
-  type OperationRequestUpdateApiResponse,
-  type PendingActionCallbackApiRequest,
-  type PendingActionCallbackApiResponse,
-  type ReservationDraftCancelApiRequest,
-  type ReservationDraftCreateApiRequest,
-  type ReservationDraftUpdateApiRequest,
-  type ReservationPrepareConfirmApiRequest,
-  type ReservationQuoteApiRequest,
-  type ReservationDraftWorkflowApiResponse,
-  type ReservationGroupDraftCancelApiRequest,
-  type ReservationGroupDraftCreateApiRequest,
-  type ReservationGroupDraftUpdateApiRequest,
-  type ReservationGroupDraftWorkflowApiResponse,
-  type ReservationGroupPrepareConfirmApiRequest,
-  type ReservationGroupQuoteApiRequest,
-} from '../index.js';
-import {
   type PmsSandboxReservationAllocationReadback,
   type PmsSandboxStayReadback,
-  type ProjectionDispatchLedgerEntry,
-  type ProjectionDispatchStatus,
-  type PmsSandboxIdempotencyReadback,
-} from '../localSandbox.js';
+} from '../localSandbox/model.js';
 
-import { addBusinessDays, dateInRange, normalizeBusinessDate } from './dates.js';
+import {
+  addBusinessDays,
+  dateInRange,
+  normalizeBusinessDate,
+} from './dates.js';
 import { sanitizeSlug } from './ids.js';
 export function createProjectionFreshness(
   generatedAt: string,
@@ -101,7 +36,9 @@ export function propertyCodeFromPropertyId(propertyId: string): string {
 }
 
 export function propertyDisplayName(propertyId: string): string {
-  return propertyId === 'property-small-hotel' ? 'PMS 小型酒店样板' : propertyId;
+  return propertyId === 'property-small-hotel'
+    ? 'PMS 小型酒店样板'
+    : propertyId;
 }
 
 export function propertyTimezone(propertyId: string): string {
@@ -142,13 +79,13 @@ export function roomIdFromEvent(event: DomainEvent): string | undefined {
 export function housekeepingTaskIdFromEvent(event: DomainEvent): string {
   if (event.type === 'HousekeepingTaskCreated') return event.task.taskId;
   if (
-    (
-      event.type === 'HousekeepingCompleted' ||
+    (event.type === 'HousekeepingCompleted' ||
       event.type === 'HousekeepingInspectionPassed' ||
       event.type === 'HousekeepingInspectionFailed' ||
-      event.type === 'HousekeepingReworkCompleted'
-    ) && event.task
-  ) return event.task.taskId;
+      event.type === 'HousekeepingReworkCompleted') &&
+    event.task
+  )
+    return event.task.taskId;
   return event.aggregateId;
 }
 
@@ -184,8 +121,14 @@ export function findOccupiedStayForRoomDate(
       return false;
     }
     const reservation = reservationsById.get(stay.reservationId);
-    const startDate = normalizeBusinessDate(stay.checkedInAt ?? reservation?.arrivalDate ?? businessDate);
-    const endDate = normalizeBusinessDate(stay.checkedOutAt ?? reservation?.departureDate ?? addBusinessDays(businessDate, 1));
+    const startDate = normalizeBusinessDate(
+      stay.checkedInAt ?? reservation?.arrivalDate ?? businessDate,
+    );
+    const endDate = normalizeBusinessDate(
+      stay.checkedOutAt ??
+        reservation?.departureDate ??
+        addBusinessDays(businessDate, 1),
+    );
     return dateInRange(businessDate, startDate, endDate);
   });
 }
@@ -198,7 +141,12 @@ export function findReservedAllocationForRoomDate(
 ): PmsSandboxReservationAllocationReadback | undefined {
   return allocations.find((allocation) => {
     const reservation = reservationsById.get(allocation.reservationId);
-    if (allocation.roomId !== roomId || !reservation || reservation.status === 'cancelled' || reservation.status === 'checkedOut') {
+    if (
+      allocation.roomId !== roomId ||
+      !reservation ||
+      reservation.status === 'cancelled' ||
+      reservation.status === 'checkedOut'
+    ) {
       return false;
     }
     return dateInRange(businessDate, allocation.startDate, allocation.endDate);
@@ -211,14 +159,25 @@ export function findReservedReservationForRoomDate(
   businessDate: string,
 ): ReservationReadModel | undefined {
   return Array.from(reservationsById.values()).find((reservation) => {
-    if (reservation.roomId !== roomId || reservation.status === 'cancelled' || reservation.status === 'checkedOut') {
+    if (
+      reservation.roomId !== roomId ||
+      reservation.status === 'cancelled' ||
+      reservation.status === 'checkedOut'
+    ) {
       return false;
     }
-    return dateInRange(businessDate, reservation.arrivalDate, reservation.departureDate);
+    return dateInRange(
+      businessDate,
+      reservation.arrivalDate,
+      reservation.departureDate,
+    );
   });
 }
 
-export function compressInventoryIntervals(dayRooms: readonly InventoryDayRoom[], updatedAt: string): InventoryIntervalProjection[] {
+export function compressInventoryIntervals(
+  dayRooms: readonly InventoryDayRoom[],
+  updatedAt: string,
+): InventoryIntervalProjection[] {
   const intervals: InventoryIntervalProjection[] = [];
   const rowsByRoom = new Map<string, InventoryDayRoom[]>();
   for (const row of dayRooms) {
@@ -226,7 +185,9 @@ export function compressInventoryIntervals(dayRooms: readonly InventoryDayRoom[]
   }
 
   for (const rows of rowsByRoom.values()) {
-    rows.sort((left, right) => left.businessDate.localeCompare(right.businessDate));
+    rows.sort((left, right) =>
+      left.businessDate.localeCompare(right.businessDate),
+    );
     let current: InventoryDayRoom | undefined;
     let startDate: string | undefined;
     for (const row of rows) {
@@ -239,23 +200,48 @@ export function compressInventoryIntervals(dayRooms: readonly InventoryDayRoom[]
         current = row;
         continue;
       }
-      intervals.push(inventoryIntervalFromDayRoom(current, startDate!, row.businessDate, updatedAt));
+      intervals.push(
+        inventoryIntervalFromDayRoom(
+          current,
+          startDate!,
+          row.businessDate,
+          updatedAt,
+        ),
+      );
       current = row;
       startDate = row.businessDate;
     }
     if (current && startDate) {
-      intervals.push(inventoryIntervalFromDayRoom(current, startDate, addBusinessDays(current.businessDate, 1), updatedAt));
+      intervals.push(
+        inventoryIntervalFromDayRoom(
+          current,
+          startDate,
+          addBusinessDays(current.businessDate, 1),
+          updatedAt,
+        ),
+      );
     }
   }
 
   return intervals;
 }
 
-export function sameInventoryInterval(left: InventoryDayRoom, right: InventoryDayRoom): boolean {
-  return left.availabilityStatus === right.availabilityStatus && JSON.stringify(left.sourceRefs) === JSON.stringify(right.sourceRefs);
+export function sameInventoryInterval(
+  left: InventoryDayRoom,
+  right: InventoryDayRoom,
+): boolean {
+  return (
+    left.availabilityStatus === right.availabilityStatus &&
+    JSON.stringify(left.sourceRefs) === JSON.stringify(right.sourceRefs)
+  );
 }
 
-export function inventoryIntervalFromDayRoom(row: InventoryDayRoom, startDate: string, endDate: string, updatedAt: string): InventoryIntervalProjection {
+export function inventoryIntervalFromDayRoom(
+  row: InventoryDayRoom,
+  startDate: string,
+  endDate: string,
+  updatedAt: string,
+): InventoryIntervalProjection {
   const calendarKind = row.availabilityStatus;
   return {
     projectionId: `inventory-${row.roomId}-${startDate}-${endDate}-${calendarKind}`,
@@ -274,7 +260,10 @@ export function inventoryIntervalFromDayRoom(row: InventoryDayRoom, startDate: s
   };
 }
 
-export function summarizeInventoryDayRooms(dayRooms: readonly InventoryDayRoom[], updatedAt: string): InventorySummaryDayType[] {
+export function summarizeInventoryDayRooms(
+  dayRooms: readonly InventoryDayRoom[],
+  updatedAt: string,
+): InventorySummaryDayType[] {
   const summaries = new Map<string, InventorySummaryDayType>();
   for (const row of dayRooms) {
     const roomTypeId = row.roomTypeId ?? 'room-type-unknown';
@@ -294,15 +283,28 @@ export function summarizeInventoryDayRooms(dayRooms: readonly InventoryDayRoom[]
     summaries.set(key, {
       ...current,
       totalRooms: current.totalRooms + 1,
-      availableRooms: current.availableRooms + (row.availabilityStatus === 'available' ? 1 : 0),
-      occupiedRooms: current.occupiedRooms + (row.availabilityStatus === 'occupied' ? 1 : 0),
-      blockedRooms: current.blockedRooms + (row.availabilityStatus === 'blocked' ? 1 : 0),
-      reservedRooms: current.reservedRooms + (row.availabilityStatus === 'reserved' ? 1 : 0),
+      availableRooms:
+        current.availableRooms +
+        (row.availabilityStatus === 'available' ? 1 : 0),
+      occupiedRooms:
+        current.occupiedRooms + (row.availabilityStatus === 'occupied' ? 1 : 0),
+      blockedRooms:
+        current.blockedRooms + (row.availabilityStatus === 'blocked' ? 1 : 0),
+      reservedRooms:
+        current.reservedRooms + (row.availabilityStatus === 'reserved' ? 1 : 0),
     });
   }
-  return Array.from(summaries.values()).sort((left, right) => left.businessDate.localeCompare(right.businessDate) || left.roomTypeId.localeCompare(right.roomTypeId));
+  return Array.from(summaries.values()).sort(
+    (left, right) =>
+      left.businessDate.localeCompare(right.businessDate) ||
+      left.roomTypeId.localeCompare(right.roomTypeId),
+  );
 }
 
-export function inventoryBlockOverlaps(block: InventoryBlock, startDate: string, endDate: string): boolean {
+export function inventoryBlockOverlaps(
+  block: InventoryBlock,
+  startDate: string,
+  endDate: string,
+): boolean {
   return block.startDate < endDate && (block.endDate ?? endDate) > startDate;
 }
