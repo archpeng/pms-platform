@@ -177,7 +177,7 @@ When enabled, the local API process runs an embedded outbox dispatcher. It reads
 POST {PMS_PLATFORM_ADAPTER_PMS_BASE_URL}/providers/pms-base
 ```
 
-`projectionKind=reservationWorkflow` maps to adapter operation `pms_base_upsert_operation_request`, so reservation and multi-room reservation group workflow state is projected into the Base table `PMS操作请求`. A confirmed group pending action writes `action=RESERVATION_GROUP_WORKFLOW`, `status=已完成`, the selected room numbers, and redacted workflow summary JSON. The dispatcher never writes Feishu/Base directly and never logs the adapter URL value, token value, `pendingActionRef`, or `cardPayloadRef`.
+`projectionKind=reservationWorkflow` maps to adapter operation `pms_base_upsert_operation_request`, so reservation and multi-room reservation group workflow state is projected into the Base table `PMS操作请求`. Single-room confirm also emits `projectionKind=reservation`, which maps to `pms_base_upsert_reservation_projection` and upserts the Base table `预订`. A confirmed group pending action still writes `action=RESERVATION_GROUP_WORKFLOW`, `status=已完成`, the selected room numbers, and redacted workflow summary JSON. The dispatcher never writes Feishu/Base directly and never logs the adapter URL value, token value, `pendingActionRef`, or `cardPayloadRef`.
 
 ## Boundary proof
 
