@@ -16,6 +16,7 @@ import {
   stayFromRow,
   stayIdForReservationRoom,
 } from './model.js';
+import { sqliteOptionalRow, sqliteRows } from './sqliteRows.js';
 
 export abstract class SqliteSandboxReservationPersistenceStore extends SqliteSandboxCoreStore {
   protected listReservationAllocations(): PmsSandboxReservationAllocationReadback[] {
@@ -63,7 +64,7 @@ export abstract class SqliteSandboxReservationPersistenceStore extends SqliteSan
   }
 
   protected listStays(): PmsSandboxStayReadback[] {
-    const rows = this.db
+    const rows = sqliteRows<StayRow>(this.db
       .prepare(
         `
           SELECT s.stay_id, s.reservation_id, r.reservation_code, s.room_id, s.room_number, s.checked_in_at, s.checked_out_at, s.status
@@ -72,7 +73,7 @@ export abstract class SqliteSandboxReservationPersistenceStore extends SqliteSan
           ORDER BY s.created_at, s.stay_id
         `,
       )
-      .all() as unknown as StayRow[];
+      .all());
     return rows.map(stayFromRow);
   }
 
@@ -205,7 +206,7 @@ export abstract class SqliteSandboxReservationPersistenceStore extends SqliteSan
       );
     }
 
-    const row = this.db
+    const row = sqliteOptionalRow<ReservationRow>(this.db
       .prepare(
         `
           SELECT r.*, g.display_name
@@ -214,7 +215,10 @@ export abstract class SqliteSandboxReservationPersistenceStore extends SqliteSan
           WHERE r.reservation_id = ?
         `,
       )
-      .get(record.reservationId) as unknown as ReservationRow;
+      .get(record.reservationId));
+    if (!row) {
+      throw new Error('reservation_row_missing_after_save');
+    }
     return this.reservationReadModelFromRow(row, createdAt);
   }
 
@@ -326,7 +330,7 @@ export abstract class SqliteSandboxReservationPersistenceStore extends SqliteSan
   protected getReservationRowById(
     reservationId: string,
   ): ReservationRow | undefined {
-    return this.db
+    return sqliteOptionalRow<ReservationRow>(this.db
       .prepare(
         `
           SELECT r.*, g.display_name
@@ -335,13 +339,13 @@ export abstract class SqliteSandboxReservationPersistenceStore extends SqliteSan
           WHERE r.reservation_id = ?
         `,
       )
-      .get(reservationId) as ReservationRow | undefined;
+      .get(reservationId));
   }
 
   protected getReservationRowByCode(
     reservationCode: string,
   ): ReservationRow | undefined {
-    return this.db
+    return sqliteOptionalRow<ReservationRow>(this.db
       .prepare(
         `
           SELECT r.*, g.display_name
@@ -350,7 +354,7 @@ export abstract class SqliteSandboxReservationPersistenceStore extends SqliteSan
           WHERE r.reservation_code = ?
         `,
       )
-      .get(reservationCode) as ReservationRow | undefined;
+      .get(reservationCode));
   }
 
   protected findLatestStay(filter: {
@@ -410,7 +414,7 @@ export abstract class SqliteSandboxReservationPersistenceStore extends SqliteSan
   protected getLatestStay(
     reservationId: string,
   ): PmsSandboxStayReadback | undefined {
-    const row = this.db
+    const row = sqliteOptionalRow<StayRow>(this.db
       .prepare(
         `
           SELECT s.stay_id, s.reservation_id, r.reservation_code, s.room_id, s.room_number, s.checked_in_at, s.checked_out_at, s.status
@@ -420,7 +424,7 @@ export abstract class SqliteSandboxReservationPersistenceStore extends SqliteSan
           ORDER BY s.updated_at DESC, s.stay_id DESC
         `,
       )
-      .get(reservationId) as StayRow | undefined;
+      .get(reservationId));
     return row ? stayFromRow(row) : undefined;
   }
 

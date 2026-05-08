@@ -9,13 +9,14 @@ import {
   sameBusinessDate,
 } from './model.js';
 import { SqliteSandboxReservationStayLifecycleStore } from './reservationStayLifecycleStore.js';
+import { sqliteOptionalRow, sqliteRows } from './sqliteRows.js';
 
 export abstract class SqliteSandboxReservationReadStore extends SqliteSandboxReservationStayLifecycleStore {
   getReservation(
     reservationCode: string,
     requestedAt: string,
   ): ReservationReadModel | undefined {
-    const row = this.db
+    const row = sqliteOptionalRow<ReservationRow>(this.db
       .prepare(
         `
           SELECT r.*, g.display_name
@@ -24,7 +25,7 @@ export abstract class SqliteSandboxReservationReadStore extends SqliteSandboxRes
           WHERE r.reservation_code = ?
         `,
       )
-      .get(reservationCode) as ReservationRow | undefined;
+      .get(reservationCode));
     return row ? this.reservationReadModelFromRow(row, requestedAt) : undefined;
   }
 
@@ -85,7 +86,7 @@ export abstract class SqliteSandboxReservationReadStore extends SqliteSandboxRes
   }
 
   protected listReservations(): ReservationReadModel[] {
-    const rows = this.db
+    const rows = sqliteRows<ReservationRow>(this.db
       .prepare(
         `
           SELECT r.*, g.display_name
@@ -94,7 +95,7 @@ export abstract class SqliteSandboxReservationReadStore extends SqliteSandboxRes
           ORDER BY r.arrival_date, r.reservation_code
         `,
       )
-      .all() as unknown as ReservationRow[];
+      .all());
     return rows.map((row) => this.reservationReadModelFromRow(row, this.now()));
   }
 
