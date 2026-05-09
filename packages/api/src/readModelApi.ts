@@ -1,12 +1,10 @@
 import type {
   DashboardReadModel,
-  HotelProfileReadModel,
   InventoryHorizonRequest,
   InventoryReadModel,
   ReservationReadModel,
   RoomReadModel,
   RoomReservationContextReadModel,
-  RoomTypeCatalogReadModel,
   TodayReservationsReadModel,
 } from '@pms-platform/contracts';
 import { getDashboardReadModel, getRoomReadModel, type CorePorts } from '@pms-platform/core';
@@ -15,8 +13,6 @@ import {
   pmsGetRoomOperation,
   pmsInventoryIntervalsOperation,
   pmsInventorySummaryOperation,
-  pmsHotelProfileOperation,
-  pmsRoomTypeCatalogOperation,
   pmsReservationGetOperation,
   pmsRoomReservationContextOperation,
   pmsTodayArrivalsOperation,
