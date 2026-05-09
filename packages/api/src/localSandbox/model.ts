@@ -8,6 +8,7 @@ InventoryHorizonRequest,
 InventoryIntervalProjection,
 InventoryReadModel,
 InventorySummaryDayType,
+HotelProfileReadModel,
 MaintenanceTicket,
 OperationRequest,
 ProjectionOutboxEntry,
@@ -17,6 +18,7 @@ ReservationGroupDraftAuditRef,
 ReservationGroupDraftWorkflowRef,
 ReservationReadModel,
 RoomReservationContextReadModel,
+RoomTypeCatalogReadModel,
 StayReadModel,
 StayStatus,
 TodayReservationsReadModel,
@@ -251,6 +253,8 @@ export interface PmsLocalSandboxStore extends ReservationDraftLifecycleStore, Re
   todayArrivals(businessDate: string, requestedAt: string): TodayReservationsReadModel;
   todayDepartures(businessDate: string, requestedAt: string): TodayReservationsReadModel;
   roomReservationContext(roomId: string, requestedAt: string): RoomReservationContextReadModel;
+  hotelProfile(propertyId: string | undefined, generatedAt: string): HotelProfileReadModel;
+  roomTypeCatalog(propertyId: string | undefined, generatedAt: string): RoomTypeCatalogReadModel;
   rebuildInventory(options?: Partial<InventoryHorizonRequest>): InventoryReadModel;
   inventoryIntervals(options?: Partial<InventoryHorizonRequest>): InventoryReadModel;
   inventorySummary(options?: Partial<InventoryHorizonRequest>): InventoryReadModel;

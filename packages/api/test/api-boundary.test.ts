@@ -409,6 +409,8 @@ describe('API checkout contract skeleton - api-boundary', () => {
       expect(projection.capabilities.some((capability) => capability.class === 'internal')).toBe(false);
       expect(projection.capabilities.some((capability) => capability.name === 'pms_operation_request_update')).toBe(false);
       expect(projection.capabilities.map((capability) => capability.name)).toEqual(expect.arrayContaining([
+        'pms_hotel_profile',
+        'pms_room_type_catalog',
         'pms_get_room',
         'pms_check_out.dryRun',
         'pms_operation_request_create',
@@ -421,6 +423,8 @@ describe('API checkout contract skeleton - api-boundary', () => {
   
       const projectedByName = new Map(projection.capabilities.map((capability) => [capability.name, capability]));
       const expectedAgentSafeCapabilities = [
+        { name: 'pms_hotel_profile', class: 'read', refs: { readModel: 'HotelProfileReadModel' } },
+        { name: 'pms_room_type_catalog', class: 'read', refs: { readModel: 'RoomTypeCatalogReadModel' } },
         { name: 'pms_availability_search', class: 'read', refs: { readModel: 'AvailabilitySearchReadModel' } },
         { name: 'pms.reservation.draft.create', class: 'draft', refs: { workflow: 'reservationDraft' } },
         { name: 'pms.reservation.draft.update', class: 'draft', refs: { workflow: 'reservationDraft' } },
@@ -447,6 +451,8 @@ describe('API checkout contract skeleton - api-boundary', () => {
   
       const fixedEndpointMatrix = [
         { name: 'pms_dashboard', request: 'DashboardApiRequest', response: 'DashboardApiResponse', path: '/v1/pms/dashboard', operation: 'pms_dashboard', class: 'read', naturalLanguageExecutable: true },
+        { name: 'pms_hotel_profile', request: 'HotelProfileApiRequest', response: 'HotelProfileApiResponse', path: '/v1/pms/hotel/profile', operation: 'pms_hotel_profile', class: 'read', naturalLanguageExecutable: true },
+        { name: 'pms_room_type_catalog', request: 'RoomTypeCatalogApiRequest', response: 'RoomTypeCatalogApiResponse', path: '/v1/pms/room-types/catalog', operation: 'pms_room_type_catalog', class: 'read', naturalLanguageExecutable: true },
         { name: 'pms_get_room', request: 'GetRoomApiRequest', response: 'GetRoomApiResponse', path: '/v1/pms/room', operation: 'pms_get_room', class: 'read', naturalLanguageExecutable: true },
         { name: 'pms_reservation_get', request: 'ReservationGetApiRequest', response: 'ReservationGetApiResponse', path: '/v1/pms/reservations/get', operation: 'pms_reservation_get', class: 'read', naturalLanguageExecutable: true },
         { name: 'pms_today_arrivals', request: 'TodayReservationsApiRequest', response: 'TodayReservationsApiResponse', path: '/v1/pms/reservations/today-arrivals', operation: 'pms_today_arrivals', class: 'read', naturalLanguageExecutable: true },

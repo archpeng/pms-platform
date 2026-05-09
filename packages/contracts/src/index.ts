@@ -4,6 +4,7 @@ export * from './actor.js';
 export * from './commandMeta.js';
 export * from './operationRequest.js';
 export * from './capabilityManifest.js';
+export * from './hotelProfile.js';
 export * from './room.js';
 export * from './housekeeping.js';
 export * from './maintenance.js';

@@ -57,6 +57,50 @@ describe('PMS local server storage selection', () => {
     expect(store.readback().roomTypes.map((roomType) => roomType.displayName).sort()).toEqual(['秘境洞穴', '花园别墅', '花园套房'].sort());
   });
 
+  it('serves sample hotel profile and room type catalog through PMS-owned read routes', async () => {
+    const store = await createLocalSandboxStoreFromEnv({
+      [pmsSqliteDbPathEnvName]: tempPath('catalog.sqlite'),
+      [pmsSandboxResetOnStartEnvName]: 'true',
+    });
+    stores.push(store);
+    const started = await startPmsLocalHttpServer({ store, auth: { required: false } });
+    try {
+      const profile = await postJson(`${started.url}/v1/pms/hotel/profile`, { requestedAt: '2026-05-09T00:00:00.000Z' });
+      const catalog = await postJson(`${started.url}/v1/pms/room-types/catalog`, { requestedAt: '2026-05-09T00:00:00.000Z' });
+
+      expect(profile).toMatchObject({
+        ok: true,
+        operation: 'pms_hotel_profile',
+        readModel: {
+          propertyId: 'property-small-hotel',
+          propertyName: 'PMS 小型酒店样板',
+          timeZone: 'Asia/Shanghai',
+          status: 'active',
+          roomTotal: 13,
+          roomTypes: [
+            { roomTypeId: 'room-type-garden-villa', code: 'garden-villa', displayName: '花园别墅', roomCount: 6, status: 'active' },
+            { roomTypeId: 'room-type-garden-suite', code: 'garden-suite', displayName: '花园套房', roomCount: 2, status: 'active' },
+            { roomTypeId: 'room-type-cave', code: 'cave', displayName: '秘境洞穴', roomCount: 5, status: 'active' },
+          ],
+        },
+      });
+      expect(catalog).toMatchObject({
+        ok: true,
+        operation: 'pms_room_type_catalog',
+        readModel: {
+          roomTypes: [
+            { roomTypeId: 'room-type-garden-villa', code: 'garden-villa', displayName: '花园别墅', roomCount: 6, status: 'active' },
+            { roomTypeId: 'room-type-garden-suite', code: 'garden-suite', displayName: '花园套房', roomCount: 2, status: 'active' },
+            { roomTypeId: 'room-type-cave', code: 'cave', displayName: '秘境洞穴', roomCount: 5, status: 'active' },
+          ],
+        },
+      });
+    } finally {
+      await started.close();
+      stores.pop();
+    }
+  });
+
   it('starts the HTTP boundary with sqlite storage path selected by env', async () => {
     const store = await createLocalSandboxStoreFromEnv({
       [pmsSqliteDbPathEnvName]: tempPath('pms.sqlite'),
@@ -114,4 +158,14 @@ function tempPath(fileName: string): string {
   const root = mkdtempSync(join(tmpdir(), 'pms-local-server-'));
   tmpRoots.push(root);
   return join(root, fileName);
+}
+
+async function postJson(url: string, body: unknown): Promise<unknown> {
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  expect(response.status).toBe(200);
+  return response.json();
 }

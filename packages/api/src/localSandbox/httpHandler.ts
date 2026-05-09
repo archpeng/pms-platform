@@ -7,7 +7,9 @@ executeCheckInApiRequest,
 executeCheckOutApiRequest,
 executeDashboardApiRequest,
 executeGetRoomApiRequest,
+executeHotelProfileApiRequest,
 executePmsExtendedCommandApiRequest,
+executeRoomTypeCatalogApiRequest,
 executeReservationDraftWorkflowApiRequest,
 executeReservationGroupDraftWorkflowApiRequest,
 getPmsCapabilityManifest,
@@ -17,6 +19,7 @@ pmsCheckInOperation,
 pmsCheckOutOperation,
 pmsDashboardOperation,
 pmsGetRoomOperation,
+pmsHotelProfileOperation,
 pmsHousekeepingDoneOperation,
 pmsHousekeepingInspectionOperation,
 pmsHousekeepingReworkOperation,
@@ -43,6 +46,7 @@ pmsReservationGroupQuoteOperation,
 pmsReservationPrepareConfirmOperation,
 pmsReservationQuoteOperation,
 pmsRestoreSellableOperation,
+pmsRoomTypeCatalogOperation,
 pmsRoomReservationContextOperation,
 pmsTodayArrivalsOperation,
 pmsTodayDeparturesOperation,
@@ -94,6 +98,8 @@ export function createPmsLocalHttpHandler(options: PmsLocalHttpHandlerOptions) {
             pmsRestoreSellableOperation,
             pmsGetRoomOperation,
             pmsDashboardOperation,
+            pmsHotelProfileOperation,
+            pmsRoomTypeCatalogOperation,
             pmsReservationGetOperation,
             pmsTodayArrivalsOperation,
             pmsTodayDeparturesOperation,
@@ -209,6 +215,28 @@ export function createPmsLocalHttpHandler(options: PmsLocalHttpHandlerOptions) {
         return;
       }
 
+      if (request.method === 'POST' && url.pathname === '/v1/pms/hotel/profile') {
+        const body = await readJsonBody(request) as Record<string, unknown>;
+        const requestedAt = typeof body.requestedAt === 'string' ? body.requestedAt : new Date().toISOString();
+        writeJson(response, 200, executeHotelProfileApiRequest({
+          operation: pmsHotelProfileOperation,
+          ...(typeof body.propertyId === 'string' ? { propertyId: body.propertyId } : {}),
+          requestedAt,
+        }, (propertyId, generatedAt) => options.store.hotelProfile(propertyId, generatedAt)));
+        return;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/v1/pms/room-types/catalog') {
+        const body = await readJsonBody(request) as Record<string, unknown>;
+        const requestedAt = typeof body.requestedAt === 'string' ? body.requestedAt : new Date().toISOString();
+        writeJson(response, 200, executeRoomTypeCatalogApiRequest({
+          operation: pmsRoomTypeCatalogOperation,
+          ...(typeof body.propertyId === 'string' ? { propertyId: body.propertyId } : {}),
+          requestedAt,
+        }, (propertyId, generatedAt) => options.store.roomTypeCatalog(propertyId, generatedAt)));
+        return;
+      }
+
       if (request.method === 'POST' && url.pathname === '/v1/pms/reservations/get') {
         const body = await readJsonBody(request) as { reservationCode?: string; requestedAt?: string };
         const requestedAt = typeof body.requestedAt === 'string' ? body.requestedAt : new Date().toISOString();
@@ -258,7 +286,7 @@ export function createPmsLocalHttpHandler(options: PmsLocalHttpHandlerOptions) {
       }
 
       if (request.method === 'POST' && url.pathname === '/v1/pms/inventory/intervals') {
-        const body = await readJsonBody(request) as Partial<InventoryHorizonRequest>;
+        const body = parseInventoryHorizonRequest(await readJsonBody(request));
         writeJson(response, 200, {
           ok: true,
           operation: pmsInventoryIntervalsOperation,
@@ -268,7 +296,7 @@ export function createPmsLocalHttpHandler(options: PmsLocalHttpHandlerOptions) {
       }
 
       if (request.method === 'POST' && url.pathname === '/v1/pms/inventory/summary') {
-        const body = await readJsonBody(request) as Partial<InventoryHorizonRequest>;
+        const body = parseInventoryHorizonRequest(await readJsonBody(request));
         writeJson(response, 200, {
           ok: true,
           operation: pmsInventorySummaryOperation,
@@ -415,6 +443,19 @@ export function createPmsLocalHttpHandler(options: PmsLocalHttpHandlerOptions) {
       });
     }
   };
+}
+
+function parseInventoryHorizonRequest(value: unknown): Partial<InventoryHorizonRequest> {
+  const body = isRecord(value) ? value : {};
+  return {
+    ...(typeof body.startDate === 'string' ? { startDate: body.startDate } : {}),
+    ...(typeof body.horizonDays === 'number' ? { horizonDays: body.horizonDays } : {}),
+    ...(typeof body.roomId === 'string' ? { roomId: body.roomId } : {}),
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function executeWithStoreTransaction<TValue>(store: PmsLocalSandboxStore, operation: () => TValue): TValue {

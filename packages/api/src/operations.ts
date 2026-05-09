@@ -35,6 +35,8 @@ export const pmsRoomReservationContextOperation = 'pms_room_reservation_context'
 export const pmsInventoryIntervalsOperation = 'pms_inventory_intervals';
 export const pmsInventorySummaryOperation = 'pms_inventory_summary';
 export const pmsAvailabilitySearchOperation = 'pms_availability_search';
+export const pmsHotelProfileOperation = 'pms_hotel_profile';
+export const pmsRoomTypeCatalogOperation = 'pms_room_type_catalog';
 export const pmsReservationDraftCreateOperation = reservationDraftCreateOperationName;
 export const pmsReservationDraftUpdateOperation = reservationDraftUpdateOperationName;
 export const pmsReservationQuoteOperation = reservationQuoteOperationName;
@@ -73,7 +75,9 @@ export type PmsReadModelOperation =
   | typeof pmsRoomReservationContextOperation
   | typeof pmsInventoryIntervalsOperation
   | typeof pmsInventorySummaryOperation
-  | typeof pmsAvailabilitySearchOperation;
+  | typeof pmsAvailabilitySearchOperation
+  | typeof pmsHotelProfileOperation
+  | typeof pmsRoomTypeCatalogOperation;
 
 export type PmsApiMode = 'dryRun' | 'confirm';
 export type CheckOutApiMode = PmsApiMode;

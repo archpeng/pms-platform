@@ -1,5 +1,12 @@
 import { type RoomAggregate } from '@pms-platform/core';
 import {
+  pmsProjectionSchemaVersion,
+  type HotelProfileReadModel,
+  type ProjectionFreshness,
+  type RoomTypeCatalogItem,
+  type RoomTypeCatalogReadModel,
+} from '@pms-platform/contracts';
+import {
   type PmsSandboxPropertyReadback,
   type PmsSandboxRoomTypeReadback,
 } from '../localSandbox/model.js';
@@ -37,6 +44,36 @@ export abstract class SqliteSandboxCoreCatalogStore extends SqliteSandboxBase {
       .prepare('SELECT * FROM rooms ORDER BY room_number, room_id')
       .all() as unknown as RoomRow[];
     return rows.map(roomFromRow);
+  }
+
+  hotelProfile(propertyId: string | undefined, generatedAt: string): HotelProfileReadModel {
+    const property = this.getCatalogProperty(propertyId);
+    const catalog = this.roomTypeCatalog(property?.propertyId ?? propertyId, generatedAt);
+    const roomTotal = catalog.roomTypes.reduce((total, roomType) => total + roomType.roomCount, 0);
+    return {
+      schemaVersion: pmsProjectionSchemaVersion,
+      generatedAt,
+      summaryStatus: property ? 'fresh' : 'unavailable',
+      propertyId: property?.propertyId ?? propertyId ?? 'unknown',
+      propertyName: property?.displayName ?? 'unknown',
+      timeZone: property?.timezone ?? 'UTC',
+      status: property?.status ?? 'unknown',
+      roomTotal,
+      roomTypes: catalog.roomTypes,
+      projectionFreshness: catalogFreshness(generatedAt, property ? 'fresh' : 'unavailable'),
+    };
+  }
+
+  roomTypeCatalog(propertyId: string | undefined, generatedAt: string): RoomTypeCatalogReadModel {
+    const roomTypes = this.listActiveRoomTypeCatalog(propertyId);
+    return {
+      schemaVersion: pmsProjectionSchemaVersion,
+      generatedAt,
+      summaryStatus: 'fresh',
+      ...(propertyId ? { propertyId } : {}),
+      roomTypes,
+      projectionFreshness: catalogFreshness(generatedAt, 'fresh'),
+    };
   }
 
   protected saveRoom(room: RoomAggregate): void {
@@ -171,6 +208,52 @@ export abstract class SqliteSandboxCoreCatalogStore extends SqliteSandboxBase {
     }));
   }
 
+  private getCatalogProperty(propertyId: string | undefined): PmsSandboxPropertyReadback | undefined {
+    const rows = this.listProperties();
+    if (propertyId) return rows.find((property) => property.propertyId === propertyId);
+    return rows[0];
+  }
+
+  private listActiveRoomTypeCatalog(propertyId: string | undefined): RoomTypeCatalogItem[] {
+    const rows = this.db
+      .prepare(
+        `
+          SELECT
+            rt.room_type_id,
+            rt.room_type_code,
+            rt.display_name,
+            rt.status,
+            COUNT(r.room_id) AS room_count,
+            MIN(COALESCE(r.sort_key, r.room_number, rt.sort_key)) AS first_sort_key
+          FROM room_types rt
+          LEFT JOIN rooms r
+            ON (
+              r.room_type_id = rt.room_type_id
+              OR (r.room_type_id IS NULL AND r.room_type = rt.display_name)
+            )
+            AND (r.property_id = rt.property_id OR r.property_id IS NULL)
+          WHERE rt.status = 'active'
+            AND (? IS NULL OR rt.property_id = ?)
+          GROUP BY rt.room_type_id, rt.room_type_code, rt.display_name, rt.status, rt.sort_key
+          ORDER BY first_sort_key, rt.sort_key, rt.room_type_code
+        `,
+      )
+      .all(propertyId ?? null, propertyId ?? null) as Array<{
+      room_type_id: string;
+      room_type_code: string;
+      display_name: string;
+      status: string;
+      room_count: number;
+    }>;
+    return rows.map((row) => ({
+      roomTypeId: row.room_type_id,
+      code: row.room_type_code,
+      displayName: row.display_name,
+      roomCount: row.room_count,
+      status: row.status,
+    }));
+  }
+
   protected listRoomTypes(): PmsSandboxRoomTypeReadback[] {
     const rows = this.db
       .prepare(
@@ -193,4 +276,12 @@ export abstract class SqliteSandboxCoreCatalogStore extends SqliteSandboxBase {
       status: row.status,
     }));
   }
+}
+
+function catalogFreshness(generatedAt: string, status: ProjectionFreshness['status']): ProjectionFreshness {
+  return {
+    status,
+    generatedAt,
+    note: status === 'fresh' ? 'pms-catalog-current' : 'pms-catalog-unavailable',
+  };
 }

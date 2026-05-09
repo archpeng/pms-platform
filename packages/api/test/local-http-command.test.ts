@@ -436,6 +436,8 @@ describe('PMS local durable checkout sandbox HTTP boundary - local-http-command'
         },
       });
       expect(manifestResponse.manifest.capabilities).toEqual(expect.arrayContaining([
+        expect.objectContaining({ name: 'pms_hotel_profile', class: 'read', naturalLanguageExecutable: true }),
+        expect.objectContaining({ name: 'pms_room_type_catalog', class: 'read', naturalLanguageExecutable: true }),
         expect.objectContaining({ name: 'pms_check_in.dryRun', class: 'dryRun' }),
         expect.objectContaining({ name: 'pms_check_in.confirm', class: 'confirm', naturalLanguageExecutable: false }),
         expect.objectContaining({ name: 'pms_operation_request_create', class: 'safeIntake' }),

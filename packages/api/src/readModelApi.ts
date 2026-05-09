@@ -1,10 +1,12 @@
 import type {
   DashboardReadModel,
+  HotelProfileReadModel,
   InventoryHorizonRequest,
   InventoryReadModel,
   ReservationReadModel,
   RoomReadModel,
   RoomReservationContextReadModel,
+  RoomTypeCatalogReadModel,
   TodayReservationsReadModel,
 } from '@pms-platform/contracts';
 import { getDashboardReadModel, getRoomReadModel, type CorePorts } from '@pms-platform/core';
@@ -13,12 +15,15 @@ import {
   pmsGetRoomOperation,
   pmsInventoryIntervalsOperation,
   pmsInventorySummaryOperation,
+  pmsHotelProfileOperation,
+  pmsRoomTypeCatalogOperation,
   pmsReservationGetOperation,
   pmsRoomReservationContextOperation,
   pmsTodayArrivalsOperation,
   pmsTodayDeparturesOperation,
 } from './operations.js';
 import type { AvailabilitySearchApiRequest, AvailabilitySearchApiResponse } from './availability.js';
+import type { HotelProfileApiRequest, HotelProfileApiResponse, RoomTypeCatalogApiRequest, RoomTypeCatalogApiResponse } from './hotelProfileApi.js';
 
 export interface GetRoomApiRequest {
   readonly operation: typeof pmsGetRoomOperation;
@@ -107,7 +112,9 @@ export type PmsReadModelApiRequest =
   | RoomReservationContextApiRequest
   | InventoryIntervalsApiRequest
   | InventorySummaryApiRequest
-  | AvailabilitySearchApiRequest;
+  | AvailabilitySearchApiRequest
+  | HotelProfileApiRequest
+  | RoomTypeCatalogApiRequest;
 export type PmsReadModelApiResponse =
   | GetRoomApiResponse
   | DashboardApiResponse
@@ -116,7 +123,9 @@ export type PmsReadModelApiResponse =
   | RoomReservationContextApiResponse
   | InventoryIntervalsApiResponse
   | InventorySummaryApiResponse
-  | AvailabilitySearchApiResponse;
+  | AvailabilitySearchApiResponse
+  | HotelProfileApiResponse
+  | RoomTypeCatalogApiResponse;
 
 export function executeGetRoomApiRequest(request: GetRoomApiRequest, ports: CorePorts): GetRoomApiResponse {
   return {
