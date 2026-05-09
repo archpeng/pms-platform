@@ -73,6 +73,20 @@ export function reservationCodeFromDraft(
   return `R-${reservationDraftRef(draft.draftId).toUpperCase()}`;
 }
 
+export function reservationIdFromGroupDraftSelection(
+  draft: StoredReservationGroupDraft,
+  selectionIndex: number,
+): string {
+  return `reservation-${reservationGroupDraftRef(draft.groupDraftId)}-${selectionIndex + 1}`;
+}
+
+export function reservationCodeFromGroupDraftSelection(
+  draft: StoredReservationGroupDraft,
+  selectionIndex: number,
+): string {
+  return `RG-${reservationGroupDraftRef(draft.groupDraftId).toUpperCase()}-${selectionIndex + 1}`;
+}
+
 export function reservationQuoteRef(draft: StoredReservationDraft): string {
   return reservationDraftDerivedRef(
     'quote',

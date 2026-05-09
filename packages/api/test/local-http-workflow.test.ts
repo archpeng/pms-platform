@@ -427,7 +427,7 @@ describe('PMS local durable checkout sandbox HTTP boundary - local-http-workflow
   
     
   
-  it('serves agent route-sequence smoke with typed HTTP routes and no final PMS mutation', async () => {
+  it('serves agent route-sequence smoke with typed HTTP routes and materialized group confirmation', async () => {
       const { url } = await startServer(undefined, true, [dueOutRoom, vacantCleanRoom]);
   
       const before = await authedGet(`${url}/v1/sandbox/readback`);
@@ -538,7 +538,7 @@ describe('PMS local durable checkout sandbox HTTP boundary - local-http-workflow
       expect(quote).toMatchObject({ ok: true, operation: 'pms.reservation.group_quote', mutationStatus: 'draftOnly', groupDraft: { groupDraftRef, status: 'quoteReady', quote: { quoteRef, status: 'pricingUnsupported' } } });
       expect(prepareConfirm).toMatchObject({ ok: true, operation: 'pms.reservation.group_prepare_confirm', mutationStatus: 'draftOnly', groupDraft: { groupDraftRef, status: 'awaitingConfirmation', pendingAction: { pendingActionRef, quoteRef, cardPayloadRef, confirmationMode: 'typedCardOnly', mutationStatus: 'none', selectionCount: 2 } } });
       expect(status).toMatchObject({ ok: true, operation: 'pms.pending_action.status', mutationStatus: 'none', idempotencyStatus: 'statusRead', pendingAction: { workflowType: 'reservationGroup', pendingActionRef, quoteRef, cardPayloadRef, status: 'awaitingConfirmation', confirmationMode: 'typedCardOnly', mutationStatus: 'none' } });
-      expect(confirm).toMatchObject({ ok: true, operation: 'pms.pending_action.confirm', mutationStatus: 'deferred', idempotencyStatus: 'confirmed', pendingAction: { workflowType: 'reservationGroup', pendingActionRef, status: 'confirmed', mutationStatus: 'deferred' } });
+      expect(confirm).toMatchObject({ ok: true, operation: 'pms.pending_action.confirm', mutationStatus: 'committed', idempotencyStatus: 'confirmed', pendingAction: { workflowType: 'reservationGroup', pendingActionRef, status: 'confirmed', mutationStatus: 'committed' } });
       expect(status.pendingAction.draftId).toBeUndefined();
       expect(status.pendingAction.groupDraftId).toBeUndefined();
       expect(after.reservationGroupDraftAudits.map((audit: { action: string }) => audit.action)).toEqual(['created', 'updated', 'quoted', 'prepared', 'pendingActionStatusRead', 'pendingActionConfirmed']);
@@ -547,7 +547,11 @@ describe('PMS local durable checkout sandbox HTTP boundary - local-http-workflow
         expect.objectContaining({ sourceType: 'reservationGroupDraftAudit', projectionKind: 'reservationWorkflow', status: 'pending', deliveryOwner: 'adapter', truthOwner: 'pms-platform' }),
       ]));
       expect(after.rooms).toEqual(before.rooms);
-      expect(after.reservations).toEqual(before.reservations);
+      expect(after.reservations).toEqual(expect.arrayContaining([
+        expect.objectContaining({ roomId: candidate.roomId, guestDisplayName: 'Route Sequence Group', status: 'booked' }),
+        expect.objectContaining({ roomId: secondCandidate.roomId, guestDisplayName: 'Route Sequence Group', status: 'booked' }),
+      ]));
+      expect(after.reservations).toHaveLength(before.reservations.length + 2);
       expect(after.operationRequests).toEqual(before.operationRequests);
       expect(after.audits).toEqual([]);
       expect(after.domainEvents).toEqual([]);

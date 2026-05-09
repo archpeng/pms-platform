@@ -233,11 +233,18 @@ export abstract class SqliteSandboxPendingActionStore extends SqliteSandboxReser
         groupDraft.status !== 'awaitingConfirmation'
       )
         return pendingActionInactiveResponseFromGroup(request, groupDraft);
+      if (transition === 'confirmed') {
+        const rejection = this.reservationGroupDraftMaterializationRejection(
+          request,
+          groupDraft,
+        );
+        if (rejection) return rejection;
+      }
 
       const pendingAction: ReservationGroupDraftPendingActionRef = {
         ...groupDraft.pendingAction,
         status: transition,
-        mutationStatus: transition === 'confirmed' ? 'deferred' : 'none',
+        mutationStatus: transition === 'confirmed' ? 'committed' : 'none',
         updatedAt: requestedAt,
       };
       const updated: StoredReservationGroupDraft = {
@@ -257,13 +264,16 @@ export abstract class SqliteSandboxPendingActionStore extends SqliteSandboxReser
         requestedAt,
         redactedPendingActionAuditPayload(request),
       );
+      if (transition === 'confirmed') {
+        this.materializeConfirmedReservationGroupDraft(updated, requestedAt);
+      }
       const response = pendingActionSuccessResponseFromGroup(
         request.operation ??
           (transition === 'confirmed'
             ? pmsPendingActionConfirmOperation
             : pmsPendingActionCancelOperation),
         transition,
-        transition === 'confirmed' ? 'deferred' : 'none',
+        transition === 'confirmed' ? 'committed' : 'none',
         updated,
         [auditRef],
       );

@@ -5,11 +5,15 @@ import {
 } from '../index.js';
 import {
   StoredReservationDraft,
+  StoredReservationGroupDraft,
   addBusinessDays,
   dateRangesOverlap,
   pendingActionRejectedResponse,
+  pendingActionRejectedResponseFromGroup,
   reservationCodeFromDraft,
+  reservationCodeFromGroupDraftSelection,
   reservationIdFromDraft,
+  reservationIdFromGroupDraftSelection,
 } from './model.js';
 import { SqliteSandboxReservationGroupDraftStore } from './reservationGroupDraftStore.js';
 
@@ -60,6 +64,76 @@ export abstract class SqliteSandboxReservationMaterializationStore extends Sqlit
     return undefined;
   }
 
+  protected reservationGroupDraftMaterializationRejection(
+    request: PendingActionCallbackApiRequest,
+    draft: StoredReservationGroupDraft,
+  ): PendingActionCallbackApiResponse | undefined {
+    const slots = draft.slots;
+    const selections = slots.selections ?? [];
+    if (
+      !slots.guestDisplayName ||
+      !slots.arrivalDate ||
+      !slots.departureDate ||
+      !slots.quantity ||
+      selections.length !== slots.quantity ||
+      selections.some(
+        (selection) => !selection.roomId || !selection.selectedCandidateRef,
+      )
+    ) {
+      return pendingActionRejectedResponseFromGroup(
+        request,
+        draft,
+        'RESERVATION_GROUP_DRAFT_MISSING_REQUIRED_SLOTS',
+        'Reservation group draft is missing room selections required to create final reservations.',
+        'roomSelections',
+      );
+    }
+
+    const roomIds = selections.map((selection) => selection.roomId);
+    if (
+      new Set(roomIds).size !== roomIds.length ||
+      roomIds.some((roomId) => !this.getRoom(roomId))
+    ) {
+      return pendingActionRejectedResponseFromGroup(
+        request,
+        draft,
+        'RESERVATION_ROOM_UNAVAILABLE',
+        'One or more selected rooms are no longer available for this stay range.',
+        'roomSelections',
+      );
+    }
+
+    const materializedReservationIds = new Set(
+      selections.map((_selection, index) =>
+        reservationIdFromGroupDraftSelection(draft, index),
+      ),
+    );
+    const conflictingReservation = this.listReservationsByRoomIds(
+      new Set(roomIds),
+    ).find(
+      (reservation) =>
+        !materializedReservationIds.has(reservation.reservationId) &&
+        reservation.status !== 'cancelled' &&
+        reservation.status !== 'checkedOut' &&
+        dateRangesOverlap(
+          slots.arrivalDate!,
+          slots.departureDate!,
+          reservation.arrivalDate,
+          reservation.departureDate,
+        ),
+    );
+    if (conflictingReservation) {
+      return pendingActionRejectedResponseFromGroup(
+        request,
+        draft,
+        'RESERVATION_ROOM_UNAVAILABLE',
+        'One or more selected rooms are no longer available for this stay range.',
+        'roomSelections',
+      );
+    }
+    return undefined;
+  }
+
   protected materializeConfirmedReservationDraft(
     draft: StoredReservationDraft,
     requestedAt: string,
@@ -91,6 +165,42 @@ export abstract class SqliteSandboxReservationMaterializationStore extends Sqlit
         endDate,
         status: 'allocated',
       },
+    });
+  }
+
+  protected materializeConfirmedReservationGroupDraft(
+    draft: StoredReservationGroupDraft,
+    requestedAt: string,
+  ): ReservationReadModel[] {
+    const slots = draft.slots;
+    const startDate = slots.arrivalDate ?? requestedAt.slice(0, 10);
+    const endDate = slots.departureDate ?? addBusinessDays(startDate, 1);
+    return (slots.selections ?? []).map((selection, index) => {
+      const room = this.getRoom(selection.roomId);
+      const reservationId = reservationIdFromGroupDraftSelection(draft, index);
+      return this.saveReservationImportRecord({
+        reservationId,
+        reservationCode: reservationCodeFromGroupDraftSelection(draft, index),
+        propertyId: draft.propertyId,
+        roomId: selection.roomId,
+        roomNumber: room?.roomNumber,
+        roomTypeId: selection.roomTypeId ?? room?.roomTypeId,
+        roomType: selection.roomType ?? room?.roomType,
+        guestDisplayName: slots.guestDisplayName ?? 'Guest',
+        arrivalDate: startDate,
+        departureDate: endDate,
+        status: 'booked',
+        allocation: {
+          allocationId: `alloc-${reservationId}`,
+          roomId: selection.roomId,
+          roomNumber: room?.roomNumber,
+          roomTypeId: selection.roomTypeId ?? room?.roomTypeId,
+          roomType: selection.roomType ?? room?.roomType,
+          startDate,
+          endDate,
+          status: 'allocated',
+        },
+      });
     });
   }
 }

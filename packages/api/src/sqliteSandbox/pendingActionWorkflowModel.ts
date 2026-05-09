@@ -89,7 +89,7 @@ export function pendingActionSuccessResponseFromGroup(
     | typeof pmsPendingActionConfirmOperation
     | typeof pmsPendingActionCancelOperation,
   idempotencyStatus: 'statusRead' | 'confirmed' | 'cancelled',
-  mutationStatus: 'none' | 'deferred',
+  mutationStatus: 'none' | 'deferred' | 'committed',
   draft: StoredReservationGroupDraft,
   auditRefs: readonly ReservationGroupDraftAuditRef[],
 ): PendingActionCallbackApiResponse {
@@ -100,6 +100,23 @@ export function pendingActionSuccessResponseFromGroup(
     mutationStatus,
     idempotencyStatus,
     pendingAction: pendingActionReadModelFromGroupDraft(draft, auditRefs),
+  };
+}
+
+export function pendingActionRejectedResponseFromGroup(
+  request: PendingActionCallbackApiRequest,
+  draft: StoredReservationGroupDraft,
+  code: ApiErrorCode,
+  message: string,
+  field: string,
+): PendingActionCallbackApiResponse {
+  return {
+    ok: false,
+    operation: request.operation ?? pendingActionFallbackOperation(request),
+    status: 'rejected',
+    mutationStatus: 'none',
+    pendingAction: pendingActionReadModelFromGroupDraft(draft),
+    errors: [{ code, message, field }],
   };
 }
 
