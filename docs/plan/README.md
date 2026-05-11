@@ -7,7 +7,7 @@
 - Current active state: `none`
 - Current master wave: `none`
 - Next runnable phase: `none`
-- Latest closed pack: `pms-platform-agent-typed-capabilities-v1-2026-05-07`
+- Latest closed pack: `pms-platform-local-http-fixture-debt-d0-d2-v1-2026-05-11`
 - Cold archive root: `docs/plan-archive/`
 
 ## Active Pack Files
@@ -32,10 +32,10 @@ Read archived pack files under `docs/plan-archive/` only when the user asks for 
 
 ## Latest Closeout
 
-`pms-platform-agent-typed-capabilities-v1-2026-05-07` is closed and archived under:
+`pms-platform-local-http-fixture-debt-d0-d2-v1-2026-05-11` is closed and archived under:
 
 ```text
-docs/plan-archive/pms-platform-agent-typed-capabilities-v1-2026-05-07/
+docs/plan-archive/pms-platform-local-http-fixture-debt-d0-d2-v1-2026-05-11/
 ```
 
-Final platform-side evidence proved the typed PMS capability contract for successor `pms-agent-v2` wiring without adding Pi/LLM runtime, Feishu transport/runtime, generic customer-chat tooling, or final natural-language mutation in this repo.
+Final platform-side evidence closed the local HTTP handler breadth and duplicated sample hotel fixture residuals without changing PMS route behavior or adding Pi/LLM runtime, Feishu transport/runtime, generic customer-chat tooling, or final natural-language mutation in this repo.

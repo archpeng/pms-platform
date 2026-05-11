@@ -64,6 +64,8 @@ Keep domain owners visible in file names instead of hiding business logic in cat
 - `packages/api/src/pendingActionApi.ts` owns pending-action callback API contracts.
 - `packages/api/src/operationRequestApi.ts` owns operation-request API contracts.
 - `packages/api/src/fingerprint.ts` and `packages/api/src/idempotency.ts` own API fingerprint and idempotency helper behavior.
+- `packages/api/src/localSandbox/httpHandler.ts` remains local HTTP auth/error orchestration and route ordering only.
+- `packages/api/src/localSandbox/httpHealthRoutes.ts`, `httpCommandRoutes.ts`, `httpReadRoutes.ts`, `httpWorkflowRoutes.ts`, `httpOperationRequestRoutes.ts`, `httpPendingActionRoutes.ts`, and `httpSandboxRoutes.ts` own their named local sandbox HTTP route families.
 - `packages/api/src/sqliteSandboxStore.ts` remains the thin SQLite sandbox facade: constructor, public factory, and inherited interface wiring only.
 - `packages/api/src/sqliteSandbox/baseStore.ts` owns SQLite connection lifecycle, storage metadata, bootstrap/reset helpers, and transaction boundaries.
 - `packages/api/src/sqliteSandbox/coreStore.ts` owns room/catalog, housekeeping, maintenance, audit/event, and idempotency table access.
@@ -86,5 +88,6 @@ Keep domain owners visible in file names instead of hiding business logic in cat
 - `packages/contracts/src/index.ts` is the compatibility export surface plus remaining core contracts; new independent contract domains should be added as named files and re-exported from `index.ts`.
 - `packages/contracts/src/reservationWorkflow.ts` owns reservation draft/group workflow and pending-action contracts.
 - `packages/contracts/src/projectionOutbox.ts` owns PMS projection outbox contracts.
+- `packages/contracts/src/fixtures.ts` owns shared contract/sample fixture constants, including the small hotel room-number to room-type mapping reused by provisioning and local sandbox seed code.
 
 When adding behavior, prefer extending the domain owner file above or creating a similarly named owner file. Do not add new Feishu transport, Pi/LLM routing, generic SQL, or customer-chat behavior to PMS truth modules.

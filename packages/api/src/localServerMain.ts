@@ -18,6 +18,12 @@ import {
   type StartedPmsProjectionDispatcher,
 } from './projectionDispatcher.js';
 import { createSqliteLocalSandboxStore } from './sqliteSandboxStore.js';
+import {
+  roomTypeForSmallHotelRoomNumber,
+  roomTypeIdForSmallHotelRoomType,
+  smallHotelPropertyId,
+  smallHotelRoomNumbers,
+} from '@pms-platform/contracts';
 import type { RoomAggregate } from '@pms-platform/core';
 
 export const pmsLocalHostEnvName = 'PMS_PLATFORM_LOCAL_HOST';
@@ -28,7 +34,7 @@ export const pmsSandboxSeedRoomIdEnvName = 'PMS_PLATFORM_SANDBOX_SEED_ROOM_ID';
 export const pmsSandboxSeedRoomNumberEnvName = 'PMS_PLATFORM_SANDBOX_SEED_ROOM_NUMBER';
 
 export const defaultSqliteDbPath = '.local/pms.sqlite';
-export const defaultSmallHotelRoomNumbers = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2', 'D1', 'D2', 'D3', 'D4', 'D5', 'E1', 'E2'] as const;
+export const defaultSmallHotelRoomNumbers = smallHotelRoomNumbers;
 
 type LocalServerEnv = Record<string, string | undefined>;
 
@@ -99,12 +105,12 @@ function createSeedRoomsFromEnv(env: LocalServerEnv = process.env): readonly Roo
 }
 
 function cleanSellableSeedRoom(roomId: string, roomNumber: string): RoomAggregate {
-  const roomType = roomTypeForRoomNumber(roomNumber);
+  const roomType = roomTypeForSmallHotelRoomNumber(roomNumber);
   return {
     roomId,
     roomNumber,
-    propertyId: 'property-small-hotel',
-    roomTypeId: roomTypeIdForRoomType(roomType),
+    propertyId: smallHotelPropertyId,
+    roomTypeId: roomTypeIdForSmallHotelRoomType(roomType),
     roomType,
     zone: roomNumber.slice(0, 1),
     sortKey: roomNumber,
@@ -112,20 +118,6 @@ function cleanSellableSeedRoom(roomId: string, roomNumber: string): RoomAggregat
     cleaningStatus: 'clean',
     saleStatus: 'sellable',
   };
-}
-
-function roomTypeForRoomNumber(roomNumber: string): string {
-  if (['A1', 'A2', 'B1', 'B2', 'C1', 'E2'].includes(roomNumber)) return '花园别墅';
-  if (['D1', 'D2', 'D3', 'D4', 'D5'].includes(roomNumber)) return '秘境洞穴';
-  if (['C2', 'E1'].includes(roomNumber)) return '花园套房';
-  return '房型待补全';
-}
-
-function roomTypeIdForRoomType(roomType: string): string {
-  if (roomType === '花园别墅') return 'room-type-garden-villa';
-  if (roomType === '秘境洞穴') return 'room-type-cave';
-  if (roomType === '花园套房') return 'room-type-garden-suite';
-  return 'room-type-unknown';
 }
 
 interface ProjectionDispatcherRuntimeConfig {

@@ -43,6 +43,8 @@ const requiredAgentSnippets = [
   'packages/api/src/pendingActionApi.ts` owns pending-action callback API contracts',
   'packages/api/src/operationRequestApi.ts` owns operation-request API contracts',
   'packages/api/src/fingerprint.ts` and `packages/api/src/idempotency.ts` own API fingerprint',
+  'packages/api/src/localSandbox/httpHandler.ts` remains local HTTP auth/error orchestration',
+  'httpHealthRoutes.ts`, `httpCommandRoutes.ts`, `httpReadRoutes.ts`, `httpWorkflowRoutes.ts`, `httpOperationRequestRoutes.ts`, `httpPendingActionRoutes.ts`, and `httpSandboxRoutes.ts` own their named local sandbox HTTP route families',
   'packages/api/src/sqliteSandboxStore.ts` remains the thin SQLite sandbox facade',
   'packages/api/src/sqliteSandbox/baseStore.ts` owns SQLite connection lifecycle',
   'packages/api/src/sqliteSandbox/coreStore.ts` owns room/catalog',
@@ -64,6 +66,7 @@ const requiredAgentSnippets = [
   'packages/provisioning/src/larkPlan.ts`, `packages/provisioning/src/larkJson.ts`, and `packages/provisioning/src/larkExecutor.ts` own lark-cli plan construction',
   'packages/contracts/src/reservationWorkflow.ts` owns reservation draft/group workflow',
   'packages/contracts/src/projectionOutbox.ts` owns PMS projection outbox contracts',
+  'packages/contracts/src/fixtures.ts` owns shared contract/sample fixture constants',
 ];
 
 const lineBudgetTargets = [
@@ -86,6 +89,14 @@ const lineBudgetTargets = [
   { path: 'packages/api/src/fingerprint.ts', maxLines: 120, reason: 'API fingerprint owner should stay focused on fingerprint envelopes and mismatch responses' },
   { path: 'packages/api/src/idempotency.ts', maxLines: 90, reason: 'API idempotency owner should stay focused on idempotency records and in-memory store' },
   { path: 'packages/api/src/boundary.ts', maxLines: 120, reason: 'API boundary owner should stay focused on contract boundary reporting' },
+  { path: 'packages/api/src/localSandbox/httpHandler.ts', maxLines: 90, reason: 'Local sandbox HTTP handler must stay a thin auth/error route orchestrator' },
+  { path: 'packages/api/src/localSandbox/httpHealthRoutes.ts', maxLines: 150, reason: 'Health/manifest route owner should stay focused on service status and capability manifest' },
+  { path: 'packages/api/src/localSandbox/httpCommandRoutes.ts', maxLines: 100, reason: 'Command route owner should stay focused on check-in/out and extended commands' },
+  { path: 'packages/api/src/localSandbox/httpReadRoutes.ts', maxLines: 220, reason: 'Read route owner should stay focused on PMS read models and availability derivation' },
+  { path: 'packages/api/src/localSandbox/httpWorkflowRoutes.ts', maxLines: 80, reason: 'Workflow route owner should stay focused on reservation draft/group draft route dispatch' },
+  { path: 'packages/api/src/localSandbox/httpOperationRequestRoutes.ts', maxLines: 80, reason: 'Operation-request route owner should stay focused on operation-request CRUD routes' },
+  { path: 'packages/api/src/localSandbox/httpPendingActionRoutes.ts', maxLines: 80, reason: 'Pending-action route owner should stay focused on typed callback/status routes' },
+  { path: 'packages/api/src/localSandbox/httpSandboxRoutes.ts', maxLines: 80, reason: 'Sandbox route owner should stay focused on local reset/import/readback administration' },
   { path: 'packages/api/src/sqliteSandboxStore.ts', maxLines: 120, reason: 'SQLite sandbox entrypoint must stay a thin facade' },
   { path: 'packages/api/src/sqliteSandbox/baseStore.ts', maxLines: 220, reason: 'SQLite base owner should stay focused on lifecycle and transactions' },
   { path: 'packages/api/src/sqliteSandbox/coreStore.ts', maxLines: 750, reason: 'core table owner should not absorb reservation, inventory, workflow, or dispatch logic' },

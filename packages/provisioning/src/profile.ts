@@ -1,11 +1,5 @@
+import { roomTypeForSmallHotelRoomNumber,smallHotelRoomNumbers } from '@pms-platform/contracts';
 import type { HotelProfile, HotelProfileCandidate, HotelRoomProfile, PmsBaseWorkflow } from './schema.js';
-
-function smallHotelRoomType(roomNumber: string): string {
-  if (roomNumber.startsWith('A') || roomNumber.startsWith('B') || roomNumber === 'C1' || roomNumber === 'E2') return '花园别墅';
-  if (roomNumber.startsWith('D')) return '秘境洞穴';
-  if (roomNumber === 'C2' || roomNumber === 'E1') return '花园套房';
-  return '花园别墅';
-}
 
 export const smallHotelProfileFixture: HotelProfile = {
   propertyKey: 'small-hotel-pms-base-cn',
@@ -25,9 +19,9 @@ export const smallHotelProfileFixture: HotelProfile = {
   ],
   operationRequestStrategy: 'adapterUpsert',
   dashboardFeatures: ['frontDeskDashboard', 'roomLedger', 'operationRequests', 'housekeepingQueue', 'maintenanceQueue', 'operationLogs'],
-  rooms: ['A1', 'A2', 'B1', 'B2', 'C1', 'C2', 'D1', 'D2', 'D3', 'D4', 'D5', 'E1', 'E2'].map((roomNumber) => ({
+  rooms: smallHotelRoomNumbers.map((roomNumber) => ({
     roomNumber,
-    roomType: smallHotelRoomType(roomNumber),
+    roomType: roomTypeForSmallHotelRoomNumber(roomNumber, '花园别墅'),
     zone: roomNumber.slice(0, 1),
     initialStatus: {
       occupancyStatus: '空房',
