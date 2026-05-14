@@ -51,6 +51,7 @@ PendingActionStatusApiRequest,
 PmsExtendedCommandApiRequest,
 ReservationDraftLifecycleStore,
 ReservationDraftWorkflowApiRequest,
+ReservationCancelLifecycleStore,
 ReservationGroupDraftLifecycleStore,
 ReservationGroupDraftWorkflowApiRequest,
 } from '../index.js';
@@ -60,6 +61,7 @@ pmsCheckOutOperation,
 pmsPendingActionCancelOperation,
 pmsPendingActionConfirmOperation,
 pmsPendingActionStatusOperation,
+pmsReservationCancelPrepareOperation,
 } from '../operations.js';
 
 export const pmsLocalAuthTokenEnvName = 'PMS_PLATFORM_LOCAL_AUTH_TOKEN';
@@ -176,7 +178,7 @@ export interface PmsSandboxReadback {
 }
 
 export interface PmsSandboxIdempotencyReadback {
-  readonly operation: typeof pmsCheckInOperation | typeof pmsCheckOutOperation | PmsExtendedCommandApiRequest['operation'] | ReservationDraftWorkflowApiRequest['operation'] | ReservationGroupDraftWorkflowApiRequest['operation'] | typeof pmsPendingActionStatusOperation | typeof pmsPendingActionConfirmOperation | typeof pmsPendingActionCancelOperation | 'unknown';
+  readonly operation: typeof pmsCheckInOperation | typeof pmsCheckOutOperation | PmsExtendedCommandApiRequest['operation'] | ReservationDraftWorkflowApiRequest['operation'] | ReservationGroupDraftWorkflowApiRequest['operation'] | typeof pmsReservationCancelPrepareOperation | typeof pmsPendingActionStatusOperation | typeof pmsPendingActionConfirmOperation | typeof pmsPendingActionCancelOperation | 'unknown';
   readonly mode: CheckInApiRequest['mode'] | CheckOutApiRequest['mode'] | PmsExtendedCommandApiRequest['mode'] | 'draft' | 'unknown';
   readonly idempotencyKey: string;
   readonly requestFingerprint: string;
@@ -242,7 +244,7 @@ export interface ProjectionDispatchMarkOptions {
   readonly nextAttemptAt?: string;
 }
 
-export interface PmsLocalSandboxStore extends ReservationDraftLifecycleStore, ReservationGroupDraftLifecycleStore {
+export interface PmsLocalSandboxStore extends ReservationDraftLifecycleStore, ReservationGroupDraftLifecycleStore, ReservationCancelLifecycleStore {
   readonly ports: CorePorts;
   readonly apiIdempotency: ApiIdempotencyRepository;
   readonly storage: PmsLocalStorageMetadata;

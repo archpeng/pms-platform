@@ -25,14 +25,17 @@ import {
   pendingActionInactiveResponse,
   pendingActionInactiveResponseFromGroup,
   pendingActionNotFoundResponse,
+  pendingActionRejectedResponseFromCancelAction,
   pendingActionSuccessResponse,
+  pendingActionSuccessResponseFromCancelAction,
   pendingActionSuccessResponseFromGroup,
   pendingActionTokenConflictResponse,
   redactedPendingActionAuditPayload,
+  type StoredReservationCancelAction,
 } from './model.js';
-import { SqliteSandboxReservationMaterializationStore } from './reservationMaterializationStore.js';
+import { SqliteSandboxReservationCancelActionStore } from './reservationCancelActionStore.js';
 
-export abstract class SqliteSandboxPendingActionStore extends SqliteSandboxReservationMaterializationStore {
+export abstract class SqliteSandboxPendingActionStore extends SqliteSandboxReservationCancelActionStore {
   getPendingActionStatus(
     request: PendingActionStatusApiRequest,
   ): PendingActionCallbackApiResponse {
@@ -115,6 +118,38 @@ export abstract class SqliteSandboxPendingActionStore extends SqliteSandboxReser
         'statusRead',
         'none',
         groupDraft,
+        [auditRef],
+      );
+      this.saveApiIdempotency({
+        idempotencyKey: request.clientToken,
+        requestFingerprint: request.requestFingerprint,
+        response,
+      });
+      return response;
+    }
+
+    const cancelAction = this.getReservationCancelActionByPendingActionRef(
+      request.pendingActionRef,
+    );
+    if (cancelAction) {
+      const requestedAt = nonEmptyString(request.requestedAt, this.now());
+      const expired = this.expireReservationCancelPendingActionIfNeeded(
+        request,
+        cancelAction,
+        requestedAt,
+      );
+      if (expired) return expired;
+      const auditRef = this.appendReservationCancelActionAudit(
+        cancelAction.cancelActionId,
+        'reservationCancelStatusRead',
+        requestedAt,
+        redactedPendingActionAuditPayload(request),
+      );
+      const response = pendingActionSuccessResponseFromCancelAction(
+        request.operation ?? pmsPendingActionStatusOperation,
+        'statusRead',
+        'none',
+        cancelAction,
         [auditRef],
       );
       this.saveApiIdempotency({
@@ -285,6 +320,112 @@ export abstract class SqliteSandboxPendingActionStore extends SqliteSandboxReser
       return response;
     }
 
+    const cancelAction = this.getReservationCancelActionByPendingActionRef(
+      request.pendingActionRef,
+    );
+    if (cancelAction) {
+      const expired = this.expireReservationCancelPendingActionIfNeeded(
+        request,
+        cancelAction,
+        requestedAt,
+      );
+      if (expired) return expired;
+      if (
+        request.cardPayloadRef &&
+        request.cardPayloadRef !== cancelAction.pendingAction.cardPayloadRef
+      ) {
+        return pendingActionRejectedResponseFromCancelAction(
+          request,
+          cancelAction,
+          'PENDING_ACTION_CARD_PAYLOAD_MISMATCH',
+          'Card payload ref does not match the pending action.',
+          'cardPayloadRef',
+        );
+      }
+      if (
+        cancelAction.pendingAction.status !== 'awaitingConfirmation' ||
+        cancelAction.status !== 'awaitingConfirmation'
+      ) {
+        return pendingActionRejectedResponseFromCancelAction(
+          request,
+          cancelAction,
+          'PENDING_ACTION_NOT_ACTIVE',
+          'Pending action is no longer awaiting typed-card confirmation.',
+          'status',
+        );
+      }
+      const reservationRow = this.resolveStayReservation(
+        cancelAction.reservationId,
+        cancelAction.reservationCode,
+      );
+      const reservationBefore = reservationRow
+        ? this.reservationReadModelFromRow(reservationRow, requestedAt)
+        : undefined;
+      if (transition === 'confirmed' && !reservationBefore) {
+        return pendingActionRejectedResponseFromCancelAction(
+          request,
+          cancelAction,
+          'RESERVATION_CANCEL_NOT_FOUND',
+          'Reservation was not found.',
+          'reservationId',
+        );
+      }
+      if (transition === 'confirmed' && reservationBefore?.status !== 'booked') {
+        return pendingActionRejectedResponseFromCancelAction(
+          request,
+          cancelAction,
+          'RESERVATION_CANCEL_NOT_ACTIVE',
+          'Only booked reservations can be cancelled through this workflow.',
+          'status',
+        );
+      }
+
+      const pendingAction = {
+        ...cancelAction.pendingAction,
+        status: transition,
+        mutationStatus: transition === 'confirmed' ? 'committed' : 'none',
+        updatedAt: requestedAt,
+      } as const;
+      const updated = {
+        ...cancelAction,
+        clientToken: request.clientToken,
+        requestFingerprint: request.requestFingerprint,
+        status: transition,
+        pendingAction,
+        updatedAt: requestedAt,
+      };
+      this.saveReservationCancelAction(updated);
+      const auditRef = this.appendReservationCancelActionAudit(
+        updated.cancelActionId,
+        transition === 'confirmed'
+          ? 'reservationCancelConfirmed'
+          : 'reservationCancelCancelled',
+        requestedAt,
+        redactedPendingActionAuditPayload(request),
+      );
+      const reservation =
+        transition === 'confirmed'
+          ? this.cancelReservationRecord(updated.reservationId, requestedAt)
+          : undefined;
+      const response = pendingActionSuccessResponseFromCancelAction(
+        request.operation ??
+          (transition === 'confirmed'
+            ? pmsPendingActionConfirmOperation
+            : pmsPendingActionCancelOperation),
+        transition,
+        transition === 'confirmed' ? 'committed' : 'none',
+        updated,
+        [auditRef],
+        reservation,
+      );
+      this.saveApiIdempotency({
+        idempotencyKey: request.clientToken,
+        requestFingerprint: request.requestFingerprint,
+        response,
+      });
+      return response;
+    }
+
     return pendingActionNotFoundResponse(request);
   }
 
@@ -372,5 +513,42 @@ export abstract class SqliteSandboxPendingActionStore extends SqliteSandboxReser
       redactedPendingActionAuditPayload(request),
     );
     return pendingActionExpiredResponseFromGroup(request, expired, [auditRef]);
+  }
+
+  protected expireReservationCancelPendingActionIfNeeded(
+    request: PendingActionCallbackApiRequest,
+    action: StoredReservationCancelAction,
+    requestedAt: string,
+  ): PendingActionCallbackApiResponse | undefined {
+    if (action.pendingAction.status !== 'awaitingConfirmation') return undefined;
+    if (action.expiresAt > requestedAt) return undefined;
+    const pendingAction = {
+      ...action.pendingAction,
+      status: 'expired' as const,
+      mutationStatus: 'none' as const,
+      updatedAt: requestedAt,
+    };
+    const expired = {
+      ...action,
+      clientToken: request.clientToken,
+      requestFingerprint: request.requestFingerprint,
+      status: 'expired' as const,
+      pendingAction,
+      updatedAt: requestedAt,
+    };
+    this.saveReservationCancelAction(expired);
+    const auditRef = this.appendReservationCancelActionAudit(
+      expired.cancelActionId,
+      'reservationCancelExpired',
+      requestedAt,
+      redactedPendingActionAuditPayload(request),
+    );
+    return pendingActionRejectedResponseFromCancelAction(
+      request,
+      expired,
+      'PENDING_ACTION_EXPIRED',
+      'Pending action is expired and cannot be confirmed or cancelled.',
+      'expiresAt',
+    );
   }
 }

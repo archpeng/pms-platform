@@ -8,6 +8,7 @@ export const reservationGroupDraftUpdateOperationName = 'pms.reservation.group_d
 export const reservationGroupQuoteOperationName = 'pms.reservation.group_quote';
 export const reservationGroupPrepareConfirmOperationName = 'pms.reservation.group_prepare_confirm';
 export const reservationGroupDraftCancelOperationName = 'pms.reservation.group_draft.cancel';
+export const reservationCancelPrepareOperationName = 'pms.reservation_cancel.prepare';
 export const pendingActionStatusOperationName = 'pms.pending_action.status';
 export const pendingActionConfirmOperationName = 'pms.pending_action.confirm';
 export const pendingActionCancelOperationName = 'pms.pending_action.cancel';
@@ -36,6 +37,7 @@ export const pendingActionCallbackOperations = [
 
 export type ReservationDraftWorkflowOperation = typeof reservationDraftWorkflowOperations[number];
 export type ReservationGroupDraftWorkflowOperation = typeof reservationGroupDraftWorkflowOperations[number];
+export type ReservationCancelWorkflowOperation = typeof reservationCancelPrepareOperationName;
 export type PendingActionCallbackOperation = typeof pendingActionCallbackOperations[number];
 export type ReservationDraftStatus = 'collectingSlots' | 'quoteReady' | 'awaitingConfirmation' | 'cancelled' | 'expired';
 export type ReservationDraftMissingSlot = 'guest' | 'stayDates' | 'roomType' | 'candidateSelection';
@@ -62,7 +64,7 @@ export interface ReservationDraftSlots {
 
 export interface ReservationDraftAuditRef {
   readonly auditId: string;
-  readonly action: 'created' | 'updated' | 'quoted' | 'prepared' | 'cancelled' | 'expired' | 'replayed' | 'rejected' | 'pendingActionStatusRead' | 'pendingActionConfirmed' | 'pendingActionCancelled' | 'pendingActionExpired';
+  readonly action: 'created' | 'updated' | 'quoted' | 'prepared' | 'cancelled' | 'expired' | 'replayed' | 'rejected' | 'pendingActionStatusRead' | 'pendingActionConfirmed' | 'pendingActionCancelled' | 'pendingActionExpired' | 'reservationCancelPrepared' | 'reservationCancelStatusRead' | 'reservationCancelConfirmed' | 'reservationCancelCancelled' | 'reservationCancelExpired';
   readonly occurredAt: string;
 }
 
@@ -100,10 +102,25 @@ export interface ReservationDraftPendingActionRef {
   readonly mutationStatus: PendingActionMutationStatus;
 }
 
+export interface ReservationCancelPendingActionRef {
+  readonly pendingActionRef: string;
+  readonly cardPayloadRef: string;
+  readonly reservationId: string;
+  readonly reservationCode: string;
+  readonly generatedAt: string;
+  readonly updatedAt: string;
+  readonly expiresAt?: string;
+  readonly status: PendingActionStatus;
+  readonly confirmationMode: 'typedCardOnly';
+  readonly mutationStatus: PendingActionMutationStatus;
+}
+
 export interface PendingActionReadModel {
   readonly pendingActionRef: string;
-  readonly workflowType: 'reservation' | 'reservationGroup';
-  readonly quoteRef: string;
+  readonly workflowType: 'reservation' | 'reservationGroup' | 'reservationCancel';
+  readonly quoteRef?: string;
+  readonly reservationId?: string;
+  readonly reservationCode?: string;
   readonly cardPayloadRef: string;
   readonly status: PendingActionStatus;
   readonly confirmationMode: 'typedCardOnly';

@@ -27,6 +27,7 @@ import {
   pmsPendingActionConfirmOperation,
   pmsPendingActionStatusOperation,
   pmsReportMaintenanceOperation,
+  pmsReservationCancelPrepareOperation,
   pmsReservationDraftCancelOperation,
   pmsReservationDraftCreateOperation,
   pmsReservationDraftUpdateOperation,
@@ -46,6 +47,7 @@ import {
   type PmsApiMode,
   type PmsCommandOperation,
   type PmsOperationRequestOperation,
+  type PmsReservationCancelWorkflowOperation,
   type PmsReservationDraftWorkflowOperation,
   type PmsReservationGroupDraftWorkflowOperation,
 } from './operations.js';
@@ -145,6 +147,11 @@ function buildPmsCapabilityManifestItems(): readonly PmsCapabilityManifestItem[]
       { name: 'groupDraftRef', required: true, source: 'context' },
       { name: 'reason', required: true, source: 'user' },
     ]),
+    workflowCapability(pmsReservationCancelPrepareOperation, '/v1/pms/reservations/cancel/prepare', 'prepareConfirm', 'ReservationCancelPrepareApiRequest', 'ReservationCancelPrepareApiResponse', 'reservationCancel', [
+      { name: 'reservationCode', required: false, source: 'user' },
+      { name: 'reservationId', required: false, source: 'context' },
+      { name: 'reason', required: true, source: 'user' },
+    ]),
     readCapability(pmsOperationRequestGetOperation, '/v1/pms/operation-requests/get', 'OperationRequestGetApiRequest', 'OperationRequestGetApiResponse', [{ name: 'operationRequestId', required: false, source: 'context' }], 'OperationRequest'),
     readCapability(pmsOperationRequestListOperation, '/v1/pms/operation-requests/list', 'OperationRequestListApiRequest', 'OperationRequestListApiResponse', [], 'OperationRequest'),
     commandCapability(pmsCheckInOperation, 'CHECK_IN', '/v1/pms/check-in', 'dryRun', ['RoomCheckedIn'], [{ name: 'roomId', required: true, source: 'user' }, { name: 'reservationCode', required: false, source: 'user' }]),
@@ -217,7 +224,7 @@ function reservationGroupDraftCapability(
 }
 
 function workflowCapability(
-  operation: PmsReservationDraftWorkflowOperation | PmsReservationGroupDraftWorkflowOperation,
+  operation: PmsReservationDraftWorkflowOperation | PmsReservationGroupDraftWorkflowOperation | PmsReservationCancelWorkflowOperation,
   path: string,
   capabilityClass: Extract<PmsCapabilityClass, 'draft' | 'prepareConfirm'>,
   requestSchemaRef: string,

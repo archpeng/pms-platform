@@ -56,6 +56,14 @@ export function reservationDraftIdFromClientToken(clientToken: string): string {
   return `draft-${sanitizeSlug(clientToken).slice(0, 48)}-${digest}`;
 }
 
+export function reservationCancelActionIdFromClientToken(clientToken: string): string {
+  const digest = createHash('sha256')
+    .update(clientToken)
+    .digest('hex')
+    .slice(0, 12);
+  return `reservation-cancel-${sanitizeSlug(clientToken).slice(0, 40)}-${digest}`;
+}
+
 export function reservationDraftRef(draftId: string): string {
   return createHash('sha256')
     .update(`reservation-draft:${draftId}`)

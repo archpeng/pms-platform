@@ -156,6 +156,31 @@ export function migrateSqliteSandboxSchema(
       FOREIGN KEY (group_draft_id) REFERENCES reservation_group_drafts(group_draft_id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS reservation_cancel_actions (
+      cancel_action_id TEXT PRIMARY KEY,
+      property_id TEXT NOT NULL,
+      client_token TEXT NOT NULL UNIQUE,
+      request_fingerprint TEXT NOT NULL,
+      reservation_id TEXT NOT NULL,
+      reservation_code TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      status TEXT NOT NULL,
+      pending_action_json TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (reservation_id) REFERENCES reservations(reservation_id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS reservation_cancel_action_audits (
+      audit_id TEXT PRIMARY KEY,
+      cancel_action_id TEXT NOT NULL,
+      action TEXT NOT NULL,
+      occurred_at TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      FOREIGN KEY (cancel_action_id) REFERENCES reservation_cancel_actions(cancel_action_id) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS stays (
       stay_id TEXT PRIMARY KEY,
       reservation_id TEXT NOT NULL,
@@ -313,6 +338,10 @@ export function migrateSqliteSandboxSchema(
     CREATE INDEX IF NOT EXISTS idx_reservation_group_drafts_client_token ON reservation_group_drafts(client_token);
     CREATE INDEX IF NOT EXISTS idx_reservation_group_drafts_status ON reservation_group_drafts(status);
     CREATE INDEX IF NOT EXISTS idx_reservation_group_draft_audits_group_draft_id ON reservation_group_draft_audits(group_draft_id);
+    CREATE INDEX IF NOT EXISTS idx_reservation_cancel_actions_client_token ON reservation_cancel_actions(client_token);
+    CREATE INDEX IF NOT EXISTS idx_reservation_cancel_actions_reservation_id ON reservation_cancel_actions(reservation_id);
+    CREATE INDEX IF NOT EXISTS idx_reservation_cancel_actions_status ON reservation_cancel_actions(status);
+    CREATE INDEX IF NOT EXISTS idx_reservation_cancel_action_audits_action_id ON reservation_cancel_action_audits(cancel_action_id);
     CREATE INDEX IF NOT EXISTS idx_stays_room_id ON stays(room_id);
     CREATE INDEX IF NOT EXISTS idx_inventory_blocks_room_id ON inventory_blocks(room_id);
     CREATE INDEX IF NOT EXISTS idx_inventory_blocks_source ON inventory_blocks(source_type, source_id);

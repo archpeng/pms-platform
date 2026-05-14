@@ -116,6 +116,7 @@ export abstract class SqliteSandboxBase {
             (SELECT COUNT(*) FROM rooms) +
             (SELECT COUNT(*) FROM reservations) +
             (SELECT COUNT(*) FROM reservation_drafts) +
+            (SELECT COUNT(*) FROM reservation_cancel_actions) +
             (SELECT COUNT(*) FROM housekeeping_tasks) +
             (SELECT COUNT(*) FROM maintenance_tickets) +
             (SELECT COUNT(*) FROM audits) +
@@ -143,6 +144,8 @@ export abstract class SqliteSandboxBase {
       DELETE FROM inventory_blocks;
       DELETE FROM reservation_group_draft_audits;
       DELETE FROM reservation_group_drafts;
+      DELETE FROM reservation_cancel_action_audits;
+      DELETE FROM reservation_cancel_actions;
       DELETE FROM reservation_draft_audits;
       DELETE FROM reservation_drafts;
       DELETE FROM stays;

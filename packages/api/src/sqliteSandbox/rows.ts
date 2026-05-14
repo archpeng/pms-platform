@@ -12,6 +12,7 @@ import {
   type ReservationDraftEvidenceRef,
   type ReservationDraftMissingSlot,
   type ReservationDraftPendingActionRef,
+  type ReservationCancelPendingActionRef,
   type ReservationDraftQuoteRef,
   type ReservationDraftSlots,
   type ReservationDraftStatus,
@@ -144,6 +145,41 @@ export interface StoredReservationDraft {
   readonly evidenceRefs: readonly ReservationDraftEvidenceRef[];
   readonly quote?: ReservationDraftQuoteRef;
   readonly pendingAction?: ReservationDraftPendingActionRef;
+  readonly expiresAt: string;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export interface ReservationCancelActionRow {
+  readonly cancel_action_id: string;
+  readonly property_id: string;
+  readonly client_token: string;
+  readonly request_fingerprint: string;
+  readonly reservation_id: string;
+  readonly reservation_code: string;
+  readonly reason: string;
+  readonly status: ReservationCancelPendingActionRef['status'];
+  readonly pending_action_json: string;
+  readonly expires_at: string;
+  readonly created_at: string;
+  readonly updated_at: string;
+}
+
+export interface ReservationCancelActionAuditPayloadRow extends ReservationDraftAuditRow {
+  readonly cancel_action_id: string;
+  readonly payload_json: string;
+}
+
+export interface StoredReservationCancelAction {
+  readonly cancelActionId: string;
+  readonly propertyId: string;
+  readonly clientToken: string;
+  readonly requestFingerprint: string;
+  readonly reservationId: string;
+  readonly reservationCode: string;
+  readonly reason: string;
+  readonly status: ReservationCancelPendingActionRef['status'];
+  readonly pendingAction: ReservationCancelPendingActionRef;
   readonly expiresAt: string;
   readonly createdAt: string;
   readonly updatedAt: string;
@@ -404,6 +440,27 @@ export function reservationGroupDraftFromRow(
           ),
         }
       : {}),
+    expiresAt: row.expires_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export function reservationCancelActionFromRow(
+  row: ReservationCancelActionRow,
+): StoredReservationCancelAction {
+  return {
+    cancelActionId: row.cancel_action_id,
+    propertyId: row.property_id,
+    clientToken: row.client_token,
+    requestFingerprint: row.request_fingerprint,
+    reservationId: row.reservation_id,
+    reservationCode: row.reservation_code,
+    reason: row.reason,
+    status: row.status,
+    pendingAction: parseJson<ReservationCancelPendingActionRef>(
+      row.pending_action_json,
+    ),
     expiresAt: row.expires_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,

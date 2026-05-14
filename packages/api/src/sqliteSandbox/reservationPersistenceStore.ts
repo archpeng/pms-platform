@@ -271,6 +271,34 @@ export abstract class SqliteSandboxReservationPersistenceStore extends SqliteSan
     this.inventoryDirty = true;
   }
 
+  protected cancelReservationRecord(
+    reservationId: string,
+    timestamp: string,
+  ): ReservationReadModel {
+    this.db
+      .prepare(
+        `
+          UPDATE reservations
+          SET status = 'cancelled', updated_at = ?
+          WHERE reservation_id = ?
+        `,
+      )
+      .run(timestamp, reservationId);
+    this.db
+      .prepare(
+        `
+          UPDATE reservation_room_allocations
+          SET status = 'released', updated_at = ?
+          WHERE reservation_id = ? AND status = 'allocated'
+        `,
+      )
+      .run(timestamp, reservationId);
+    this.inventoryDirty = true;
+    const row = this.getReservationRowById(reservationId);
+    if (!row) throw new Error('reservation_row_missing_after_cancel');
+    return this.reservationReadModelFromRow(row, timestamp);
+  }
+
   protected saveStay(
     reservationId: string,
     stay: {

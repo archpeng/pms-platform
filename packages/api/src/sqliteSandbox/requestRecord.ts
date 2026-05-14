@@ -11,6 +11,7 @@ import {
   pmsPendingActionConfirmOperation,
   pmsPendingActionStatusOperation,
   pmsReportMaintenanceOperation,
+  pmsReservationCancelPrepareOperation,
   pmsReservationDraftCancelOperation,
   pmsReservationDraftCreateOperation,
   pmsReservationDraftUpdateOperation,
@@ -76,6 +77,7 @@ export function requestOperationFromRecord(
       record.response.operation ===
         pmsReservationGroupPrepareConfirmOperation ||
       record.response.operation === pmsReservationGroupDraftCancelOperation ||
+      record.response.operation === pmsReservationCancelPrepareOperation ||
       record.response.operation === pmsPendingActionStatusOperation ||
       record.response.operation === pmsPendingActionConfirmOperation ||
       record.response.operation === pmsPendingActionCancelOperation)
@@ -118,6 +120,15 @@ export function requestJsonFromRecord(record: ApiIdempotencyRecord): unknown {
     return {
       operation: record.response.operation,
       groupDraftRef: record.response.groupDraft.groupDraftRef,
+    };
+  if (
+    record.response.ok &&
+    record.response.operation === pmsReservationCancelPrepareOperation
+  )
+    return {
+      operation: record.response.operation,
+      pendingActionRef: record.response.pendingAction.pendingActionRef,
+      reservationCode: record.response.reservation.reservationCode,
     };
   if (record.response.ok && 'pendingAction' in record.response)
     return {
