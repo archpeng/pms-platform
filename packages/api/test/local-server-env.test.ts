@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   createLocalSandboxStoreFromEnv,
   pmsSandboxResetOnStartEnvName,
+  pmsSandboxSeedReservationsJsonEnvName,
   pmsSandboxSeedRoomIdEnvName,
   pmsSandboxSeedRoomNumberEnvName,
 } from '../src/localServerMain.js';
@@ -150,6 +151,37 @@ describe('PMS local server storage selection', () => {
       await started.close();
       stores.pop();
     }
+  });
+
+  it('seeds sandbox reservations from typed env JSON', async () => {
+    const store = await createLocalSandboxStoreFromEnv({
+      [pmsSqliteDbPathEnvName]: tempPath('seed-reservations.sqlite'),
+      [pmsSandboxResetOnStartEnvName]: 'true',
+      [pmsSandboxSeedReservationsJsonEnvName]: JSON.stringify({
+        reservations: [
+          {
+            reservationId: 'res-env-1',
+            reservationCode: 'R-ENV-1',
+            propertyId: 'property-small-hotel',
+            roomId: 'room-A2',
+            roomNumber: 'A2',
+            roomTypeId: 'room-type-garden-villa',
+            roomType: '花园别墅',
+            guestDisplayName: '李晶晶',
+            arrivalDate: '2026-05-12',
+            departureDate: '2026-05-13',
+            status: 'booked',
+            allocation: { allocationId: 'alloc-env-1', status: 'allocated' },
+          },
+        ],
+      }),
+    });
+    stores.push(store);
+
+    expect(store.searchReservations({ guestDisplayName: '李晶晶', limit: 10 }, '2026-05-11T00:00:00.000Z')).toMatchObject({
+      query: { guestDisplayName: '李晶晶', limit: 10 },
+      reservations: [{ reservationCode: 'R-ENV-1', roomNumber: 'A2', guestDisplayName: '李晶晶' }],
+    });
   });
 
 });

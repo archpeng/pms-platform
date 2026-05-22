@@ -19,8 +19,10 @@ export interface ReservationSummary {
   readonly guestLabel: string;
 }
 
-export type ReservationStatus = 'booked' | 'checkedIn' | 'checkedOut' | 'cancelled';
-export type StayStatus = 'inHouse' | 'checkedOut';
+export const reservationStatuses = ['booked', 'checkedIn', 'checkedOut', 'cancelled'] as const;
+export type ReservationStatus = typeof reservationStatuses[number];
+export const stayStatuses = ['inHouse', 'checkedOut'] as const;
+export type StayStatus = typeof stayStatuses[number];
 
 export interface ReservationReadModel {
   readonly reservationId: string;
@@ -53,6 +55,23 @@ export interface TodayReservationsReadModel {
   readonly schemaVersion: typeof pmsProjectionSchemaVersion;
   readonly generatedAt: string;
   readonly businessDate: string;
+  readonly summaryStatus: ReadModelStatus;
+  readonly reservations: readonly ReservationReadModel[];
+  readonly projectionFreshness: ProjectionFreshness;
+}
+
+export interface ReservationSearchQuery {
+  readonly guestDisplayName: string;
+  readonly status?: ReservationStatus;
+  readonly arrivalDateFrom?: string;
+  readonly arrivalDateTo?: string;
+  readonly limit: number;
+}
+
+export interface ReservationSearchReadModel {
+  readonly schemaVersion: typeof pmsProjectionSchemaVersion;
+  readonly generatedAt: string;
+  readonly query: ReservationSearchQuery;
   readonly summaryStatus: ReadModelStatus;
   readonly reservations: readonly ReservationReadModel[];
   readonly projectionFreshness: ProjectionFreshness;

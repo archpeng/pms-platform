@@ -21,6 +21,7 @@ import {
   pmsReservationGroupQuoteOperation,
   pmsReservationPrepareConfirmOperation,
   pmsReservationQuoteOperation,
+  pmsReservationSearchOperation,
   type CheckInConfirmApiRequest,
   type CheckInDryRunApiRequest,
   type CheckOutConfirmApiRequest,
@@ -162,6 +163,30 @@ describe('PMS local durable checkout sandbox HTTP boundary - local-http-readmode
         readModel: {
           reservations: [{ reservationCode: 'R-HTTP-1', roomNumber: '1001', guestDisplayName: 'Guest Http' }],
         },
+      });
+
+      const reservationSearch = await authedPost(`${url}/v1/pms/reservations/search`, {
+        operation: pmsReservationSearchOperation,
+        guestDisplayName: 'Http',
+        limit: 99,
+        requestedAt: '2026-04-26T08:00:00.000Z',
+      });
+      expect(reservationSearch).toMatchObject({
+        ok: true,
+        operation: 'pms_reservation_search',
+        readModel: {
+          query: { guestDisplayName: 'Http', limit: 20 },
+          reservations: [{ reservationCode: 'R-HTTP-1', roomNumber: '1001', guestDisplayName: 'Guest Http' }],
+        },
+      });
+      const shortSearch = await authedPost(`${url}/v1/pms/reservations/search`, {
+        operation: pmsReservationSearchOperation,
+        guestDisplayName: 'H',
+      });
+      expect(shortSearch).toMatchObject({
+        ok: false,
+        operation: 'pms_reservation_search',
+        error: { code: 'invalid_reservation_search_request' },
       });
   
       const roomContext = await authedPost(`${url}/v1/pms/room/reservation-context`, {

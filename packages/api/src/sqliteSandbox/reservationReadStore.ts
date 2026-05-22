@@ -1,5 +1,7 @@
 import {
   type ReservationReadModel,
+  type ReservationSearchQuery,
+  type ReservationSearchReadModel,
   type RoomReservationContextReadModel,
   type TodayReservationsReadModel,
 } from '@pms-platform/contracts';
@@ -27,6 +29,48 @@ export abstract class SqliteSandboxReservationReadStore extends SqliteSandboxRes
       )
       .get(reservationCode));
     return row ? this.reservationReadModelFromRow(row, requestedAt) : undefined;
+  }
+
+  searchReservations(
+    query: ReservationSearchQuery,
+    requestedAt: string,
+  ): ReservationSearchReadModel {
+    const limit = normalizeReservationSearchLimit(query.limit);
+    const normalizedQuery = { ...query, limit };
+    const conditions = ['g.display_name LIKE ?'];
+    const params: Array<string | number> = [`%${query.guestDisplayName}%`];
+    if (query.arrivalDateFrom) {
+      conditions.push('r.arrival_date >= ?');
+      params.push(query.arrivalDateFrom);
+    }
+    if (query.arrivalDateTo) {
+      conditions.push('r.arrival_date <= ?');
+      params.push(query.arrivalDateTo);
+    }
+
+    const rows = sqliteRows<ReservationRow>(this.db
+      .prepare(
+        `
+          SELECT r.*, g.display_name
+          FROM reservations r
+          INNER JOIN guests g ON g.guest_id = r.guest_id
+          WHERE ${conditions.join(' AND ')}
+          ORDER BY r.arrival_date DESC, r.reservation_code ASC
+        `,
+      )
+      .all(...params));
+    const reservations = rows
+      .map((row) => this.reservationReadModelFromRow(row, requestedAt))
+      .filter((reservation) => !query.status || reservation.status === query.status)
+      .slice(0, limit);
+    return {
+      schemaVersion: 'pms-dashboard-mvp-v1',
+      generatedAt: requestedAt,
+      query: normalizedQuery,
+      summaryStatus: 'fresh',
+      reservations,
+      projectionFreshness: createProjectionFreshness(requestedAt, 'fresh'),
+    };
   }
 
   todayArrivals(
@@ -115,4 +159,10 @@ export abstract class SqliteSandboxReservationReadStore extends SqliteSandboxRes
       return Boolean(allocation?.roomId && roomIds.has(allocation.roomId));
     });
   }
+}
+
+function normalizeReservationSearchLimit(value: number): number {
+  return Number.isInteger(value) && value > 0
+    ? Math.min(20, value)
+    : 10;
 }

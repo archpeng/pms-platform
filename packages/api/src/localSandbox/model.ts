@@ -17,6 +17,8 @@ ReservationDraftWorkflowRef,
 ReservationGroupDraftAuditRef,
 ReservationGroupDraftWorkflowRef,
 ReservationReadModel,
+ReservationSearchQuery,
+ReservationSearchReadModel,
 RoomReservationContextReadModel,
 RoomTypeCatalogReadModel,
 StayReadModel,
@@ -252,6 +254,7 @@ export interface PmsLocalSandboxStore extends ReservationDraftLifecycleStore, Re
   reset(seedRooms?: readonly RoomAggregate[], seedReservations?: readonly PmsSandboxReservationImportRecord[]): PmsSandboxReadback;
   importReservations(reservations: readonly PmsSandboxReservationImportRecord[]): PmsSandboxReservationImportResult;
   getReservation(reservationCode: string, requestedAt: string): ReservationReadModel | undefined;
+  searchReservations(query: ReservationSearchQuery, requestedAt: string): ReservationSearchReadModel;
   todayArrivals(businessDate: string, requestedAt: string): TodayReservationsReadModel;
   todayDepartures(businessDate: string, requestedAt: string): TodayReservationsReadModel;
   roomReservationContext(roomId: string, requestedAt: string): RoomReservationContextReadModel;

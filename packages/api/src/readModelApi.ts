@@ -3,6 +3,9 @@ import type {
   InventoryHorizonRequest,
   InventoryReadModel,
   ReservationReadModel,
+  ReservationSearchQuery,
+  ReservationSearchReadModel,
+  ReservationStatus,
   RoomReadModel,
   RoomReservationContextReadModel,
   TodayReservationsReadModel,
@@ -14,6 +17,7 @@ import {
   pmsInventoryIntervalsOperation,
   pmsInventorySummaryOperation,
   pmsReservationGetOperation,
+  pmsReservationSearchOperation,
   pmsRoomReservationContextOperation,
   pmsTodayArrivalsOperation,
   pmsTodayDeparturesOperation,
@@ -54,6 +58,22 @@ export interface ReservationGetApiResponse {
   readonly ok: true;
   readonly operation: typeof pmsReservationGetOperation;
   readonly readModel?: ReservationReadModel;
+}
+
+export interface ReservationSearchApiRequest {
+  readonly operation: typeof pmsReservationSearchOperation;
+  readonly guestDisplayName: string;
+  readonly requestedAt: string;
+  readonly status?: ReservationStatus;
+  readonly arrivalDateFrom?: string;
+  readonly arrivalDateTo?: string;
+  readonly limit?: number;
+}
+
+export interface ReservationSearchApiResponse {
+  readonly ok: true;
+  readonly operation: typeof pmsReservationSearchOperation;
+  readonly readModel: ReservationSearchReadModel;
 }
 
 export interface TodayReservationsApiRequest {
@@ -104,6 +124,7 @@ export type PmsReadModelApiRequest =
   | GetRoomApiRequest
   | DashboardApiRequest
   | ReservationGetApiRequest
+  | ReservationSearchApiRequest
   | TodayReservationsApiRequest
   | RoomReservationContextApiRequest
   | InventoryIntervalsApiRequest
@@ -115,6 +136,7 @@ export type PmsReadModelApiResponse =
   | GetRoomApiResponse
   | DashboardApiResponse
   | ReservationGetApiResponse
+  | ReservationSearchApiResponse
   | TodayReservationsApiResponse
   | RoomReservationContextApiResponse
   | InventoryIntervalsApiResponse
@@ -136,5 +158,15 @@ export function executeDashboardApiRequest(request: DashboardApiRequest, ports: 
     ok: true,
     operation: pmsDashboardOperation,
     readModel: getDashboardReadModel(ports, request.requestedAt),
+  };
+}
+
+export function reservationSearchQueryFromApiRequest(request: ReservationSearchApiRequest): ReservationSearchQuery {
+  return {
+    guestDisplayName: request.guestDisplayName,
+    ...(request.status ? { status: request.status } : {}),
+    ...(request.arrivalDateFrom ? { arrivalDateFrom: request.arrivalDateFrom } : {}),
+    ...(request.arrivalDateTo ? { arrivalDateTo: request.arrivalDateTo } : {}),
+    limit: request.limit ?? 10,
   };
 }

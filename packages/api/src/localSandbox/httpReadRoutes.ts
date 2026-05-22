@@ -1,10 +1,12 @@
 import type { InventoryHorizonRequest } from '@pms-platform/contracts';
+import { reservationStatuses } from '@pms-platform/contracts';
 import {
   executeAvailabilitySearchApiRequest,
   executeDashboardApiRequest,
   executeGetRoomApiRequest,
   executeHotelProfileApiRequest,
   executeRoomTypeCatalogApiRequest,
+  reservationSearchQueryFromApiRequest,
   pmsAvailabilitySearchOperation,
   pmsDashboardOperation,
   pmsGetRoomOperation,
@@ -12,6 +14,7 @@ import {
   pmsInventoryIntervalsOperation,
   pmsInventorySummaryOperation,
   pmsReservationGetOperation,
+  pmsReservationSearchOperation,
   pmsRoomReservationContextOperation,
   pmsRoomTypeCatalogOperation,
   pmsTodayArrivalsOperation,
@@ -70,6 +73,28 @@ export async function handleReadRoutes(context: PmsLocalRouteContext): Promise<b
       readModel: typeof body.reservationCode === 'string'
         ? options.store.getReservation(body.reservationCode, requestedAt)
         : undefined,
+    });
+    return true;
+  }
+
+  if (request.method === 'POST' && url.pathname === '/v1/pms/reservations/search') {
+    const body = await readJsonBody(request) as Record<string, unknown>;
+    const parsed = parseReservationSearchRequest(body);
+    if (!parsed.ok) {
+      writeJson(response, 400, {
+        ok: false,
+        operation: pmsReservationSearchOperation,
+        error: { code: 'invalid_reservation_search_request', message: parsed.message },
+      });
+      return true;
+    }
+    writeJson(response, 200, {
+      ok: true,
+      operation: pmsReservationSearchOperation,
+      readModel: options.store.searchReservations(
+        reservationSearchQueryFromApiRequest(parsed.request),
+        parsed.request.requestedAt,
+      ),
     });
     return true;
   }
@@ -159,6 +184,33 @@ function parseInventoryHorizonRequest(value: unknown): Partial<InventoryHorizonR
     ...(typeof body.horizonDays === 'number' ? { horizonDays: body.horizonDays } : {}),
     ...(typeof body.roomId === 'string' ? { roomId: body.roomId } : {}),
   };
+}
+
+function parseReservationSearchRequest(body: Record<string, unknown>) {
+  const guestDisplayName = typeof body.guestDisplayName === 'string' ? body.guestDisplayName.trim() : '';
+  if (guestDisplayName.length < 2) {
+    return { ok: false, message: 'guestDisplayName must contain at least 2 non-whitespace characters' } as const;
+  }
+  const status = typeof body.status === 'string' ? reservationStatuses.find((item) => item === body.status) : undefined;
+  if (body.status !== undefined && !status) {
+    return { ok: false, message: 'status must be one of booked, checkedIn, checkedOut, cancelled' } as const;
+  }
+  return {
+    ok: true,
+    request: {
+      operation: pmsReservationSearchOperation,
+      guestDisplayName,
+      ...(status ? { status } : {}),
+      ...(typeof body.arrivalDateFrom === 'string' ? { arrivalDateFrom: body.arrivalDateFrom } : {}),
+      ...(typeof body.arrivalDateTo === 'string' ? { arrivalDateTo: body.arrivalDateTo } : {}),
+      limit: normalizeReservationSearchLimit(body.limit),
+      requestedAt: typeof body.requestedAt === 'string' ? body.requestedAt : new Date().toISOString(),
+    },
+  } as const;
+}
+
+function normalizeReservationSearchLimit(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.min(20, Math.max(1, Math.trunc(value))) : 10;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

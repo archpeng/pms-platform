@@ -4,6 +4,7 @@ import {
   pmsSqliteDbPathEnvName,
   startPmsLocalHttpServer,
   type PmsLocalSandboxStore,
+  type PmsSandboxReservationImportRecord,
 } from './localSandbox.js';
 import {
   pmsProjectionDispatchAdapterBaseUrlEnvName,
@@ -23,6 +24,9 @@ import {
   roomTypeIdForSmallHotelRoomType,
   smallHotelPropertyId,
   smallHotelRoomNumbers,
+  reservationStatuses,
+  stayStatuses,
+  type ReservationStatus,
 } from '@pms-platform/contracts';
 import type { RoomAggregate } from '@pms-platform/core';
 
@@ -32,6 +36,7 @@ export const pmsLocalAuthRequiredEnvName = 'PMS_PLATFORM_LOCAL_AUTH_REQUIRED';
 export const pmsSandboxResetOnStartEnvName = 'PMS_PLATFORM_SANDBOX_RESET_ON_START';
 export const pmsSandboxSeedRoomIdEnvName = 'PMS_PLATFORM_SANDBOX_SEED_ROOM_ID';
 export const pmsSandboxSeedRoomNumberEnvName = 'PMS_PLATFORM_SANDBOX_SEED_ROOM_NUMBER';
+export const pmsSandboxSeedReservationsJsonEnvName = 'PMS_PLATFORM_SANDBOX_SEED_RESERVATIONS_JSON';
 
 export const defaultSqliteDbPath = '.local/pms.sqlite';
 export const defaultSmallHotelRoomNumbers = smallHotelRoomNumbers;
@@ -87,11 +92,13 @@ export async function main(): Promise<void> {
 
 export async function createLocalSandboxStoreFromEnv(env: LocalServerEnv = process.env): Promise<PmsLocalSandboxStore> {
   const seedRooms = createSeedRoomsFromEnv(env);
+  const seedReservations = createSeedReservationsFromEnv(env);
   const resetOnStart = env[pmsSandboxResetOnStartEnvName] === 'true';
 
   return createSqliteLocalSandboxStore({
     dbPath: resolve(env[pmsSqliteDbPathEnvName] ?? defaultSqliteDbPath),
     seedRooms,
+    seedReservations,
     resetOnStart,
   });
 }
@@ -118,6 +125,117 @@ function cleanSellableSeedRoom(roomId: string, roomNumber: string): RoomAggregat
     cleaningStatus: 'clean',
     saleStatus: 'sellable',
   };
+}
+
+function createSeedReservationsFromEnv(env: LocalServerEnv = process.env): readonly PmsSandboxReservationImportRecord[] {
+  const raw = env[pmsSandboxSeedReservationsJsonEnvName];
+  if (!raw) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error(`${pmsSandboxSeedReservationsJsonEnvName} must be valid JSON`);
+  }
+  const records = Array.isArray(parsed)
+    ? parsed
+    : isRecord(parsed) && Array.isArray(parsed.reservations)
+      ? parsed.reservations
+      : undefined;
+  if (!records) {
+    throw new Error(`${pmsSandboxSeedReservationsJsonEnvName} must be a JSON array or {"reservations":[]}`);
+  }
+  return records.map(parseSeedReservationRecord);
+}
+
+function parseSeedReservationRecord(value: unknown, index: number): PmsSandboxReservationImportRecord {
+  if (!isRecord(value)) {
+    throw new Error(`${pmsSandboxSeedReservationsJsonEnvName}[${index}] must be an object`);
+  }
+  const status = parseReservationStatus(value.status, index);
+  return {
+    reservationId: requiredString(value, 'reservationId', index),
+    reservationCode: requiredString(value, 'reservationCode', index),
+    propertyId: requiredString(value, 'propertyId', index),
+    ...optionalString(value, 'roomId'),
+    ...optionalString(value, 'roomNumber'),
+    ...optionalString(value, 'roomTypeId'),
+    ...optionalString(value, 'roomType'),
+    guestDisplayName: requiredString(value, 'guestDisplayName', index),
+    arrivalDate: requiredString(value, 'arrivalDate', index),
+    departureDate: requiredString(value, 'departureDate', index),
+    status,
+    ...parseSeedReservationAllocation(value.allocation),
+    ...parseSeedReservationStay(value.stay),
+  };
+}
+
+function parseSeedReservationAllocation(value: unknown): Pick<PmsSandboxReservationImportRecord, 'allocation'> | Record<string, never> {
+  if (!isRecord(value)) return {};
+  return {
+    allocation: {
+      ...optionalString(value, 'allocationId'),
+      ...optionalString(value, 'roomId'),
+      ...optionalString(value, 'roomNumber'),
+      ...optionalString(value, 'roomTypeId'),
+      ...optionalString(value, 'roomType'),
+      ...optionalString(value, 'startDate'),
+      ...optionalString(value, 'endDate'),
+      ...optionalString(value, 'status'),
+    },
+  };
+}
+
+function parseSeedReservationStay(value: unknown): Pick<PmsSandboxReservationImportRecord, 'stay'> | Record<string, never> {
+  if (!isRecord(value)) return {};
+  return {
+    stay: {
+      ...optionalString(value, 'stayId'),
+      ...optionalString(value, 'roomId'),
+      ...optionalString(value, 'roomNumber'),
+      ...optionalString(value, 'checkedInAt'),
+      ...optionalString(value, 'checkedOutAt'),
+      ...optionalStayStatus(value.status),
+    },
+  };
+}
+
+function parseReservationStatus(value: unknown, index: number): ReservationStatus {
+  const status = typeof value === 'string'
+    ? reservationStatuses.find((item) => item === value)
+    : undefined;
+  if (!status) {
+    throw new Error(`${pmsSandboxSeedReservationsJsonEnvName}[${index}].status must be a reservation status`);
+  }
+  return status;
+}
+
+function optionalStayStatus(value: unknown): Pick<NonNullable<PmsSandboxReservationImportRecord['stay']>, 'status'> | Record<string, never> {
+  const status = typeof value === 'string'
+    ? stayStatuses.find((item) => item === value)
+    : undefined;
+  return status ? { status } : {};
+}
+
+function requiredString(record: Record<string, unknown>, key: string, index: number): string {
+  const value = record[key];
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new Error(`${pmsSandboxSeedReservationsJsonEnvName}[${index}].${key} must be a non-empty string`);
+  }
+  return value.trim();
+}
+
+function optionalString<TKey extends string>(
+  record: Record<string, unknown>,
+  key: TKey,
+): Record<TKey, string> | Record<string, never> {
+  const value = record[key];
+  return typeof value === 'string' && value.trim()
+    ? { [key]: value.trim() } as Record<TKey, string>
+    : {};
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 interface ProjectionDispatcherRuntimeConfig {

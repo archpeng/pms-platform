@@ -53,6 +53,7 @@ import {
   pmsReservationGroupQuoteOperation,
   pmsReservationPrepareConfirmOperation,
   pmsReservationQuoteOperation,
+  pmsReservationSearchOperation,
   pmsRestoreSellableOperation,
   requestFingerprintInput,
   toCheckInCommand,
@@ -193,6 +194,7 @@ describe('API checkout contract skeleton - api-boundary', () => {
           'pms_get_room',
           'pms_dashboard',
           'pms_reservation_get',
+          'pms_reservation_search',
           'pms_today_arrivals',
           'pms_today_departures',
           'pms_room_reservation_context',
@@ -273,6 +275,7 @@ describe('API checkout contract skeleton - api-boundary', () => {
       expect(pmsInventoryIntervalsOperation).toBe('pms_inventory_intervals');
       expect(pmsInventorySummaryOperation).toBe('pms_inventory_summary');
       expect(pmsAvailabilitySearchOperation).toBe('pms_availability_search');
+      expect(pmsReservationSearchOperation).toBe('pms_reservation_search');
       expect(pmsReservationDraftCreateOperation).toBe('pms.reservation.draft.create');
       expect(pmsReservationDraftUpdateOperation).toBe('pms.reservation.draft.update');
       expect(pmsReservationQuoteOperation).toBe('pms.reservation.quote');
@@ -352,6 +355,14 @@ describe('API checkout contract skeleton - api-boundary', () => {
         confirmationRequired: false,
         endpoint: { method: 'POST', path: '/v1/pms/availability/search', auth: 'bearer-token' },
         refs: { readModel: 'AvailabilitySearchReadModel' },
+      });
+      expect(byName.get('pms_reservation_search')).toMatchObject({
+        class: 'read',
+        customerChatAllowed: true,
+        naturalLanguageExecutable: true,
+        confirmationRequired: false,
+        endpoint: { method: 'POST', path: '/v1/pms/reservations/search', auth: 'bearer-token' },
+        refs: { readModel: 'ReservationSearchReadModel' },
       });
       expect(byName.get('pms.reservation.draft.create')).toMatchObject({
         class: 'draft',
@@ -437,6 +448,7 @@ describe('API checkout contract skeleton - api-boundary', () => {
       const expectedAgentSafeCapabilities = [
         { name: 'pms_hotel_profile', class: 'read', refs: { readModel: 'HotelProfileReadModel' } },
         { name: 'pms_room_type_catalog', class: 'read', refs: { readModel: 'RoomTypeCatalogReadModel' } },
+        { name: 'pms_reservation_search', class: 'read', refs: { readModel: 'ReservationSearchReadModel' } },
         { name: 'pms_availability_search', class: 'read', refs: { readModel: 'AvailabilitySearchReadModel' } },
         { name: 'pms.reservation.draft.create', class: 'draft', refs: { workflow: 'reservationDraft' } },
         { name: 'pms.reservation.draft.update', class: 'draft', refs: { workflow: 'reservationDraft' } },
@@ -468,6 +480,7 @@ describe('API checkout contract skeleton - api-boundary', () => {
         { name: 'pms_room_type_catalog', request: 'RoomTypeCatalogApiRequest', response: 'RoomTypeCatalogApiResponse', path: '/v1/pms/room-types/catalog', operation: 'pms_room_type_catalog', class: 'read', naturalLanguageExecutable: true },
         { name: 'pms_get_room', request: 'GetRoomApiRequest', response: 'GetRoomApiResponse', path: '/v1/pms/room', operation: 'pms_get_room', class: 'read', naturalLanguageExecutable: true },
         { name: 'pms_reservation_get', request: 'ReservationGetApiRequest', response: 'ReservationGetApiResponse', path: '/v1/pms/reservations/get', operation: 'pms_reservation_get', class: 'read', naturalLanguageExecutable: true },
+        { name: 'pms_reservation_search', request: 'ReservationSearchApiRequest', response: 'ReservationSearchApiResponse', path: '/v1/pms/reservations/search', operation: pmsReservationSearchOperation, class: 'read', naturalLanguageExecutable: true },
         { name: 'pms_today_arrivals', request: 'TodayReservationsApiRequest', response: 'TodayReservationsApiResponse', path: '/v1/pms/reservations/today-arrivals', operation: 'pms_today_arrivals', class: 'read', naturalLanguageExecutable: true },
         { name: 'pms_today_departures', request: 'TodayReservationsApiRequest', response: 'TodayReservationsApiResponse', path: '/v1/pms/reservations/today-departures', operation: 'pms_today_departures', class: 'read', naturalLanguageExecutable: true },
         { name: 'pms_availability_search', request: 'AvailabilitySearchApiRequest', response: 'AvailabilitySearchApiResponse', path: '/v1/pms/availability/search', operation: 'pms_availability_search', class: 'read', naturalLanguageExecutable: true },

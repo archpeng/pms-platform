@@ -206,6 +206,16 @@ describe('SQLite local sandbox store - sqlite-reservation-store', () => {
         reservationCode: 'R-A2-1',
         status: 'checkedIn',
       });
+      expect(store.searchReservations({ guestDisplayName: 'Guest', limit: 10 }, now)).toMatchObject({
+        schemaVersion: 'pms-dashboard-mvp-v1',
+        summaryStatus: 'fresh',
+        query: { guestDisplayName: 'Guest', limit: 10 },
+        reservations: [{ reservationCode: 'R-A2-1', status: 'checkedIn' }],
+      });
+      expect(store.searchReservations({ guestDisplayName: 'Guest', status: 'checkedIn', limit: 10 }, now).reservations).toMatchObject([
+        { reservationCode: 'R-A2-1', status: 'checkedIn' },
+      ]);
+      expect(store.searchReservations({ guestDisplayName: 'Missing', status: 'booked', limit: 10 }, now).reservations).toEqual([]);
       store.close();
     });
   

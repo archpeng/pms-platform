@@ -2,17 +2,19 @@
 
 ## Status
 
-- Active parser pack: `none`
-- Current active slice: `none`
-- Current active state: `none`
+- Active parser pack: `reservation-search-read-model-v1-2026-05-22`
+- Current active slice: `typed reservation guest-name search`
+- Current active state: `PLATFORM_COMPLETE`
 - Current master wave: `none`
-- Next runnable phase: `none`
+- Next runnable phase: `pms-agent-v2 integration/live verification`
 - Latest closed pack: `pms-platform-local-http-fixture-debt-d0-d2-v1-2026-05-11`
 - Cold archive root: `docs/plan-archive/`
 
 ## Active Pack Files
 
-None.
+- `reservation-search-read-model-v1-2026-05-22_PLAN.md`
+- `reservation-search-read-model-v1-2026-05-22_STATUS.md`
+- `reservation-search-read-model-v1-2026-05-22_WORKSET.md`
 
 ## Current Truth
 
