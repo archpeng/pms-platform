@@ -100,6 +100,11 @@ export interface ReservationDraftPendingActionRef {
   readonly status: PendingActionStatus;
   readonly confirmationMode: 'typedCardOnly';
   readonly mutationStatus: PendingActionMutationStatus;
+  // Display-only echo of the draft slots so the confirmation card can show who/what/when.
+  readonly guestName?: string;
+  readonly roomType?: string;
+  readonly checkInDate?: string;
+  readonly checkOutDate?: string;
 }
 
 export interface ReservationCancelPendingActionRef {

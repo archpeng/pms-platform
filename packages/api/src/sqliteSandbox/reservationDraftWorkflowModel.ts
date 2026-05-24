@@ -243,5 +243,10 @@ export function reservationDraftPendingAction(
     status: 'awaitingConfirmation',
     confirmationMode: 'typedCardOnly',
     mutationStatus: 'none',
+    // Display-only echo of the draft slots for the confirmation card.
+    ...(draft.slots.guestDisplayName ? { guestName: draft.slots.guestDisplayName } : {}),
+    ...(draft.slots.roomTypeKeyword ? { roomType: draft.slots.roomTypeKeyword } : {}),
+    ...(draft.slots.arrivalDate ? { checkInDate: draft.slots.arrivalDate } : {}),
+    ...(draft.slots.departureDate ? { checkOutDate: draft.slots.departureDate } : {}),
   };
 }
