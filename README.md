@@ -19,7 +19,7 @@ The workspace now contains a verified first PMS Core `CHECK_OUT` proof:
 - Confirmed checkout creates a checkout-cleaning task, audit entry, `RoomCheckedOut` event, and `HousekeepingTaskCreated` event.
 - Confirmed checkout uses idempotency to prevent duplicate task/audit/event writes for repeated command keys.
 
-Out of current bootstrap scope: Feishu integration, Hermes MCP integration, HTTP APIs, workers, persistence, durable outbox, and broader PMS workflows beyond the first `CHECK_OUT` proof.
+The original checkout bootstrap has since grown local HTTP APIs, SQLite-backed workflow persistence, projection outbox proof, and reservation workflows. Feishu integration, Hermes MCP integration, production workers, live rollout wiring, and non-local service deployment remain outside this repository's current proof boundary.
 
 ## Room-type read-model boundary
 
@@ -27,9 +27,9 @@ Room-type truth is platform-owned. Availability search derives candidate room ty
 
 ## Reservation draft continuation boundary
 
-Reservation draft workflow APIs are platform-owned. Customer-chat callers may resume draft update, quote, and prepare-confirm with the redacted `draftRef` returned by draft create; raw `draftId` remains platform-internal for sandbox readback/debug only. `ai-conversation` must not persist PMS draft truth, raw draft IDs, raw quote refs, raw pending-action refs, raw card payload refs, guest PII, or raw platform payloads. Final reservation mutation still requires typed card callback transport; natural-language prepare-confirm only creates draft/pending-action state with `mutationStatus=none` or `draftOnly`.
+Reservation draft workflow APIs are platform-owned. Customer-chat callers may resume draft update, quote, and prepare-confirm with the redacted `draftRef` returned by draft create; raw `draftId` remains platform-internal for sandbox readback/debug only. `ai-conversation` must not persist PMS draft truth, raw draft IDs, raw quote refs, raw pending-action refs, raw card payload refs, guest PII, or raw platform payloads. Final reservation mutation remains a typed-card callback boundary; natural-language prepare-confirm only creates draft/pending-action state with `mutationStatus=none` or `draftOnly`.
 
-Pending-action `confirm` currently persists the draft or group-draft pending action as `status=confirmed` with `mutationStatus=deferred`; it does not create final reservation records, room allocations, operation requests, audits, or domain events. User-facing adapters must describe this as draft confirmation, not final booking success.
+Pending-action `confirm` currently persists single-room and group draft pending actions as `status=confirmed` with `mutationStatus=committed`. Confirm materializes final reservation records, room allocations, audits/domain events, and projection outbox work. Pending-action `cancel` and status readback remain non-committing callback/status paths with `mutationStatus=none`.
 
 ## Documentation
 
