@@ -9,6 +9,7 @@ import {
   pmsCheckOutOperation,
   pmsHousekeepingDoneOperation,
   pmsReportMaintenanceOperation,
+  pmsReservationAdjustOperation,
   pmsPendingActionCancelOperation,
   pmsPendingActionConfirmOperation,
   pmsPendingActionStatusOperation,
@@ -555,6 +556,55 @@ describe('PMS local durable checkout sandbox HTTP boundary - local-http-workflow
       expect(after.operationRequests).toEqual(before.operationRequests);
       expect(after.audits).toEqual([]);
       expect(after.domainEvents).toEqual([]);
+    });
+
+  it('serves native reservation adjust through HTTP as a single committed PMS mutation', async () => {
+      const { url } = await startServer(undefined, true, [vacantCleanRoom, vacantDirtyRoom], [
+        {
+          reservationId: 'res-http-adjust-original',
+          reservationCode: 'R-HTTP-ADJUST',
+          propertyId: 'property-small-hotel',
+          roomId: 'room-A2',
+          roomNumber: 'A2',
+          guestDisplayName: 'HTTP Adjust Original',
+          arrivalDate: '2026-05-04',
+          departureDate: '2026-05-05',
+          status: 'booked',
+        },
+      ]);
+      const body = {
+        operation: pmsReservationAdjustOperation,
+        propertyId: 'property-small-hotel',
+        actor: { type: 'human', id: 'frontdesk-1', displayName: 'Front Desk' },
+        source: 'api',
+        clientToken: 'http-adjust-1',
+        requestFingerprint: 'sha256:http-adjust-1',
+        correlationId: 'corr-http-adjust-1',
+        requestedAt: '2026-05-02T02:00:00.000Z',
+        reservationCode: 'R-HTTP-ADJUST',
+        targetRoomId: 'room-A3',
+        guestDisplayName: 'HTTP Adjusted',
+        arrivalDate: '2026-05-06',
+        departureDate: '2026-05-07',
+      };
+
+      const adjusted = await authedPost(`${url}/v1/pms/reservations/adjust`, body);
+      const replayed = await authedPost(`${url}/v1/pms/reservations/adjust`, body);
+      const after = await authedGet(`${url}/v1/sandbox/readback`);
+
+      expect(adjusted).toMatchObject({
+        ok: true,
+        operation: 'pms.reservation.adjust',
+        mutationStatus: 'committed',
+        idempotencyStatus: 'committed',
+        originalReservation: { reservationCode: 'R-HTTP-ADJUST', roomId: 'room-A2', status: 'booked' },
+        reservation: { roomId: 'room-A3', roomNumber: 'A3', guestDisplayName: 'HTTP Adjusted', status: 'booked' },
+      });
+      expect(replayed).toMatchObject({ ok: true, idempotencyStatus: 'replayed', reservation: adjusted.reservation });
+      expect(after.reservations).toEqual(expect.arrayContaining([
+        expect.objectContaining({ reservationCode: 'R-HTTP-ADJUST', status: 'cancelled' }),
+        expect.objectContaining({ reservationCode: adjusted.reservation.reservationCode, roomId: 'room-A3', status: 'booked' }),
+      ]));
     });
   
     

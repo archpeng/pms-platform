@@ -35,6 +35,27 @@ export abstract class SqliteSandboxCoreCatalogStore extends SqliteSandboxBase {
     return row ? roomFromRow(row) : undefined;
   }
 
+  protected getRoomByNumber(
+    roomNumber: string,
+    propertyId?: string,
+  ): RoomAggregate | undefined {
+    const row = this.db
+      .prepare(
+        `
+          SELECT *
+          FROM rooms
+          WHERE room_number = ?
+            AND (? IS NULL OR property_id = ?)
+          ORDER BY room_id
+          LIMIT 1
+        `,
+      )
+      .get(roomNumber, propertyId ?? null, propertyId ?? null) as
+      | RoomRow
+      | undefined;
+    return row ? roomFromRow(row) : undefined;
+  }
+
   protected getRoomsByRoomId(roomId: string): RoomAggregate[] {
     return this.getRoom(roomId) ? [this.getRoom(roomId)!] : [];
   }

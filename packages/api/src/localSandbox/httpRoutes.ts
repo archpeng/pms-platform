@@ -4,6 +4,7 @@ pmsHousekeepingInspectionOperation,
 pmsHousekeepingReworkOperation,
 pmsMaintenanceDoneOperation,
 pmsReportMaintenanceOperation,
+pmsReservationAdjustOperation,
 pmsReservationCancelPrepareOperation,
 pmsReservationDraftCancelOperation,
 pmsReservationDraftCreateOperation,
@@ -17,6 +18,7 @@ pmsReservationPrepareConfirmOperation,
 pmsReservationQuoteOperation,
 pmsRestoreSellableOperation,
 type PmsExtendedCommandApiRequest,
+type ReservationAdjustWorkflowApiRequest,
 type ReservationCancelWorkflowApiRequest,
 type ReservationDraftWorkflowApiRequest,
 type ReservationGroupDraftWorkflowApiRequest,
@@ -42,6 +44,11 @@ export function reservationGroupDraftOperationForPath(pathname: string): Reserva
 
 export function reservationCancelOperationForPath(pathname: string): ReservationCancelWorkflowApiRequest['operation'] | undefined {
   if (pathname === '/v1/pms/reservations/cancel/prepare') return pmsReservationCancelPrepareOperation;
+  return undefined;
+}
+
+export function reservationAdjustOperationForPath(pathname: string): ReservationAdjustWorkflowApiRequest['operation'] | undefined {
+  if (pathname === '/v1/pms/reservations/adjust') return pmsReservationAdjustOperation;
   return undefined;
 }
 

@@ -64,6 +64,23 @@ export function reservationCancelActionIdFromClientToken(clientToken: string): s
   return `reservation-cancel-${sanitizeSlug(clientToken).slice(0, 40)}-${digest}`;
 }
 
+export function reservationAdjustIdFromClientToken(clientToken: string): string {
+  const digest = createHash('sha256')
+    .update(`reservation-adjust:${clientToken}`)
+    .digest('hex')
+    .slice(0, 16);
+  return `reservation-adjust-${digest}`;
+}
+
+export function reservationAdjustCodeFromClientToken(clientToken: string): string {
+  const digest = createHash('sha256')
+    .update(`reservation-adjust-code:${clientToken}`)
+    .digest('hex')
+    .slice(0, 16)
+    .toUpperCase();
+  return `RA-${digest}`;
+}
+
 export function reservationDraftRef(draftId: string): string {
   return createHash('sha256')
     .update(`reservation-draft:${draftId}`)

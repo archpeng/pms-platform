@@ -1,5 +1,6 @@
 import type { CheckInApiResponse, CheckOutApiResponse, PmsExtendedCommandApiResponse } from './commandApi.js';
 import type { PendingActionCallbackApiResponse } from './pendingActionApi.js';
+import type { ReservationAdjustApiResponse } from './reservationAdjustWorkflowApi.js';
 import type { ReservationCancelPrepareApiResponse } from './reservationCancelWorkflowApi.js';
 import type { ReservationDraftWorkflowApiResponse } from './reservationWorkflowApi.js';
 import type { ReservationGroupDraftWorkflowApiResponse } from './reservationGroupWorkflowApi.js';
@@ -7,7 +8,7 @@ import type { ReservationGroupDraftWorkflowApiResponse } from './reservationGrou
 export interface ApiIdempotencyRecord {
   readonly idempotencyKey: string;
   readonly requestFingerprint: string;
-  readonly response: CheckInApiResponse | CheckOutApiResponse | PmsExtendedCommandApiResponse | ReservationDraftWorkflowApiResponse | ReservationGroupDraftWorkflowApiResponse | ReservationCancelPrepareApiResponse | PendingActionCallbackApiResponse;
+  readonly response: CheckInApiResponse | CheckOutApiResponse | PmsExtendedCommandApiResponse | ReservationDraftWorkflowApiResponse | ReservationGroupDraftWorkflowApiResponse | ReservationCancelPrepareApiResponse | ReservationAdjustApiResponse | PendingActionCallbackApiResponse;
 }
 
 export interface ApiIdempotencyRepository {

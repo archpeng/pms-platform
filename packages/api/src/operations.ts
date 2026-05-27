@@ -2,6 +2,7 @@ import {
   pendingActionCancelOperationName,
   pendingActionConfirmOperationName,
   pendingActionStatusOperationName,
+  reservationAdjustOperationName,
   reservationCancelPrepareOperationName,
   reservationDraftCancelOperationName,
   reservationDraftCreateOperationName,
@@ -14,6 +15,7 @@ import {
   reservationPrepareConfirmOperationName,
   reservationQuoteOperationName,
   type PendingActionCallbackOperation,
+  type ReservationAdjustWorkflowOperation,
   type ReservationCancelWorkflowOperation,
   type ReservationDraftWorkflowOperation,
   type ReservationGroupDraftWorkflowOperation,
@@ -51,6 +53,7 @@ export const pmsReservationGroupQuoteOperation = reservationGroupQuoteOperationN
 export const pmsReservationGroupPrepareConfirmOperation = reservationGroupPrepareConfirmOperationName;
 export const pmsReservationGroupDraftCancelOperation = reservationGroupDraftCancelOperationName;
 export const pmsReservationCancelPrepareOperation = reservationCancelPrepareOperationName;
+export const pmsReservationAdjustOperation = reservationAdjustOperationName;
 export const pmsPendingActionStatusOperation = pendingActionStatusOperationName;
 export const pmsPendingActionConfirmOperation = pendingActionConfirmOperationName;
 export const pmsPendingActionCancelOperation = pendingActionCancelOperationName;
@@ -89,6 +92,7 @@ export type CheckOutApiMode = PmsApiMode;
 export type PmsReservationDraftWorkflowOperation = ReservationDraftWorkflowOperation;
 export type PmsReservationGroupDraftWorkflowOperation = ReservationGroupDraftWorkflowOperation;
 export type PmsReservationCancelWorkflowOperation = ReservationCancelWorkflowOperation;
+export type PmsReservationAdjustWorkflowOperation = ReservationAdjustWorkflowOperation;
 export type PmsPendingActionOperation = PendingActionCallbackOperation;
 export type PmsOperationRequestOperation =
   | typeof pmsOperationRequestCreateOperation

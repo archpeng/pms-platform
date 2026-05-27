@@ -27,6 +27,7 @@ import {
   pmsPendingActionConfirmOperation,
   pmsPendingActionStatusOperation,
   pmsReportMaintenanceOperation,
+  pmsReservationAdjustOperation,
   pmsReservationCancelPrepareOperation,
   pmsReservationDraftCancelOperation,
   pmsReservationDraftCreateOperation,
@@ -48,6 +49,7 @@ import {
   type PmsApiMode,
   type PmsCommandOperation,
   type PmsOperationRequestOperation,
+  type PmsReservationAdjustWorkflowOperation,
   type PmsReservationCancelWorkflowOperation,
   type PmsReservationDraftWorkflowOperation,
   type PmsReservationGroupDraftWorkflowOperation,
@@ -160,6 +162,14 @@ function buildPmsCapabilityManifestItems(): readonly PmsCapabilityManifestItem[]
       { name: 'reservationId', required: false, source: 'context' },
       { name: 'reason', required: true, source: 'user' },
     ]),
+    workflowCapability(pmsReservationAdjustOperation, '/v1/pms/reservations/adjust', 'prepareConfirm', 'ReservationAdjustApiRequest', 'ReservationAdjustApiResponse', 'reservationAdjust', [
+      { name: 'reservationCode', required: false, source: 'user' },
+      { name: 'reservationId', required: false, source: 'context' },
+      { name: 'targetRoomId', required: false, source: 'user' },
+      { name: 'arrivalDate', required: false, source: 'user' },
+      { name: 'departureDate', required: false, source: 'user' },
+      { name: 'guestDisplayName', required: false, source: 'user' },
+    ]),
     readCapability(pmsOperationRequestGetOperation, '/v1/pms/operation-requests/get', 'OperationRequestGetApiRequest', 'OperationRequestGetApiResponse', [{ name: 'operationRequestId', required: false, source: 'context' }], 'OperationRequest'),
     readCapability(pmsOperationRequestListOperation, '/v1/pms/operation-requests/list', 'OperationRequestListApiRequest', 'OperationRequestListApiResponse', [], 'OperationRequest'),
     commandCapability(pmsCheckInOperation, 'CHECK_IN', '/v1/pms/check-in', 'dryRun', ['RoomCheckedIn'], [{ name: 'roomId', required: true, source: 'user' }, { name: 'reservationCode', required: false, source: 'user' }]),
@@ -232,7 +242,7 @@ function reservationGroupDraftCapability(
 }
 
 function workflowCapability(
-  operation: PmsReservationDraftWorkflowOperation | PmsReservationGroupDraftWorkflowOperation | PmsReservationCancelWorkflowOperation,
+  operation: PmsReservationDraftWorkflowOperation | PmsReservationGroupDraftWorkflowOperation | PmsReservationCancelWorkflowOperation | PmsReservationAdjustWorkflowOperation,
   path: string,
   capabilityClass: Extract<PmsCapabilityClass, 'draft' | 'prepareConfirm'>,
   requestSchemaRef: string,

@@ -1,14 +1,16 @@
 import {
   executeReservationDraftWorkflowApiRequest,
+  executeReservationAdjustWorkflowApiRequest,
   executeReservationCancelWorkflowApiRequest,
   executeReservationGroupDraftWorkflowApiRequest,
+  type ReservationAdjustWorkflowApiRequest,
   type ReservationCancelWorkflowApiRequest,
   type ReservationDraftWorkflowApiRequest,
   type ReservationGroupDraftWorkflowApiRequest,
 } from '../index.js';
 import { readJsonBody,writeJson } from './httpJson.js';
 import type { PmsLocalRouteContext } from './httpRouteTypes.js';
-import { reservationCancelOperationForPath,reservationDraftOperationForPath,reservationGroupDraftOperationForPath } from './httpRoutes.js';
+import { reservationAdjustOperationForPath,reservationCancelOperationForPath,reservationDraftOperationForPath,reservationGroupDraftOperationForPath } from './httpRoutes.js';
 import { executeWithStoreTransaction } from './httpTransactions.js';
 
 export async function handleWorkflowRoutes(context: PmsLocalRouteContext): Promise<boolean> {
@@ -43,6 +45,17 @@ export async function handleWorkflowRoutes(context: PmsLocalRouteContext): Promi
       ...(body as Record<string, unknown>),
       operation: reservationCancelRoute,
     } as ReservationCancelWorkflowApiRequest, { cancellations: options.store }));
+    writeJson(response, result.ok ? 200 : result.status === 'notFound' ? 404 : 400, result);
+    return true;
+  }
+
+  const reservationAdjustRoute = reservationAdjustOperationForPath(url.pathname);
+  if (request.method === 'POST' && reservationAdjustRoute) {
+    const body = await readJsonBody(request);
+    const result = executeWithStoreTransaction(options.store, () => executeReservationAdjustWorkflowApiRequest({
+      ...(body as Record<string, unknown>),
+      operation: reservationAdjustRoute,
+    } as ReservationAdjustWorkflowApiRequest, { adjustments: options.store }));
     writeJson(response, result.ok ? 200 : result.status === 'notFound' ? 404 : 400, result);
     return true;
   }

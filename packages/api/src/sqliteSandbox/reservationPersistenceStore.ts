@@ -93,15 +93,23 @@ export abstract class SqliteSandboxReservationPersistenceStore extends SqliteSan
   ): ReservationReadModel {
     const guestId = `guest-${record.reservationId}`;
     const createdAt = this.now();
-    const room = record.roomId ? this.getRoom(record.roomId) : undefined;
+    const requestedRoomId = optionalString(record.roomId);
+    const requestedRoomNumber = optionalString(record.roomNumber);
+    const room = requestedRoomId
+      ? this.getRoom(requestedRoomId)
+      : requestedRoomNumber
+        ? this.getRoomByNumber(requestedRoomNumber, record.propertyId)
+        : undefined;
+    const canonicalRoomId = room?.roomId ?? requestedRoomId;
+    const canonicalRoomNumber = room?.roomNumber ?? requestedRoomNumber;
     const propertyId =
       record.propertyId || room?.propertyId || 'property-small-hotel';
     const roomTypeId = record.roomTypeId ?? room?.roomTypeId;
     const roomType = record.roomType ?? room?.roomType;
     this.ensureCatalogForRoom({
-      roomId: record.roomId ?? `room-import-${record.reservationCode}`,
+      roomId: canonicalRoomId ?? `room-import-${record.reservationCode}`,
       roomNumber:
-        record.roomNumber ?? room?.roomNumber ?? record.reservationCode,
+        canonicalRoomNumber ?? record.reservationCode,
       propertyId,
       roomTypeId,
       roomType,
@@ -149,8 +157,8 @@ export abstract class SqliteSandboxReservationPersistenceStore extends SqliteSan
         record.reservationCode,
         propertyId,
         guestId,
-        record.roomId ?? null,
-        record.roomNumber ?? null,
+        canonicalRoomId ?? null,
+        canonicalRoomNumber ?? null,
         roomTypeId ?? null,
         roomType ?? null,
         record.arrivalDate,
@@ -161,17 +169,26 @@ export abstract class SqliteSandboxReservationPersistenceStore extends SqliteSan
       );
     this.inventoryDirty = true;
 
-    if (record.allocation || record.roomId || record.roomNumber) {
+    if (record.allocation || canonicalRoomId || canonicalRoomNumber) {
+      const allocationRoom = record.allocation?.roomId
+        ? this.getRoom(record.allocation.roomId)
+        : record.allocation?.roomNumber
+          ? this.getRoomByNumber(record.allocation.roomNumber, propertyId)
+          : undefined;
       const allocation = {
         allocationId:
           record.allocation?.allocationId ?? `alloc-${record.reservationId}`,
-        roomId: record.allocation?.roomId ?? record.roomId ?? room?.roomId,
+        roomId:
+          allocationRoom?.roomId ??
+          record.allocation?.roomId ??
+          canonicalRoomId,
         roomNumber:
+          allocationRoom?.roomNumber ??
           record.allocation?.roomNumber ??
-          record.roomNumber ??
-          room?.roomNumber,
-        roomTypeId: record.allocation?.roomTypeId ?? roomTypeId,
-        roomType: record.allocation?.roomType ?? roomType,
+          canonicalRoomNumber,
+        roomTypeId:
+          record.allocation?.roomTypeId ?? allocationRoom?.roomTypeId ?? roomTypeId,
+        roomType: record.allocation?.roomType ?? allocationRoom?.roomType ?? roomType,
         startDate: record.allocation?.startDate ?? record.arrivalDate,
         endDate: record.allocation?.endDate ?? record.departureDate,
         status: record.allocation?.status ?? 'allocated',
@@ -191,11 +208,11 @@ export abstract class SqliteSandboxReservationPersistenceStore extends SqliteSan
             record.stay.stayId ??
             stayIdForReservationRoom(
               record.reservationId,
-              record.stay.roomId ?? record.roomId ?? room?.roomId ?? 'unknown',
+              record.stay.roomId ?? canonicalRoomId ?? 'unknown',
             ),
-          roomId: record.stay.roomId ?? record.roomId ?? room?.roomId,
+          roomId: record.stay.roomId ?? canonicalRoomId,
           roomNumber:
-            record.stay.roomNumber ?? record.roomNumber ?? room?.roomNumber,
+            record.stay.roomNumber ?? canonicalRoomNumber,
           checkedInAt: record.stay.checkedInAt,
           checkedOutAt: record.stay.checkedOutAt,
           status:

@@ -33,9 +33,9 @@ import {
   redactedPendingActionAuditPayload,
   type StoredReservationCancelAction,
 } from './model.js';
-import { SqliteSandboxReservationCancelActionStore } from './reservationCancelActionStore.js';
+import { SqliteSandboxReservationAdjustStore } from './reservationAdjustStore.js';
 
-export abstract class SqliteSandboxPendingActionStore extends SqliteSandboxReservationCancelActionStore {
+export abstract class SqliteSandboxPendingActionStore extends SqliteSandboxReservationAdjustStore {
   getPendingActionStatus(
     request: PendingActionStatusApiRequest,
   ): PendingActionCallbackApiResponse {

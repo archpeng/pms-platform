@@ -178,10 +178,43 @@ describe('PMS local server storage selection', () => {
     });
     stores.push(store);
 
-    expect(store.searchReservations({ guestDisplayName: '李晶晶', limit: 10 }, '2026-05-11T00:00:00.000Z')).toMatchObject({
-      query: { guestDisplayName: '李晶晶', limit: 10 },
-      reservations: [{ reservationCode: 'R-ENV-1', roomNumber: 'A2', guestDisplayName: '李晶晶' }],
+      expect(store.searchReservations({ guestDisplayName: '李晶晶', limit: 10 }, '2026-05-11T00:00:00.000Z')).toMatchObject({
+        query: { guestDisplayName: '李晶晶', limit: 10 },
+        reservations: [{ reservationCode: 'R-ENV-1', roomNumber: 'A2', guestDisplayName: '李晶晶' }],
+      });
     });
+
+  it('canonicalizes seed reservations that only provide roomNumber into inventory status refs', async () => {
+    const store = await createLocalSandboxStoreFromEnv({
+      [pmsSqliteDbPathEnvName]: tempPath('seed-reservations-room-number.sqlite'),
+      [pmsSandboxResetOnStartEnvName]: 'true',
+      [pmsSandboxSeedReservationsJsonEnvName]: JSON.stringify({
+        reservations: [
+          {
+            reservationId: 'res-env-number-only',
+            reservationCode: 'R-ENV-NUMBER',
+            propertyId: 'property-small-hotel',
+            roomNumber: 'D2',
+            guestDisplayName: '房号种子',
+            arrivalDate: '2026-05-12',
+            departureDate: '2026-05-13',
+            status: 'booked',
+          },
+        ],
+      }),
+    });
+    stores.push(store);
+
+    const inventory = store.inventorySummary({ startDate: '2026-05-12', horizonDays: 1 });
+    expect(inventory.dayRooms).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        businessDate: '2026-05-12',
+        roomId: 'room-D2',
+        roomNumber: 'D2',
+        availabilityStatus: 'reserved',
+        sourceRefs: [expect.objectContaining({ sourceType: 'reservation', sourceId: 'res-env-number-only', label: 'R-ENV-NUMBER' })],
+      }),
+    ]));
   });
 
 });

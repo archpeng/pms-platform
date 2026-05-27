@@ -199,6 +199,42 @@ describe('SQLite local sandbox store - sqlite-inventory-store', () => {
       expect(store.readback().inventorySummaryDayType[0]).toMatchObject({ reservedRooms: 1, occupiedRooms: 1 });
       store.close();
     });
+
+  it('canonicalizes room-number-only reservation imports into room allocations used by inventory', () => {
+      const store = createSqliteLocalSandboxStore({
+        dbPath: tempPath('inventory-room-number-seed.sqlite'),
+        seedRooms: [vacantCleanRoom],
+        resetOnStart: true,
+        now: () => now,
+      });
+
+      store.importReservations([
+        {
+          reservationId: 'res-A2-number-only',
+          reservationCode: 'R-A2-NUMBER-ONLY',
+          propertyId: 'property-small-hotel',
+          roomNumber: 'A2',
+          guestDisplayName: 'Number Only Guest',
+          arrivalDate: '2026-04-28',
+          departureDate: '2026-04-29',
+          status: 'booked',
+        },
+      ]);
+
+      const inventory = store.inventorySummary({ startDate: '2026-04-28', horizonDays: 1 });
+      expect(inventory.dayRooms).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          businessDate: '2026-04-28',
+          roomId: 'room-A2',
+          availabilityStatus: 'reserved',
+          sourceRefs: [expect.objectContaining({ sourceType: 'reservation', sourceId: 'res-A2-number-only', label: 'R-A2-NUMBER-ONLY' })],
+        }),
+      ]));
+      expect(store.readback().reservationAllocations).toEqual(expect.arrayContaining([
+        expect.objectContaining({ reservationId: 'res-A2-number-only', roomId: 'room-A2', roomNumber: 'A2', status: 'allocated' }),
+      ]));
+      store.close();
+    });
   
     
 });

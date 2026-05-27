@@ -32,6 +32,7 @@ import {
   type PmsCommandDryRunPlan,
   type PendingActionReadModel,
   type ProjectionOutboxEntry,
+  reservationAdjustOperationName,
   reservationDraftCreateOperationName,
   reservationDraftWorkflowOperations,
   reservationGroupDraftCreateOperationName,
@@ -264,6 +265,7 @@ describe('PMS command contracts', () => {
       'pms.reservation.group_prepare_confirm',
       'pms.reservation.group_draft.cancel',
     ]);
+    expect(reservationAdjustOperationName).toBe('pms.reservation.adjust');
     const groupDraftRef: ReservationGroupDraftWorkflowRef = {
       workflowType: 'reservationGroup',
       groupDraftRef: 'group-draft-contract-1',

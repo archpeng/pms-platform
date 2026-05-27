@@ -678,8 +678,7 @@ describe('SQLite local sandbox store - sqlite-workflow-store', () => {
       expect(restarted.readback().reservationDrafts).toEqual(expect.arrayContaining([expect.objectContaining({ draftRef, pendingAction: expect.objectContaining({ status: 'confirmed' }) })]));
       restarted.close();
     });
-  
-    
+
 });
 
 function tempPath(fileName: string): string {

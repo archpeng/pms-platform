@@ -42,6 +42,7 @@ import {
   pmsPendingActionConfirmOperation,
   pmsPendingActionStatusOperation,
   pmsReportMaintenanceOperation,
+  pmsReservationAdjustOperation,
   pmsReservationCancelPrepareOperation,
   pmsReservationDraftCancelOperation,
   pmsReservationDraftCreateOperation,
@@ -286,6 +287,7 @@ describe('API checkout contract skeleton - api-boundary', () => {
       expect(pmsReservationGroupQuoteOperation).toBe('pms.reservation.group_quote');
       expect(pmsReservationGroupPrepareConfirmOperation).toBe('pms.reservation.group_prepare_confirm');
       expect(pmsReservationGroupDraftCancelOperation).toBe('pms.reservation.group_draft.cancel');
+      expect(pmsReservationAdjustOperation).toBe('pms.reservation.adjust');
       expect(pmsOperationRequestCreateOperation).toBe('pms_operation_request_create');
       expect(pmsOperationRequestGetOperation).toBe('pms_operation_request_get');
       expect(pmsOperationRequestListOperation).toBe('pms_operation_request_list');
@@ -396,6 +398,15 @@ describe('API checkout contract skeleton - api-boundary', () => {
         endpoint: { method: 'POST', path: '/v1/pms/reservations/cancel/prepare', auth: 'bearer-token' },
         slots: expect.arrayContaining([expect.objectContaining({ name: 'reason', required: true, source: 'user' })]),
       });
+      expect(byName.get('pms.reservation.adjust')).toMatchObject({
+        class: 'prepareConfirm',
+        customerChatAllowed: true,
+        naturalLanguageExecutable: true,
+        confirmationRequired: false,
+        schemaRefs: { request: 'ReservationAdjustApiRequest', response: 'ReservationAdjustApiResponse' },
+        endpoint: { method: 'POST', path: '/v1/pms/reservations/adjust', auth: 'bearer-token' },
+        slots: expect.arrayContaining([expect.objectContaining({ name: 'targetRoomId', required: false, source: 'user' })]),
+      });
       expect(byName.get('pms.pending_action.status')).toMatchObject({
         class: 'internal',
         customerChatAllowed: false,
@@ -440,6 +451,7 @@ describe('API checkout contract skeleton - api-boundary', () => {
         'pms.reservation.quote',
         'pms.reservation.prepare_confirm',
         'pms.reservation_cancel.prepare',
+        'pms.reservation.adjust',
       ]));
       expect(JSON.stringify(projection)).not.toContain('/v1/pms/');
       expect(JSON.stringify(projection)).not.toContain('bearer-token');
@@ -455,6 +467,7 @@ describe('API checkout contract skeleton - api-boundary', () => {
         { name: 'pms.reservation.quote', class: 'draft', refs: { workflow: 'reservationDraft' } },
         { name: 'pms.reservation.prepare_confirm', class: 'prepareConfirm', refs: { workflow: 'reservationDraft' } },
         { name: 'pms.reservation_cancel.prepare', class: 'prepareConfirm', refs: { workflow: 'reservationCancel' } },
+        { name: 'pms.reservation.adjust', class: 'prepareConfirm', refs: { workflow: 'reservationAdjust' } },
       ] as const;
       for (const capability of expectedAgentSafeCapabilities) {
         expect(projectedByName.get(capability.name)).toMatchObject({
@@ -502,6 +515,7 @@ describe('API checkout contract skeleton - api-boundary', () => {
         { name: 'pms.reservation.prepare_confirm', request: 'ReservationPrepareConfirmApiRequest', response: 'ReservationDraftWorkflowApiResponse', path: '/v1/pms/reservation-drafts/prepare-confirm', operation: pmsReservationPrepareConfirmOperation, class: 'prepareConfirm', naturalLanguageExecutable: true },
         { name: 'pms.reservation.draft.cancel', request: 'ReservationDraftCancelApiRequest', response: 'ReservationDraftWorkflowApiResponse', path: '/v1/pms/reservation-drafts/cancel', operation: pmsReservationDraftCancelOperation, class: 'draft', naturalLanguageExecutable: true },
         { name: 'pms.reservation_cancel.prepare', request: 'ReservationCancelPrepareApiRequest', response: 'ReservationCancelPrepareApiResponse', path: '/v1/pms/reservations/cancel/prepare', operation: pmsReservationCancelPrepareOperation, class: 'prepareConfirm', naturalLanguageExecutable: true },
+        { name: 'pms.reservation.adjust', request: 'ReservationAdjustApiRequest', response: 'ReservationAdjustApiResponse', path: '/v1/pms/reservations/adjust', operation: pmsReservationAdjustOperation, class: 'prepareConfirm', naturalLanguageExecutable: true },
         { name: 'pms.pending_action.status', request: 'PendingActionStatusApiRequest', response: 'PendingActionCallbackApiResponse', path: '/v1/pms/pending-actions/status', operation: pmsPendingActionStatusOperation, class: 'internal', naturalLanguageExecutable: false },
         { name: 'pms.pending_action.confirm', request: 'PendingActionConfirmApiRequest', response: 'PendingActionCallbackApiResponse', path: '/v1/pms/pending-actions/confirm', operation: pmsPendingActionConfirmOperation, class: 'internal', naturalLanguageExecutable: false },
         { name: 'pms.pending_action.cancel', request: 'PendingActionCancelApiRequest', response: 'PendingActionCallbackApiResponse', path: '/v1/pms/pending-actions/cancel', operation: pmsPendingActionCancelOperation, class: 'internal', naturalLanguageExecutable: false },
