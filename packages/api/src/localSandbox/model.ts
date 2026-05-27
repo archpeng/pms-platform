@@ -56,6 +56,8 @@ ReservationDraftWorkflowApiRequest,
 ReservationAdjustLifecycleStore,
 ReservationAdjustWorkflowApiRequest,
 ReservationCancelLifecycleStore,
+ReservationCreateLifecycleStore,
+ReservationCreateWorkflowApiRequest,
 ReservationGroupDraftLifecycleStore,
 ReservationGroupDraftWorkflowApiRequest,
 } from '../index.js';
@@ -182,7 +184,7 @@ export interface PmsSandboxReadback {
 }
 
 export interface PmsSandboxIdempotencyReadback {
-  readonly operation: typeof pmsCheckInOperation | typeof pmsCheckOutOperation | PmsExtendedCommandApiRequest['operation'] | ReservationDraftWorkflowApiRequest['operation'] | ReservationGroupDraftWorkflowApiRequest['operation'] | ReservationAdjustWorkflowApiRequest['operation'] | typeof pmsReservationCancelPrepareOperation | typeof pmsPendingActionStatusOperation | typeof pmsPendingActionConfirmOperation | typeof pmsPendingActionCancelOperation | 'unknown';
+  readonly operation: typeof pmsCheckInOperation | typeof pmsCheckOutOperation | PmsExtendedCommandApiRequest['operation'] | ReservationDraftWorkflowApiRequest['operation'] | ReservationGroupDraftWorkflowApiRequest['operation'] | ReservationCreateWorkflowApiRequest['operation'] | ReservationAdjustWorkflowApiRequest['operation'] | typeof pmsReservationCancelPrepareOperation | typeof pmsPendingActionStatusOperation | typeof pmsPendingActionConfirmOperation | typeof pmsPendingActionCancelOperation | 'unknown';
   readonly mode: CheckInApiRequest['mode'] | CheckOutApiRequest['mode'] | PmsExtendedCommandApiRequest['mode'] | 'draft' | 'unknown';
   readonly idempotencyKey: string;
   readonly requestFingerprint: string;
@@ -248,7 +250,7 @@ export interface ProjectionDispatchMarkOptions {
   readonly nextAttemptAt?: string;
 }
 
-export interface PmsLocalSandboxStore extends ReservationDraftLifecycleStore, ReservationGroupDraftLifecycleStore, ReservationCancelLifecycleStore, ReservationAdjustLifecycleStore {
+export interface PmsLocalSandboxStore extends ReservationDraftLifecycleStore, ReservationGroupDraftLifecycleStore, ReservationCancelLifecycleStore, ReservationCreateLifecycleStore, ReservationAdjustLifecycleStore {
   readonly ports: CorePorts;
   readonly apiIdempotency: ApiIdempotencyRepository;
   readonly storage: PmsLocalStorageMetadata;

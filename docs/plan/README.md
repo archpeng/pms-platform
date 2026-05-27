@@ -24,7 +24,7 @@ The active cross-repo product direction is:
 adapter-feishu -> pms-agent-v2 -> pms-platform
 ```
 
-`pms-platform` owns PMS domain truth, typed PMS capability contracts, read models, draft/prepare-confirm workflows, pending-action semantics, audits, idempotency, and local sandbox HTTP truth. It must not own Pi/LLM runtime, Feishu transport, conversation routing, or generic customer-chat tooling.
+`pms-platform` owns PMS domain truth, typed PMS capability contracts, read models, native reservation create/adjust/prepare workflows, draft/prepare-confirm compatibility workflows, pending-action semantics, audits, idempotency, and local sandbox HTTP truth. It must not own Pi/LLM runtime, Feishu transport, conversation routing, or generic customer-chat tooling.
 
 ## Parser Scope Contract
 

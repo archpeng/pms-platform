@@ -6,20 +6,24 @@ pmsMaintenanceDoneOperation,
 pmsReportMaintenanceOperation,
 pmsReservationAdjustOperation,
 pmsReservationCancelPrepareOperation,
+pmsReservationCreateOperation,
 pmsReservationDraftCancelOperation,
 pmsReservationDraftCreateOperation,
 pmsReservationDraftUpdateOperation,
 pmsReservationGroupDraftCancelOperation,
 pmsReservationGroupDraftCreateOperation,
 pmsReservationGroupDraftUpdateOperation,
+pmsReservationGroupPrepareBookingOperation,
 pmsReservationGroupPrepareConfirmOperation,
 pmsReservationGroupQuoteOperation,
+pmsReservationPrepareBookingOperation,
 pmsReservationPrepareConfirmOperation,
 pmsReservationQuoteOperation,
 pmsRestoreSellableOperation,
 type PmsExtendedCommandApiRequest,
 type ReservationAdjustWorkflowApiRequest,
 type ReservationCancelWorkflowApiRequest,
+type ReservationCreateWorkflowApiRequest,
 type ReservationDraftWorkflowApiRequest,
 type ReservationGroupDraftWorkflowApiRequest,
 } from '../index.js';
@@ -49,6 +53,13 @@ export function reservationCancelOperationForPath(pathname: string): Reservation
 
 export function reservationAdjustOperationForPath(pathname: string): ReservationAdjustWorkflowApiRequest['operation'] | undefined {
   if (pathname === '/v1/pms/reservations/adjust') return pmsReservationAdjustOperation;
+  return undefined;
+}
+
+export function reservationCreateOperationForPath(pathname: string): ReservationCreateWorkflowApiRequest['operation'] | undefined {
+  if (pathname === '/v1/pms/reservations/create') return pmsReservationCreateOperation;
+  if (pathname === '/v1/pms/reservations/prepare-booking') return pmsReservationPrepareBookingOperation;
+  if (pathname === '/v1/pms/reservation-groups/prepare-booking') return pmsReservationGroupPrepareBookingOperation;
   return undefined;
 }
 

@@ -9,6 +9,9 @@ export const reservationGroupQuoteOperationName = 'pms.reservation.group_quote';
 export const reservationGroupPrepareConfirmOperationName = 'pms.reservation.group_prepare_confirm';
 export const reservationGroupDraftCancelOperationName = 'pms.reservation.group_draft.cancel';
 export const reservationCancelPrepareOperationName = 'pms.reservation_cancel.prepare';
+export const reservationCreateOperationName = 'pms.reservation.create';
+export const reservationPrepareBookingOperationName = 'pms.reservation.prepare_booking';
+export const reservationGroupPrepareBookingOperationName = 'pms.reservation.group_prepare_booking';
 export const reservationAdjustOperationName = 'pms.reservation.adjust';
 export const pendingActionStatusOperationName = 'pms.pending_action.status';
 export const pendingActionConfirmOperationName = 'pms.pending_action.confirm';
@@ -39,6 +42,10 @@ export const pendingActionCallbackOperations = [
 export type ReservationDraftWorkflowOperation = typeof reservationDraftWorkflowOperations[number];
 export type ReservationGroupDraftWorkflowOperation = typeof reservationGroupDraftWorkflowOperations[number];
 export type ReservationCancelWorkflowOperation = typeof reservationCancelPrepareOperationName;
+export type ReservationCreateWorkflowOperation =
+  | typeof reservationCreateOperationName
+  | typeof reservationPrepareBookingOperationName
+  | typeof reservationGroupPrepareBookingOperationName;
 export type ReservationAdjustWorkflowOperation = typeof reservationAdjustOperationName;
 export type PendingActionCallbackOperation = typeof pendingActionCallbackOperations[number];
 export type ReservationDraftStatus = 'collectingSlots' | 'quoteReady' | 'awaitingConfirmation' | 'cancelled' | 'expired';

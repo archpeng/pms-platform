@@ -13,14 +13,17 @@ import {
   pmsReportMaintenanceOperation,
   pmsReservationAdjustOperation,
   pmsReservationCancelPrepareOperation,
+  pmsReservationCreateOperation,
   pmsReservationDraftCancelOperation,
   pmsReservationDraftCreateOperation,
   pmsReservationDraftUpdateOperation,
+  pmsReservationGroupPrepareBookingOperation,
   pmsReservationGroupDraftCancelOperation,
   pmsReservationGroupDraftCreateOperation,
   pmsReservationGroupDraftUpdateOperation,
   pmsReservationGroupPrepareConfirmOperation,
   pmsReservationGroupQuoteOperation,
+  pmsReservationPrepareBookingOperation,
   pmsReservationPrepareConfirmOperation,
   pmsReservationQuoteOperation,
   pmsRestoreSellableOperation,
@@ -79,6 +82,9 @@ export function requestOperationFromRecord(
         pmsReservationGroupPrepareConfirmOperation ||
       record.response.operation === pmsReservationGroupDraftCancelOperation ||
       record.response.operation === pmsReservationCancelPrepareOperation ||
+      record.response.operation === pmsReservationCreateOperation ||
+      record.response.operation === pmsReservationPrepareBookingOperation ||
+      record.response.operation === pmsReservationGroupPrepareBookingOperation ||
       record.response.operation === pmsReservationAdjustOperation ||
       record.response.operation === pmsPendingActionStatusOperation ||
       record.response.operation === pmsPendingActionConfirmOperation ||
@@ -118,6 +124,30 @@ export function requestJsonFromRecord(record: ApiIdempotencyRecord): unknown {
     record.response.ok &&
     record.response.mutationStatus === 'draftOnly' &&
     'groupDraft' in record.response
+  )
+    return {
+      operation: record.response.operation,
+      groupDraftRef: record.response.groupDraft.groupDraftRef,
+    };
+  if (
+    record.response.ok &&
+    record.response.operation === pmsReservationCreateOperation
+  )
+    return {
+      operation: record.response.operation,
+      reservationCode: record.response.reservation.reservationCode,
+    };
+  if (
+    record.response.ok &&
+    record.response.operation === pmsReservationPrepareBookingOperation
+  )
+    return {
+      operation: record.response.operation,
+      draftRef: record.response.draft.draftRef,
+    };
+  if (
+    record.response.ok &&
+    record.response.operation === pmsReservationGroupPrepareBookingOperation
   )
     return {
       operation: record.response.operation,

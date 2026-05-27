@@ -1,16 +1,18 @@
 import {
-  executeReservationDraftWorkflowApiRequest,
   executeReservationAdjustWorkflowApiRequest,
   executeReservationCancelWorkflowApiRequest,
+  executeReservationCreateWorkflowApiRequest,
+  executeReservationDraftWorkflowApiRequest,
   executeReservationGroupDraftWorkflowApiRequest,
   type ReservationAdjustWorkflowApiRequest,
   type ReservationCancelWorkflowApiRequest,
+  type ReservationCreateWorkflowApiRequest,
   type ReservationDraftWorkflowApiRequest,
   type ReservationGroupDraftWorkflowApiRequest,
 } from '../index.js';
 import { readJsonBody,writeJson } from './httpJson.js';
 import type { PmsLocalRouteContext } from './httpRouteTypes.js';
-import { reservationAdjustOperationForPath,reservationCancelOperationForPath,reservationDraftOperationForPath,reservationGroupDraftOperationForPath } from './httpRoutes.js';
+import { reservationAdjustOperationForPath,reservationCancelOperationForPath,reservationCreateOperationForPath,reservationDraftOperationForPath,reservationGroupDraftOperationForPath } from './httpRoutes.js';
 import { executeWithStoreTransaction } from './httpTransactions.js';
 
 export async function handleWorkflowRoutes(context: PmsLocalRouteContext): Promise<boolean> {
@@ -56,6 +58,17 @@ export async function handleWorkflowRoutes(context: PmsLocalRouteContext): Promi
       ...(body as Record<string, unknown>),
       operation: reservationAdjustRoute,
     } as ReservationAdjustWorkflowApiRequest, { adjustments: options.store }));
+    writeJson(response, result.ok ? 200 : result.status === 'notFound' ? 404 : 400, result);
+    return true;
+  }
+
+  const reservationCreateRoute = reservationCreateOperationForPath(url.pathname);
+  if (request.method === 'POST' && reservationCreateRoute) {
+    const body = await readJsonBody(request);
+    const result = executeWithStoreTransaction(options.store, () => executeReservationCreateWorkflowApiRequest({
+      ...(body as Record<string, unknown>),
+      operation: reservationCreateRoute,
+    } as ReservationCreateWorkflowApiRequest, { creations: options.store }));
     writeJson(response, result.ok ? 200 : result.status === 'notFound' ? 404 : 400, result);
     return true;
   }

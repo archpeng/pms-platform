@@ -4,19 +4,23 @@ import {
   pendingActionStatusOperationName,
   reservationAdjustOperationName,
   reservationCancelPrepareOperationName,
+  reservationCreateOperationName,
   reservationDraftCancelOperationName,
   reservationDraftCreateOperationName,
   reservationDraftUpdateOperationName,
+  reservationGroupPrepareBookingOperationName,
   reservationGroupDraftCancelOperationName,
   reservationGroupDraftCreateOperationName,
   reservationGroupDraftUpdateOperationName,
   reservationGroupPrepareConfirmOperationName,
   reservationGroupQuoteOperationName,
+  reservationPrepareBookingOperationName,
   reservationPrepareConfirmOperationName,
   reservationQuoteOperationName,
   type PendingActionCallbackOperation,
   type ReservationAdjustWorkflowOperation,
   type ReservationCancelWorkflowOperation,
+  type ReservationCreateWorkflowOperation,
   type ReservationDraftWorkflowOperation,
   type ReservationGroupDraftWorkflowOperation,
 } from '@pms-platform/contracts';
@@ -53,6 +57,9 @@ export const pmsReservationGroupQuoteOperation = reservationGroupQuoteOperationN
 export const pmsReservationGroupPrepareConfirmOperation = reservationGroupPrepareConfirmOperationName;
 export const pmsReservationGroupDraftCancelOperation = reservationGroupDraftCancelOperationName;
 export const pmsReservationCancelPrepareOperation = reservationCancelPrepareOperationName;
+export const pmsReservationCreateOperation = reservationCreateOperationName;
+export const pmsReservationPrepareBookingOperation = reservationPrepareBookingOperationName;
+export const pmsReservationGroupPrepareBookingOperation = reservationGroupPrepareBookingOperationName;
 export const pmsReservationAdjustOperation = reservationAdjustOperationName;
 export const pmsPendingActionStatusOperation = pendingActionStatusOperationName;
 export const pmsPendingActionConfirmOperation = pendingActionConfirmOperationName;
@@ -92,6 +99,7 @@ export type CheckOutApiMode = PmsApiMode;
 export type PmsReservationDraftWorkflowOperation = ReservationDraftWorkflowOperation;
 export type PmsReservationGroupDraftWorkflowOperation = ReservationGroupDraftWorkflowOperation;
 export type PmsReservationCancelWorkflowOperation = ReservationCancelWorkflowOperation;
+export type PmsReservationCreateWorkflowOperation = ReservationCreateWorkflowOperation;
 export type PmsReservationAdjustWorkflowOperation = ReservationAdjustWorkflowOperation;
 export type PmsPendingActionOperation = PendingActionCallbackOperation;
 export type PmsOperationRequestOperation =

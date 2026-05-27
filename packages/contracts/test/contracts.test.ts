@@ -33,10 +33,13 @@ import {
   type PendingActionReadModel,
   type ProjectionOutboxEntry,
   reservationAdjustOperationName,
+  reservationCreateOperationName,
   reservationDraftCreateOperationName,
   reservationDraftWorkflowOperations,
   reservationGroupDraftCreateOperationName,
+  reservationGroupPrepareBookingOperationName,
   reservationGroupDraftWorkflowOperations,
+  reservationPrepareBookingOperationName,
   type ReservationGroupDraftWorkflowRef,
   type ReservationDraftWorkflowRef,
   type ReservationDraftWorkflowSafeGap,
@@ -266,6 +269,9 @@ describe('PMS command contracts', () => {
       'pms.reservation.group_draft.cancel',
     ]);
     expect(reservationAdjustOperationName).toBe('pms.reservation.adjust');
+    expect(reservationCreateOperationName).toBe('pms.reservation.create');
+    expect(reservationPrepareBookingOperationName).toBe('pms.reservation.prepare_booking');
+    expect(reservationGroupPrepareBookingOperationName).toBe('pms.reservation.group_prepare_booking');
     const groupDraftRef: ReservationGroupDraftWorkflowRef = {
       workflowType: 'reservationGroup',
       groupDraftRef: 'group-draft-contract-1',

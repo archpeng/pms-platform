@@ -81,6 +81,23 @@ export function reservationAdjustCodeFromClientToken(clientToken: string): strin
   return `RA-${digest}`;
 }
 
+export function reservationCreateIdFromClientToken(clientToken: string): string {
+  const digest = createHash('sha256')
+    .update(`reservation-create:${clientToken}`)
+    .digest('hex')
+    .slice(0, 16);
+  return `reservation-create-${digest}`;
+}
+
+export function reservationCreateCodeFromClientToken(clientToken: string): string {
+  const digest = createHash('sha256')
+    .update(`reservation-create-code:${clientToken}`)
+    .digest('hex')
+    .slice(0, 16)
+    .toUpperCase();
+  return `RC-${digest}`;
+}
+
 export function reservationDraftRef(draftId: string): string {
   return createHash('sha256')
     .update(`reservation-draft:${draftId}`)

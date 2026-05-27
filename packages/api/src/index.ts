@@ -12,5 +12,6 @@ export * from './pendingActionApi.js';
 export * from './readModelApi.js';
 export * from './reservationAdjustWorkflowApi.js';
 export * from './reservationCancelWorkflowApi.js';
+export * from './reservationCreateWorkflowApi.js';
 export * from './reservationGroupWorkflowApi.js';
 export * from './reservationWorkflowApi.js';
