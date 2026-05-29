@@ -91,6 +91,41 @@ export function migrateSqliteSandboxSchema(
       FOREIGN KEY (guest_id) REFERENCES guests(guest_id) ON DELETE RESTRICT
     );
 
+    CREATE TABLE IF NOT EXISTS guest_id_cards (
+      id_card_id TEXT PRIMARY KEY,
+      guest_id TEXT NOT NULL,
+      property_id TEXT NOT NULL,
+      document_type TEXT NOT NULL,
+      holder_name TEXT NOT NULL,
+      id_number TEXT NOT NULL,
+      id_number_hash TEXT NOT NULL,
+      dob TEXT,
+      address TEXT,
+      photo_hash TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (guest_id) REFERENCES guests(guest_id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS guest_id_card_drafts (
+      draft_id TEXT PRIMARY KEY,
+      client_token TEXT NOT NULL UNIQUE,
+      request_fingerprint TEXT NOT NULL,
+      guest_id TEXT NOT NULL,
+      reservation_code TEXT NOT NULL,
+      property_id TEXT NOT NULL,
+      document_type TEXT NOT NULL,
+      holder_name TEXT NOT NULL,
+      id_number TEXT NOT NULL,
+      id_number_hash TEXT NOT NULL,
+      card_payload_ref TEXT NOT NULL,
+      status TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (guest_id) REFERENCES guests(guest_id) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS reservation_room_allocations (
       allocation_id TEXT PRIMARY KEY,
       reservation_id TEXT NOT NULL,
@@ -328,6 +363,8 @@ export function migrateSqliteSandboxSchema(
     CREATE INDEX IF NOT EXISTS idx_room_types_property_id ON room_types(property_id);
     CREATE INDEX IF NOT EXISTS idx_housekeeping_tasks_room_id ON housekeeping_tasks(room_id);
     CREATE INDEX IF NOT EXISTS idx_maintenance_tickets_room_id ON maintenance_tickets(room_id);
+    CREATE INDEX IF NOT EXISTS idx_guest_id_cards_guest_id ON guest_id_cards(guest_id);
+    CREATE INDEX IF NOT EXISTS idx_guest_id_card_drafts_client_token ON guest_id_card_drafts(client_token);
     CREATE INDEX IF NOT EXISTS idx_reservations_room_id ON reservations(room_id);
     CREATE INDEX IF NOT EXISTS idx_reservations_arrival_date ON reservations(arrival_date);
     CREATE INDEX IF NOT EXISTS idx_reservations_departure_date ON reservations(departure_date);

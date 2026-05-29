@@ -1,9 +1,15 @@
 import {
+  executeGuestIdCardArchiveWorkflowApiRequest,
+  executeGuestIdCardConfirmWorkflowApiRequest,
+  executeGuestIdCardPrepareWorkflowApiRequest,
   executeReservationAdjustWorkflowApiRequest,
   executeReservationCancelWorkflowApiRequest,
   executeReservationCreateWorkflowApiRequest,
   executeReservationDraftWorkflowApiRequest,
   executeReservationGroupDraftWorkflowApiRequest,
+  type GuestIdCardArchiveApiRequest,
+  type GuestIdCardConfirmApiRequest,
+  type GuestIdCardPrepareApiRequest,
   type ReservationAdjustWorkflowApiRequest,
   type ReservationCancelWorkflowApiRequest,
   type ReservationCreateWorkflowApiRequest,
@@ -12,7 +18,7 @@ import {
 } from '../index.js';
 import { readJsonBody,writeJson } from './httpJson.js';
 import type { PmsLocalRouteContext } from './httpRouteTypes.js';
-import { reservationAdjustOperationForPath,reservationCancelOperationForPath,reservationCreateOperationForPath,reservationDraftOperationForPath,reservationGroupDraftOperationForPath } from './httpRoutes.js';
+import { guestIdCardArchiveOperationForPath,guestIdCardConfirmOperationForPath,guestIdCardPrepareOperationForPath,reservationAdjustOperationForPath,reservationCancelOperationForPath,reservationCreateOperationForPath,reservationDraftOperationForPath,reservationGroupDraftOperationForPath } from './httpRoutes.js';
 import { executeWithStoreTransaction } from './httpTransactions.js';
 
 export async function handleWorkflowRoutes(context: PmsLocalRouteContext): Promise<boolean> {
@@ -69,6 +75,39 @@ export async function handleWorkflowRoutes(context: PmsLocalRouteContext): Promi
       ...(body as Record<string, unknown>),
       operation: reservationCreateRoute,
     } as ReservationCreateWorkflowApiRequest, { creations: options.store }));
+    writeJson(response, result.ok ? 200 : result.status === 'notFound' ? 404 : 400, result);
+    return true;
+  }
+
+  const guestIdCardArchiveRoute = guestIdCardArchiveOperationForPath(url.pathname);
+  if (request.method === 'POST' && guestIdCardArchiveRoute) {
+    const body = await readJsonBody(request);
+    const result = executeWithStoreTransaction(options.store, () => executeGuestIdCardArchiveWorkflowApiRequest({
+      ...(body as Record<string, unknown>),
+      operation: guestIdCardArchiveRoute,
+    } as GuestIdCardArchiveApiRequest, { archives: options.store }));
+    writeJson(response, result.ok ? 200 : result.status === 'notFound' ? 404 : 400, result);
+    return true;
+  }
+
+  const guestIdCardPrepareRoute = guestIdCardPrepareOperationForPath(url.pathname);
+  if (request.method === 'POST' && guestIdCardPrepareRoute) {
+    const body = await readJsonBody(request);
+    const result = executeWithStoreTransaction(options.store, () => executeGuestIdCardPrepareWorkflowApiRequest({
+      ...(body as Record<string, unknown>),
+      operation: guestIdCardPrepareRoute,
+    } as GuestIdCardPrepareApiRequest, { preparations: options.store }));
+    writeJson(response, result.ok ? 200 : result.status === 'notFound' ? 404 : 400, result);
+    return true;
+  }
+
+  const guestIdCardConfirmRoute = guestIdCardConfirmOperationForPath(url.pathname);
+  if (request.method === 'POST' && guestIdCardConfirmRoute) {
+    const body = await readJsonBody(request);
+    const result = executeWithStoreTransaction(options.store, () => executeGuestIdCardConfirmWorkflowApiRequest({
+      ...(body as Record<string, unknown>),
+      operation: guestIdCardConfirmRoute,
+    } as GuestIdCardConfirmApiRequest, { preparations: options.store }));
     writeJson(response, result.ok ? 200 : result.status === 'notFound' ? 404 : 400, result);
     return true;
   }

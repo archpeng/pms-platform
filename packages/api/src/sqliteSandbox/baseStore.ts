@@ -151,6 +151,8 @@ export abstract class SqliteSandboxBase {
       DELETE FROM stays;
       DELETE FROM reservation_room_allocations;
       DELETE FROM reservations;
+      DELETE FROM guest_id_card_drafts;
+      DELETE FROM guest_id_cards;
       DELETE FROM guests;
       DELETE FROM maintenance_tickets;
       DELETE FROM housekeeping_tasks;

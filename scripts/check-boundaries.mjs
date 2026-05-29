@@ -93,7 +93,7 @@ const lineBudgetTargets = [
   { path: 'packages/api/src/localSandbox/httpHealthRoutes.ts', maxLines: 150, reason: 'Health/manifest route owner should stay focused on service status and capability manifest' },
   { path: 'packages/api/src/localSandbox/httpCommandRoutes.ts', maxLines: 100, reason: 'Command route owner should stay focused on check-in/out and extended commands' },
   { path: 'packages/api/src/localSandbox/httpReadRoutes.ts', maxLines: 220, reason: 'Read route owner should stay focused on PMS read models and availability derivation' },
-  { path: 'packages/api/src/localSandbox/httpWorkflowRoutes.ts', maxLines: 80, reason: 'Workflow route owner should stay focused on reservation draft/group draft route dispatch' },
+  { path: 'packages/api/src/localSandbox/httpWorkflowRoutes.ts', maxLines: 117, reason: 'Workflow route owner dispatches reservation draft/group/cancel/adjust/create and guest ID-card archive/prepare/confirm routes' },
   { path: 'packages/api/src/localSandbox/httpOperationRequestRoutes.ts', maxLines: 80, reason: 'Operation-request route owner should stay focused on operation-request CRUD routes' },
   { path: 'packages/api/src/localSandbox/httpPendingActionRoutes.ts', maxLines: 80, reason: 'Pending-action route owner should stay focused on typed callback/status routes' },
   { path: 'packages/api/src/localSandbox/httpSandboxRoutes.ts', maxLines: 80, reason: 'Sandbox route owner should stay focused on local reset/import/readback administration' },

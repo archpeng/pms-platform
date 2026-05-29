@@ -1,6 +1,9 @@
 import {
 pmsHousekeepingDoneOperation,
 pmsHousekeepingInspectionOperation,
+pmsGuestIdCardArchiveOperation,
+pmsGuestIdCardConfirmOperation,
+pmsGuestIdCardPrepareOperation,
 pmsHousekeepingReworkOperation,
 pmsMaintenanceDoneOperation,
 pmsReportMaintenanceOperation,
@@ -20,6 +23,9 @@ pmsReservationPrepareBookingOperation,
 pmsReservationPrepareConfirmOperation,
 pmsReservationQuoteOperation,
 pmsRestoreSellableOperation,
+type GuestIdCardArchiveApiRequest,
+type GuestIdCardConfirmApiRequest,
+type GuestIdCardPrepareApiRequest,
 type PmsExtendedCommandApiRequest,
 type ReservationAdjustWorkflowApiRequest,
 type ReservationCancelWorkflowApiRequest,
@@ -60,6 +66,21 @@ export function reservationCreateOperationForPath(pathname: string): Reservation
   if (pathname === '/v1/pms/reservations/create') return pmsReservationCreateOperation;
   if (pathname === '/v1/pms/reservations/prepare-booking') return pmsReservationPrepareBookingOperation;
   if (pathname === '/v1/pms/reservation-groups/prepare-booking') return pmsReservationGroupPrepareBookingOperation;
+  return undefined;
+}
+
+export function guestIdCardArchiveOperationForPath(pathname: string): GuestIdCardArchiveApiRequest['operation'] | undefined {
+  if (pathname === '/v1/pms/guests/id-card/archive') return pmsGuestIdCardArchiveOperation;
+  return undefined;
+}
+
+export function guestIdCardPrepareOperationForPath(pathname: string): GuestIdCardPrepareApiRequest['operation'] | undefined {
+  if (pathname === '/v1/pms/guests/id-card/prepare') return pmsGuestIdCardPrepareOperation;
+  return undefined;
+}
+
+export function guestIdCardConfirmOperationForPath(pathname: string): GuestIdCardConfirmApiRequest['operation'] | undefined {
+  if (pathname === '/v1/pms/guests/id-card/confirm') return pmsGuestIdCardConfirmOperation;
   return undefined;
 }
 

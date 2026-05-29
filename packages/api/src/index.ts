@@ -4,6 +4,7 @@ export * from './capabilityManifest.js';
 export * from './commandApi.js';
 export * from './errors.js';
 export * from './fingerprint.js';
+export * from './guestIdCardArchiveApi.js';
 export * from './hotelProfileApi.js';
 export * from './idempotency.js';
 export * from './operationRequestApi.js';

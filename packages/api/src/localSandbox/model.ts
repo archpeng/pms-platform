@@ -51,6 +51,8 @@ PendingActionCancelApiRequest,
 PendingActionConfirmApiRequest,
 PendingActionStatusApiRequest,
 PmsExtendedCommandApiRequest,
+GuestIdCardArchiveLifecycleStore,
+GuestIdCardPrepareLifecycleStore,
 ReservationDraftLifecycleStore,
 ReservationDraftWorkflowApiRequest,
 ReservationAdjustLifecycleStore,
@@ -250,7 +252,7 @@ export interface ProjectionDispatchMarkOptions {
   readonly nextAttemptAt?: string;
 }
 
-export interface PmsLocalSandboxStore extends ReservationDraftLifecycleStore, ReservationGroupDraftLifecycleStore, ReservationCancelLifecycleStore, ReservationCreateLifecycleStore, ReservationAdjustLifecycleStore {
+export interface PmsLocalSandboxStore extends ReservationDraftLifecycleStore, ReservationGroupDraftLifecycleStore, ReservationCancelLifecycleStore, ReservationCreateLifecycleStore, ReservationAdjustLifecycleStore, GuestIdCardArchiveLifecycleStore, GuestIdCardPrepareLifecycleStore {
   readonly ports: CorePorts;
   readonly apiIdempotency: ApiIdempotencyRepository;
   readonly storage: PmsLocalStorageMetadata;
