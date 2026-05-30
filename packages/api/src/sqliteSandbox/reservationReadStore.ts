@@ -1,10 +1,35 @@
 import {
+  type GuestProfileReadModel,
+  type GuestRecord,
+  type GuestReservationRow,
   type ReservationReadModel,
   type ReservationSearchQuery,
   type ReservationSearchReadModel,
   type RoomReservationContextReadModel,
   type TodayReservationsReadModel,
+  isBookingSource,
+  isConsentMarketingState,
 } from '@pms-platform/contracts';
+
+type GuestSqlRow = {
+  guest_id: string;
+  display_name: string;
+  phone_masked: string | null;
+  email_masked: string | null;
+  consent_marketing: string;
+  consent_marketing_set_at: string | null;
+};
+
+type GuestReservationSqlRow = {
+  reservation_code: string;
+  property_id: string;
+  room_number: string | null;
+  room_type: string | null;
+  arrival_date: string;
+  departure_date: string;
+  status: string;
+  booking_source: string | null;
+};
 import {
   ReservationRow,
   createProjectionFreshness,
@@ -29,6 +54,58 @@ export abstract class SqliteSandboxReservationReadStore extends SqliteSandboxRes
       )
       .get(reservationCode));
     return row ? this.reservationReadModelFromRow(row, requestedAt) : undefined;
+  }
+
+  // CRM MVP v1 — raw guest profile read: guest row + their reservation list.
+  // Aggregation (visitCount/firstSeen/lastStay) is intentionally NOT computed here — the
+  // product-gateway join is the only layer permitted to derive that from these raw rows
+  // (PMS Evidence Law + audit clarification #1 in crm-mvp-v1-2026-05-30_PLAN.md).
+  getGuestProfile(
+    input: { reservationCode?: string; guestId?: string },
+    requestedAt: string,
+  ): GuestProfileReadModel {
+    let guestRow: GuestSqlRow | undefined;
+    if (input.guestId) {
+      guestRow = sqliteOptionalRow<GuestSqlRow>(this.db
+        .prepare('SELECT * FROM guests WHERE guest_id = ?')
+        .get(input.guestId));
+    } else if (input.reservationCode) {
+      guestRow = sqliteOptionalRow<GuestSqlRow>(this.db
+        .prepare(
+          `
+            SELECT g.* FROM guests g
+            INNER JOIN reservations r ON r.guest_id = g.guest_id
+            WHERE r.reservation_code = ?
+          `,
+        )
+        .get(input.reservationCode));
+    }
+    if (!guestRow) {
+      return {
+        schemaVersion: 'pms-guest-profile-v1',
+        generatedAt: requestedAt,
+        summaryStatus: 'unavailable',
+        guest: undefined,
+        reservations: [],
+      };
+    }
+    const reservationRows = sqliteRows<GuestReservationSqlRow>(this.db
+      .prepare(
+        `
+          SELECT reservation_code, property_id, room_number, room_type, arrival_date, departure_date, status, booking_source
+          FROM reservations
+          WHERE guest_id = ?
+          ORDER BY arrival_date DESC
+        `,
+      )
+      .all(guestRow.guest_id));
+    return {
+      schemaVersion: 'pms-guest-profile-v1',
+      generatedAt: requestedAt,
+      summaryStatus: 'fresh',
+      guest: guestRecordFromRow(guestRow),
+      reservations: reservationRows.map(guestReservationFromRow),
+    };
   }
 
   searchReservations(
@@ -165,4 +242,28 @@ function normalizeReservationSearchLimit(value: number): number {
   return Number.isInteger(value) && value > 0
     ? Math.min(20, value)
     : 10;
+}
+
+function guestRecordFromRow(row: GuestSqlRow): GuestRecord {
+  return {
+    guestId: row.guest_id,
+    displayName: row.display_name,
+    ...(row.phone_masked ? { phoneMasked: row.phone_masked } : {}),
+    ...(row.email_masked ? { emailMasked: row.email_masked } : {}),
+    consentMarketing: isConsentMarketingState(row.consent_marketing) ? row.consent_marketing : 'unset',
+    ...(row.consent_marketing_set_at ? { consentMarketingSetAt: row.consent_marketing_set_at } : {}),
+  };
+}
+
+function guestReservationFromRow(row: GuestReservationSqlRow): GuestReservationRow {
+  return {
+    reservationCode: row.reservation_code,
+    propertyId: row.property_id,
+    ...(row.room_number ? { roomNumber: row.room_number } : {}),
+    ...(row.room_type ? { roomType: row.room_type } : {}),
+    arrivalDate: row.arrival_date,
+    departureDate: row.departure_date,
+    status: row.status,
+    ...(row.booking_source && isBookingSource(row.booking_source) ? { bookingSource: row.booking_source } : {}),
+  };
 }

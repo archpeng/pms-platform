@@ -70,6 +70,10 @@ export function migrateSqliteSandboxSchema(
       guest_id TEXT PRIMARY KEY,
       display_name TEXT NOT NULL,
       profile_hash TEXT,
+      phone_masked TEXT,
+      email_masked TEXT,
+      consent_marketing TEXT NOT NULL DEFAULT 'unset',
+      consent_marketing_set_at TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -86,6 +90,7 @@ export function migrateSqliteSandboxSchema(
       arrival_date TEXT NOT NULL,
       departure_date TEXT NOT NULL,
       status TEXT NOT NULL,
+      booking_source TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       FOREIGN KEY (guest_id) REFERENCES guests(guest_id) ON DELETE RESTRICT

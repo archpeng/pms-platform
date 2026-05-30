@@ -1,5 +1,6 @@
 import type {
   DashboardReadModel,
+  GuestProfileReadModel,
   InventoryHorizonRequest,
   InventoryReadModel,
   ReservationReadModel,
@@ -14,6 +15,7 @@ import { getDashboardReadModel, getRoomReadModel, type CorePorts } from '@pms-pl
 import {
   pmsDashboardOperation,
   pmsGetRoomOperation,
+  pmsGuestProfileOperation,
   pmsInventoryIntervalsOperation,
   pmsInventorySummaryOperation,
   pmsReservationGetOperation,
@@ -35,6 +37,23 @@ export interface GetRoomApiResponse {
   readonly ok: true;
   readonly operation: typeof pmsGetRoomOperation;
   readonly readModel: RoomReadModel;
+}
+
+// CRM MVP v1: raw guest row + linked reservations. Aggregation (visitCount etc.) is computed
+// in product-gateway's join — PMS only returns raw rows (PMS Evidence Law).
+export interface GuestProfileApiRequest {
+  readonly operation: typeof pmsGuestProfileOperation;
+  // Lookup by reservationCode OR guestId. Reservation-code resolution is the common path from
+  // looploop (reservation cards/panels carry a code, not a guestId).
+  readonly reservationCode?: string;
+  readonly guestId?: string;
+  readonly requestedAt: string;
+}
+
+export interface GuestProfileApiResponse {
+  readonly ok: true;
+  readonly operation: typeof pmsGuestProfileOperation;
+  readonly readModel: GuestProfileReadModel;
 }
 
 export interface DashboardApiRequest {
@@ -122,6 +141,7 @@ export interface InventorySummaryApiResponse {
 
 export type PmsReadModelApiRequest =
   | GetRoomApiRequest
+  | GuestProfileApiRequest
   | DashboardApiRequest
   | ReservationGetApiRequest
   | ReservationSearchApiRequest
@@ -134,6 +154,7 @@ export type PmsReadModelApiRequest =
   | RoomTypeCatalogApiRequest;
 export type PmsReadModelApiResponse =
   | GetRoomApiResponse
+  | GuestProfileApiResponse
   | DashboardApiResponse
   | ReservationGetApiResponse
   | ReservationSearchApiResponse

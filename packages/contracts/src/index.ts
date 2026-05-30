@@ -15,3 +15,4 @@ export * from './inventory.js';
 export * from './projections.js';
 export * from './validation.js';
 export * from './fixtures.js';
+export * from './guest.js';

@@ -10,6 +10,7 @@ import {
   pmsAvailabilitySearchOperation,
   pmsDashboardOperation,
   pmsGetRoomOperation,
+  pmsGuestProfileOperation,
   pmsHotelProfileOperation,
   pmsInventoryIntervalsOperation,
   pmsInventorySummaryOperation,
@@ -61,6 +62,20 @@ export async function handleReadRoutes(context: PmsLocalRouteContext): Promise<b
       ...(typeof body.propertyId === 'string' ? { propertyId: body.propertyId } : {}),
       requestedAt,
     }, (propertyId, generatedAt) => options.store.roomTypeCatalog(propertyId, generatedAt)));
+    return true;
+  }
+
+  if (request.method === 'POST' && url.pathname === '/v1/pms/guests/profile') {
+    const body = await readJsonBody(request) as { reservationCode?: string; guestId?: string; requestedAt?: string };
+    const requestedAt = typeof body.requestedAt === 'string' ? body.requestedAt : new Date().toISOString();
+    writeJson(response, 200, {
+      ok: true,
+      operation: pmsGuestProfileOperation,
+      readModel: options.store.getGuestProfile({
+        ...(typeof body.reservationCode === 'string' ? { reservationCode: body.reservationCode } : {}),
+        ...(typeof body.guestId === 'string' ? { guestId: body.guestId } : {}),
+      }, requestedAt),
+    });
     return true;
   }
 

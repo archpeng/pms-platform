@@ -36,6 +36,7 @@ export const pmsReportMaintenanceOperation = 'pms_report_maintenance';
 export const pmsMaintenanceDoneOperation = 'pms_maintenance_done';
 export const pmsRestoreSellableOperation = 'pms_restore_sellable';
 export const pmsGetRoomOperation = 'pms_get_room';
+export const pmsGuestProfileOperation = 'pms_guest_profile';
 export const pmsDashboardOperation = 'pms_dashboard';
 export const pmsReservationGetOperation = 'pms_reservation_get';
 export const pmsReservationSearchOperation = 'pms_reservation_search';
@@ -87,6 +88,7 @@ export type PmsCommandOperation =
 
 export type PmsReadModelOperation =
   | typeof pmsGetRoomOperation
+  | typeof pmsGuestProfileOperation
   | typeof pmsDashboardOperation
   | typeof pmsReservationGetOperation
   | typeof pmsReservationSearchOperation

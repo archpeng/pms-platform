@@ -12,6 +12,7 @@ import {
   pmsCheckOutOperation,
   pmsDashboardOperation,
   pmsGetRoomOperation,
+  pmsGuestProfileOperation,
   pmsHotelProfileOperation,
   pmsHousekeepingDoneOperation,
   pmsHousekeepingInspectionOperation,
@@ -90,6 +91,7 @@ export function getPmsCapabilityPlannerProjection(
 function buildPmsCapabilityManifestItems(): readonly PmsCapabilityManifestItem[] {
   return [
     readCapability(pmsGetRoomOperation, '/v1/pms/room', 'GetRoomApiRequest', 'GetRoomApiResponse', [{ name: 'roomId', required: true, source: 'user' }], 'RoomReadModel'),
+    readCapability(pmsGuestProfileOperation, '/v1/pms/guests/profile', 'GuestProfileApiRequest', 'GuestProfileApiResponse', [{ name: 'reservationCode', required: false, source: 'user' }, { name: 'guestId', required: false, source: 'user' }], 'GuestProfileReadModel'),
     readCapability(pmsDashboardOperation, '/v1/pms/dashboard', 'DashboardApiRequest', 'DashboardApiResponse', [], 'DashboardReadModel'),
     readCapability(pmsHotelProfileOperation, '/v1/pms/hotel/profile', 'HotelProfileApiRequest', 'HotelProfileApiResponse', [{ name: 'propertyId', required: false, source: 'context' }], 'HotelProfileReadModel'),
     readCapability(pmsRoomTypeCatalogOperation, '/v1/pms/room-types/catalog', 'RoomTypeCatalogApiRequest', 'RoomTypeCatalogApiResponse', [{ name: 'propertyId', required: false, source: 'context' }], 'RoomTypeCatalogReadModel'),

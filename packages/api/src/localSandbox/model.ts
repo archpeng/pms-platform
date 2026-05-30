@@ -1,6 +1,7 @@
 import type {
 AuditEntry,
 DomainEvent,
+GuestProfileReadModel,
 HousekeepingTask,
 InventoryBlock,
 InventoryDayRoom,
@@ -260,6 +261,7 @@ export interface PmsLocalSandboxStore extends ReservationDraftLifecycleStore, Re
   reset(seedRooms?: readonly RoomAggregate[], seedReservations?: readonly PmsSandboxReservationImportRecord[]): PmsSandboxReadback;
   importReservations(reservations: readonly PmsSandboxReservationImportRecord[]): PmsSandboxReservationImportResult;
   getReservation(reservationCode: string, requestedAt: string): ReservationReadModel | undefined;
+  getGuestProfile(input: { reservationCode?: string; guestId?: string }, requestedAt: string): GuestProfileReadModel;
   searchReservations(query: ReservationSearchQuery, requestedAt: string): ReservationSearchReadModel;
   todayArrivals(businessDate: string, requestedAt: string): TodayReservationsReadModel;
   todayDepartures(businessDate: string, requestedAt: string): TodayReservationsReadModel;
