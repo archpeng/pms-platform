@@ -5,6 +5,7 @@ pmsGuestIdCardArchiveOperation,
 pmsGuestIdCardConfirmOperation,
 pmsGuestIdCardPrepareOperation,
 pmsHousekeepingReworkOperation,
+pmsHousekeepingMarkDirtyOperation,
 pmsMaintenanceDoneOperation,
 pmsReportMaintenanceOperation,
 pmsReservationAdjustOperation,
@@ -88,6 +89,7 @@ export function extendedCommandOperationForPath(pathname: string): PmsExtendedCo
   if (pathname === '/v1/pms/housekeeping/done') return pmsHousekeepingDoneOperation;
   if (pathname === '/v1/pms/housekeeping/inspection') return pmsHousekeepingInspectionOperation;
   if (pathname === '/v1/pms/housekeeping/rework') return pmsHousekeepingReworkOperation;
+  if (pathname === '/v1/pms/housekeeping/mark-dirty') return pmsHousekeepingMarkDirtyOperation;
   if (pathname === '/v1/pms/maintenance/report') return pmsReportMaintenanceOperation;
   if (pathname === '/v1/pms/maintenance/done') return pmsMaintenanceDoneOperation;
   if (pathname === '/v1/pms/maintenance/restore-sellable') return pmsRestoreSellableOperation;

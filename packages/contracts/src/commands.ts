@@ -45,6 +45,15 @@ export interface HousekeepingReworkCommand {
   readonly meta: CommandMeta;
 }
 
+// Operator-driven adhoc transition from `clean` to `dirty` (e.g. staff spots an issue post-cleaning,
+// guest reports a problem). Only valid when the room is currently clean; the matching cleanup will
+// arrive via HOUSEKEEPING_DONE. Emits a HousekeepingMarkedDirty event for audit, no new task.
+export interface HousekeepingMarkDirtyCommand {
+  readonly type: 'HOUSEKEEPING_MARK_DIRTY';
+  readonly roomId: string;
+  readonly meta: CommandMeta;
+}
+
 export interface ReportMaintenanceCommand {
   readonly type: 'REPORT_MAINTENANCE';
   readonly roomId: string;

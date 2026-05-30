@@ -28,6 +28,7 @@ export type DomainErrorCode =
   | 'ROOM_NOT_CHECKOUTABLE'
   | 'ROOM_NOT_CHECKIN_ELIGIBLE'
   | 'ROOM_NOT_HOUSEKEEPING_ELIGIBLE'
+  | 'ROOM_NOT_MARK_DIRTY_ELIGIBLE'
   | 'ROOM_NOT_MAINTENANCE_ELIGIBLE'
   | 'MAINTENANCE_TICKET_NOT_FOUND'
   | 'ROOM_ALREADY_SELLABLE';
@@ -71,7 +72,7 @@ export interface HousekeepingTaskCreatedEvent extends DomainEventBase {
 }
 
 export interface HousekeepingCompletedEvent extends DomainEventBase {
-  readonly type: 'HousekeepingCompleted' | 'HousekeepingInspectionPassed' | 'HousekeepingInspectionFailed' | 'HousekeepingReworkCompleted';
+  readonly type: 'HousekeepingCompleted' | 'HousekeepingInspectionPassed' | 'HousekeepingInspectionFailed' | 'HousekeepingReworkCompleted' | 'HousekeepingMarkedDirty';
   readonly aggregateId: string;
   readonly roomId: string;
   readonly previousStatus: RoomStatus;

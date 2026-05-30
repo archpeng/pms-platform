@@ -5,6 +5,7 @@ import type {
   CommandMeta,
   HousekeepingDoneCommand,
   HousekeepingInspectionCommand,
+  HousekeepingMarkDirtyCommand,
   HousekeepingReworkCommand,
   MaintenanceDoneCommand,
   ReportMaintenanceCommand,
@@ -15,6 +16,7 @@ import {
   checkOut,
   housekeepingDone,
   housekeepingInspection,
+  housekeepingMarkDirty,
   housekeepingRework,
   maintenanceDone,
   reportMaintenance,
@@ -34,6 +36,7 @@ import {
   pmsCheckOutOperation,
   pmsHousekeepingDoneOperation,
   pmsHousekeepingInspectionOperation,
+  pmsHousekeepingMarkDirtyOperation,
   pmsHousekeepingReworkOperation,
   pmsMaintenanceDoneOperation,
   pmsReportMaintenanceOperation,
@@ -118,6 +121,11 @@ export interface HousekeepingReworkApiRequest extends PmsExtendedCommandApiReque
   readonly taskId?: string;
 }
 
+export interface HousekeepingMarkDirtyApiRequest extends PmsExtendedCommandApiRequestBase {
+  readonly operation: typeof pmsHousekeepingMarkDirtyOperation;
+  readonly mode: PmsApiMode;
+}
+
 export interface ReportMaintenanceApiRequest extends PmsExtendedCommandApiRequestBase {
   readonly operation: typeof pmsReportMaintenanceOperation;
   readonly mode: PmsApiMode;
@@ -142,6 +150,7 @@ export type PmsExtendedCommandApiRequest =
   | HousekeepingDoneApiRequest
   | HousekeepingInspectionApiRequest
   | HousekeepingReworkApiRequest
+  | HousekeepingMarkDirtyApiRequest
   | ReportMaintenanceApiRequest
   | MaintenanceDoneApiRequest
   | RestoreSellableApiRequest;
@@ -337,6 +346,7 @@ export function toPmsExtendedCommand(request: PmsExtendedCommandApiRequest):
   | HousekeepingDoneCommand
   | HousekeepingInspectionCommand
   | HousekeepingReworkCommand
+  | HousekeepingMarkDirtyCommand
   | ReportMaintenanceCommand
   | MaintenanceDoneCommand
   | RestoreSellableCommand {
@@ -357,6 +367,9 @@ export function toPmsExtendedCommand(request: PmsExtendedCommandApiRequest):
   }
   if (request.operation === pmsHousekeepingReworkOperation) {
     return { type: 'HOUSEKEEPING_REWORK', roomId: request.roomId, inspectionRequired: request.inspectionRequired, taskId: request.taskId, meta };
+  }
+  if (request.operation === pmsHousekeepingMarkDirtyOperation) {
+    return { type: 'HOUSEKEEPING_MARK_DIRTY', roomId: request.roomId, meta };
   }
   if (request.operation === pmsReportMaintenanceOperation) {
     return {
@@ -472,6 +485,7 @@ function executeCoreExtendedCommand(request: PmsExtendedCommandApiRequest, ports
   if (command.type === 'HOUSEKEEPING_DONE') return housekeepingDone(command, ports);
   if (command.type === 'HOUSEKEEPING_INSPECTION') return housekeepingInspection(command, ports);
   if (command.type === 'HOUSEKEEPING_REWORK') return housekeepingRework(command, ports);
+  if (command.type === 'HOUSEKEEPING_MARK_DIRTY') return housekeepingMarkDirty(command, ports);
   if (command.type === 'REPORT_MAINTENANCE') return reportMaintenance(command, ports);
   if (command.type === 'MAINTENANCE_DONE') return maintenanceDone(command, ports);
   return restoreSellable(command, ports);

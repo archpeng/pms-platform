@@ -5,6 +5,7 @@ type DomainError,
 type DomainEvent,
 type HousekeepingDoneCommand,
 type HousekeepingInspectionCommand,
+type HousekeepingMarkDirtyCommand,
 type HousekeepingReworkCommand,
 type HousekeepingTask,
 type MaintenanceDoneCommand,
@@ -30,6 +31,7 @@ export type ExtendedCommand =
   | HousekeepingDoneCommand
   | HousekeepingInspectionCommand
   | HousekeepingReworkCommand
+  | HousekeepingMarkDirtyCommand
   | ReportMaintenanceCommand
   | MaintenanceDoneCommand
   | RestoreSellableCommand;

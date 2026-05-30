@@ -31,6 +31,7 @@ export const pmsCheckOutOperation = 'pms_check_out';
 export const pmsHousekeepingDoneOperation = 'pms_housekeeping_done';
 export const pmsHousekeepingInspectionOperation = 'pms_housekeeping_inspection';
 export const pmsHousekeepingReworkOperation = 'pms_housekeeping_rework';
+export const pmsHousekeepingMarkDirtyOperation = 'pms_housekeeping_mark_dirty';
 export const pmsReportMaintenanceOperation = 'pms_report_maintenance';
 export const pmsMaintenanceDoneOperation = 'pms_maintenance_done';
 export const pmsRestoreSellableOperation = 'pms_restore_sellable';
@@ -79,6 +80,7 @@ export type PmsCommandOperation =
   | typeof pmsHousekeepingDoneOperation
   | typeof pmsHousekeepingInspectionOperation
   | typeof pmsHousekeepingReworkOperation
+  | typeof pmsHousekeepingMarkDirtyOperation
   | typeof pmsReportMaintenanceOperation
   | typeof pmsMaintenanceDoneOperation
   | typeof pmsRestoreSellableOperation;

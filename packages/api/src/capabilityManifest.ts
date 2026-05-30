@@ -15,6 +15,7 @@ import {
   pmsHotelProfileOperation,
   pmsHousekeepingDoneOperation,
   pmsHousekeepingInspectionOperation,
+  pmsHousekeepingMarkDirtyOperation,
   pmsHousekeepingReworkOperation,
   pmsInventoryIntervalsOperation,
   pmsInventorySummaryOperation,
@@ -213,6 +214,8 @@ function buildPmsCapabilityManifestItems(): readonly PmsCapabilityManifestItem[]
     commandCapability(pmsHousekeepingInspectionOperation, 'HOUSEKEEPING_INSPECTION', '/v1/pms/housekeeping/inspection', 'confirm', ['HousekeepingInspectionPassed', 'HousekeepingInspectionFailed'], [{ name: 'roomId', required: true, source: 'user' }, { name: 'result', required: true, source: 'user' }]),
     commandCapability(pmsHousekeepingReworkOperation, 'HOUSEKEEPING_REWORK', '/v1/pms/housekeeping/rework', 'dryRun', ['HousekeepingReworkCompleted'], [{ name: 'roomId', required: true, source: 'user' }]),
     commandCapability(pmsHousekeepingReworkOperation, 'HOUSEKEEPING_REWORK', '/v1/pms/housekeeping/rework', 'confirm', ['HousekeepingReworkCompleted'], [{ name: 'roomId', required: true, source: 'user' }]),
+    commandCapability(pmsHousekeepingMarkDirtyOperation, 'HOUSEKEEPING_MARK_DIRTY', '/v1/pms/housekeeping/mark-dirty', 'dryRun', ['HousekeepingMarkedDirty'], [{ name: 'roomId', required: true, source: 'user' }]),
+    commandCapability(pmsHousekeepingMarkDirtyOperation, 'HOUSEKEEPING_MARK_DIRTY', '/v1/pms/housekeeping/mark-dirty', 'confirm', ['HousekeepingMarkedDirty'], [{ name: 'roomId', required: true, source: 'user' }]),
     commandCapability(pmsReportMaintenanceOperation, 'REPORT_MAINTENANCE', '/v1/pms/maintenance/report', 'dryRun', ['MaintenanceReported'], [{ name: 'roomId', required: true, source: 'user' }, { name: 'severity', required: false, source: 'user' }]),
     commandCapability(pmsReportMaintenanceOperation, 'REPORT_MAINTENANCE', '/v1/pms/maintenance/report', 'confirm', ['MaintenanceReported'], [{ name: 'roomId', required: true, source: 'user' }, { name: 'severity', required: false, source: 'user' }]),
     commandCapability(pmsMaintenanceDoneOperation, 'MAINTENANCE_DONE', '/v1/pms/maintenance/done', 'dryRun', ['MaintenanceCompleted'], [{ name: 'roomId', required: true, source: 'user' }, { name: 'ticketId', required: false, source: 'context' }]),
@@ -374,6 +377,7 @@ function commandSchemaStem(operation: PmsCommandOperation): string {
   if (operation === pmsHousekeepingDoneOperation) return 'HousekeepingDone';
   if (operation === pmsHousekeepingInspectionOperation) return 'HousekeepingInspection';
   if (operation === pmsHousekeepingReworkOperation) return 'HousekeepingRework';
+  if (operation === pmsHousekeepingMarkDirtyOperation) return 'HousekeepingMarkDirty';
   if (operation === pmsReportMaintenanceOperation) return 'ReportMaintenance';
   if (operation === pmsMaintenanceDoneOperation) return 'MaintenanceDone';
   return 'RestoreSellable';

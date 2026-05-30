@@ -1,6 +1,7 @@
 import {
 type HousekeepingDoneCommand,
 type HousekeepingInspectionCommand,
+type HousekeepingMarkDirtyCommand,
 type HousekeepingReworkCommand
 } from '@pms-platform/contracts';
 import {
@@ -172,5 +173,38 @@ export function housekeepingRework(command: HousekeepingReworkCommand, ports: Co
         ],
       };
     },
+  });
+}
+
+// Adhoc operator transition `clean → dirty` (e.g. staff spots an issue after cleaning has finished).
+// Only a currently-clean room may be marked dirty; the inverse (dirty → clean) belongs to
+// housekeeping_done. Emits a HousekeepingMarkedDirty event for audit; creates no new task because the
+// follow-up cleanup will arrive via the normal housekeeping_done flow.
+export function housekeepingMarkDirty(command: HousekeepingMarkDirtyCommand, ports: CorePorts): PmsCommandResult {
+  return executeRoomCommand(command, ports, {
+    validate: (room) => {
+      const current = roomStateFromAggregate(room).status.cleaning;
+      return current === 'clean'
+        ? []
+        : [{ code: 'ROOM_NOT_MARK_DIRTY_ELIGIBLE', message: '只有「干净」状态的房间可以手动标记为脏房。', field: 'cleaning' }];
+    },
+    nextStatus: (room) => ({ ...roomStateFromAggregate(room).status, cleaning: 'dirty' }),
+    dryRunExtras: () => ({ events: ['HousekeepingMarkedDirty'] }),
+    confirm: ({ room, previousStatus, nextStatus, idSuffix, command }) => ({
+      events: [
+        {
+          eventId: `event-housekeeping-marked-dirty-${idSuffix}`,
+          type: 'HousekeepingMarkedDirty' as const,
+          aggregateId: room.roomId,
+          roomId: room.roomId,
+          previousStatus,
+          nextStatus,
+          occurredAt: command.meta.requestedAt,
+          correlationId: command.meta.correlationId,
+          idempotencyKey: command.meta.idempotencyKey,
+          actor: { ...command.meta.actor },
+        },
+      ],
+    }),
   });
 }
